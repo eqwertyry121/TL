@@ -297,6 +297,7 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 	if sess.ActiveRole != core.RoleAdmin {
 		return core.Settings{}, core.ErrForbidden
 	}
+	input.FlatDeliveryFeeMinor = 0
 	if input.FlatDeliveryFeeMinor < 0 || input.MaxItemQuantity <= 0 || input.MaxCommentLength <= 0 || !input.CashEnabled {
 		return core.Settings{}, core.ErrInvalidInput
 	}
@@ -791,9 +792,6 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if strings.TrimSpace(idempotencyKey) == "" {
 		return core.Order{}, core.ErrIdempotencyConflict
 	}
-	if !input.TermsAccepted {
-		return core.Order{}, core.ErrTermsRequired
-	}
 	if input.PaymentMethod != "" && input.PaymentMethod != core.PaymentCash {
 		return core.Order{}, core.ErrPaymentNotConfirmed
 	}
@@ -808,8 +806,14 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		}
 		return core.Order{}, core.ErrRestaurantClosed
 	}
-	if len([]rune(input.Comment)) > settings.MaxCommentLength {
-		return core.Order{}, core.ErrInvalidQuantity
+	phone := safe(input.Phone)
+	address := safe(input.Address)
+	comment := safe(input.Comment)
+	if phone == "" || address == "" {
+		return core.Order{}, core.ErrInvalidInput
+	}
+	if len([]rune(comment)) > settings.MaxCommentLength {
+		return core.Order{}, core.ErrInvalidInput
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -847,15 +851,15 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if err := json.Unmarshal(rawItems, &items); err != nil {
 		return core.Order{}, err
 	}
-	phoneCipher, err := s.box.Encrypt(strings.TrimSpace(input.Phone))
+	phoneCipher, err := s.box.Encrypt(phone)
 	if err != nil {
 		return core.Order{}, err
 	}
-	addressCipher, err := s.box.Encrypt(strings.TrimSpace(input.Address))
+	addressCipher, err := s.box.Encrypt(address)
 	if err != nil {
 		return core.Order{}, err
 	}
-	phoneHash := hashPII(input.Phone)
+	phoneHash := hashPII(phone)
 	var orderID uuid.UUID
 	var publicNumber int
 	var createdAt time.Time
@@ -866,7 +870,7 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		)
 		VALUES ($1, 'NEW', 'cash', 'CASH_PENDING', $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, public_number, created_at
-	`, sess.UserID, subtotal, delivery, total, currency, phoneCipher, phoneHash, addressCipher, safe(input.Comment), localeOrDefault(input.Locale)).
+	`, sess.UserID, subtotal, delivery, total, currency, phoneCipher, phoneHash, addressCipher, comment, localeOrDefault(input.Locale)).
 		Scan(&orderID, &publicNumber, &createdAt)
 	if err != nil {
 		return core.Order{}, err
@@ -919,9 +923,9 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		DeliveryFeeMinor:  delivery,
 		TotalMinor:        total,
 		Currency:          currency,
-		Phone:             strings.TrimSpace(input.Phone),
-		Address:           strings.TrimSpace(input.Address),
-		CustomerComment:   safe(input.Comment),
+		Phone:             phone,
+		Address:           address,
+		CustomerComment:   comment,
 		Locale:            localeOrDefault(input.Locale),
 		Version:           1,
 		CreatedAt:         createdAt,
@@ -994,7 +998,7 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 		args = append(args, filter.Status)
 	}
 	if filter.Date != "" {
-		where = append(where, fmt.Sprintf("created_at::date=$%d::date", len(args)+1))
+		where = append(where, fmt.Sprintf("to_char(created_at AT TIME ZONE 'Europe/Belgrade', 'YYYY-MM-DD')=$%d", len(args)+1))
 		args = append(args, filter.Date)
 	}
 	query := strings.TrimSpace(filter.Query)
@@ -1043,12 +1047,21 @@ func (s *Store) CancelOrder(ctx context.Context, sess core.Session, orderID uuid
 	defer rollback(ctx, tx)
 	var from string
 	err = tx.QueryRow(ctx, `
-		UPDATE orders
-		SET fulfillment_status='CANCELLED',
-			payment_status=CASE WHEN payment_status='CASH_PENDING' THEN 'FAILED' ELSE payment_status END,
-			cancelled_at=now(), updated_at=now(), version=version+1
-		WHERE id=$1 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY')
-		RETURNING CASE WHEN ready_at IS NULL THEN 'NEW' ELSE 'OUT_FOR_DELIVERY' END
+		WITH target AS (
+			SELECT id, fulfillment_status
+			FROM orders
+			WHERE id=$1 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY')
+			FOR UPDATE
+		), updated AS (
+			UPDATE orders o
+			SET fulfillment_status='CANCELLED',
+				payment_status=CASE WHEN payment_status='CASH_PENDING' THEN 'FAILED' ELSE payment_status END,
+				cancelled_at=now(), updated_at=now(), version=version+1
+			FROM target
+			WHERE o.id=target.id
+			RETURNING target.fulfillment_status
+		)
+		SELECT fulfillment_status FROM updated
 	`, orderID).Scan(&from)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.Order{}, core.ErrOrderStatusConflict

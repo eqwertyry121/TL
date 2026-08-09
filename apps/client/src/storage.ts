@@ -41,13 +41,11 @@ export function loadCheckoutDraft(): CheckoutDraft {
       phone: "",
       street: "",
       details: "",
-      note: "",
       comment: "",
-      termsAccepted: false,
       ...JSON.parse(localStorage.getItem(CHECKOUT_KEY) || "{}"),
     };
   } catch {
-    return { phone: "", street: "", details: "", note: "", comment: "", termsAccepted: false };
+    return { phone: "", street: "", details: "", comment: "" };
   }
 }
 

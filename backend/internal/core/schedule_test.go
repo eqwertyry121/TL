@@ -46,3 +46,13 @@ func TestCanAcceptOrderManualDayOff(t *testing.T) {
 		t.Fatalf("reason=%s", got.Reason)
 	}
 }
+
+func TestValidateScheduleRejectsInvalidClosedDayTimes(t *testing.T) {
+	schedule := DefaultSchedule()
+	schedule[1].OpenTime = "22:00"
+	schedule[1].OrderCutoffTime = "21:00"
+
+	if _, err := ValidateSchedule(schedule); err == nil {
+		t.Fatal("closed days must still have DB-compatible time ordering")
+	}
+}

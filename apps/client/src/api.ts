@@ -57,7 +57,6 @@ function demoApi(): Api {
     },
     async calculate(_token, items) {
       const categories = loadDemoCategories();
-      const runtime = loadDemoRuntime();
       const lookup = menuLookup(categories);
       const calculationItems = items.map(({ item_id, quantity }) => {
         const item = lookup.get(item_id);
@@ -78,8 +77,8 @@ function demoApi(): Api {
         calculation_token: crypto.randomUUID(),
         items: calculationItems,
         subtotal_minor: subtotal,
-        delivery_fee_minor: runtime.flat_delivery_fee_minor,
-        total_minor: subtotal + runtime.flat_delivery_fee_minor,
+        delivery_fee_minor: 0,
+        total_minor: subtotal,
         currency: "RSD",
         expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       } satisfies Calculation;
@@ -87,6 +86,13 @@ function demoApi(): Api {
       return calculation;
     },
     async createOrder(_token, input, idempotencyKey) {
+      const runtime = loadDemoRuntime();
+      if (!runtime.accepting_orders) {
+        throw apiError(runtime.reason === "manual_day_off" ? "MANUAL_DAY_OFF" : "RESTAURANT_CLOSED");
+      }
+      if (!input.phone.trim() || !input.address.trim()) {
+        throw apiError("INVALID_INPUT");
+      }
       const orders = loadDemoOrders();
       const existing = orders.find((order) => (order as DemoOrder).__key === idempotencyKey);
       if (existing) return stripDemo(existing);
@@ -179,15 +185,60 @@ function menuLookup(categories: Category[]) {
 function loadDemoRuntime(): Runtime {
   const settings = loadJSON<Settings | null>(demoSettingsKey, null);
   if (!settings) return demoRuntime;
+  const accepting = demoAcceptingState(settings);
   return {
     ...demoRuntime,
-    accepting_orders: !settings.manual_day_off,
-    reason: settings.manual_day_off ? "manual_day_off" : "open",
+    accepting_orders: accepting.ok,
+    reason: accepting.reason,
+    next_opening: accepting.nextOpening,
     day_off_banner: settings.day_off_banner,
-    flat_delivery_fee_minor: settings.flat_delivery_fee_minor,
-    support_text: settings.support_text,
+    flat_delivery_fee_minor: 0,
+    support_text: "@Tako_Lako",
     enabled_payments: settings.cash_enabled ? ["cash"] : [],
   };
+}
+
+function demoAcceptingState(settings: Settings): { ok: boolean; reason: string; nextOpening?: string } {
+  const schedule = settings.schedule?.length === 7 ? settings.schedule : undefined;
+  if (settings.manual_day_off) {
+    return { ok: false, reason: "manual_day_off", nextOpening: demoNextOpening(schedule) };
+  }
+  const now = new Date();
+  const today = schedule?.find((day) => day.day_of_week === now.getDay());
+  if (!today || today.closed) {
+    return { ok: false, reason: "weekly_day_off", nextOpening: demoNextOpening(schedule) };
+  }
+  const current = secondsSinceMidnight(now);
+  const open = timeToSeconds(today.open_time);
+  const cutoff = timeToSeconds(today.order_cutoff_time);
+  if (current < open || current >= cutoff) {
+    return { ok: false, reason: "schedule_closed", nextOpening: demoNextOpening(schedule) };
+  }
+  return { ok: true, reason: "open" };
+}
+
+function demoNextOpening(schedule?: Settings["schedule"]): string | undefined {
+  if (!schedule?.length) return demoRuntime.next_opening;
+  const now = new Date();
+  for (let offset = 0; offset < 8; offset += 1) {
+    const candidate = new Date(now);
+    candidate.setDate(now.getDate() + offset);
+    const day = schedule.find((entry) => entry.day_of_week === candidate.getDay());
+    if (!day || day.closed) continue;
+    const open = timeToSeconds(day.open_time);
+    candidate.setHours(Math.floor(open / 3600), Math.floor((open % 3600) / 60), 0, 0);
+    if (candidate.getTime() > now.getTime()) return candidate.toISOString();
+  }
+  return undefined;
+}
+
+function secondsSinceMidnight(value: Date): number {
+  return value.getHours() * 3600 + value.getMinutes() * 60 + value.getSeconds();
+}
+
+function timeToSeconds(value: string): number {
+  const [hours, minutes] = value.split(":").map(Number);
+  return (Number.isFinite(hours) ? hours : 0) * 3600 + (Number.isFinite(minutes) ? minutes : 0) * 60;
 }
 
 function loadDemoCategories(): Category[] {

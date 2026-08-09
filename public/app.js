@@ -1,6 +1,6 @@
 const OWNER_TELEGRAM_ID = 1048084234;
-const MAX_QTY = 10;
-const DELIVERY_FEE = 300;
+const MAX_QTY = 99;
+const DELIVERY_FEE = 0;
 const STORAGE_KEY = "tako-lako-demo-v1";
 
 const menu = [
@@ -11,7 +11,7 @@ const menu = [
     description: "Сочные хинкали с говядиной и зеленью",
     price: 690,
     weight: "5 шт",
-    allergen: "глютен",
+    allergen: "",
     art: ["#be123c", "#f97316"],
   },
   {
@@ -21,7 +21,7 @@ const menu = [
     description: "Мягкая сырная начинка и тонкое тесто",
     price: 640,
     weight: "5 шт",
-    allergen: "глютен, молоко",
+    allergen: "",
     art: ["#047857", "#84cc16"],
   },
   {
@@ -31,7 +31,7 @@ const menu = [
     description: "Лодочка с сыром, яйцом и сливочным маслом",
     price: 890,
     weight: "1 шт",
-    allergen: "глютен, молоко, яйцо",
+    allergen: "",
     art: ["#9a3412", "#facc15"],
   },
   {
@@ -41,7 +41,7 @@ const menu = [
     description: "Круглый хачапури с сыром внутри",
     price: 760,
     weight: "1 шт",
-    allergen: "глютен, молоко",
+    allergen: "",
     art: ["#7c2d12", "#fb923c"],
   },
   {
@@ -61,7 +61,7 @@ const menu = [
     description: "Фасоль с орехами, зеленью и специями",
     price: 620,
     weight: "300 г",
-    allergen: "орехи",
+    allergen: "",
     art: ["#365314", "#65a30d"],
   },
   {
@@ -190,7 +190,6 @@ function createOrder() {
     comment: state.profile.comment,
     items: lines,
     subtotal,
-    deliveryFee: DELIVERY_FEE,
     total: subtotal + DELIVERY_FEE,
     paymentMethod: "cash",
   });
@@ -282,7 +281,7 @@ function shell(content) {
 function renderClient() {
   const lines = cartLines();
   const subtotal = cartSubtotal();
-  const total = subtotal + (lines.length ? DELIVERY_FEE : 0);
+  const total = subtotal;
   const latestOrder = state.orders[0];
   const categories = [...new Set(visibleMenu().map((item) => item.category))];
 
@@ -343,7 +342,7 @@ function renderMenuItem(item) {
             <span class="price">${money(item.price)}</span>
           </div>
           <p>${item.description}</p>
-          <p class="meta">${item.weight}${item.allergen ? ` · ${item.allergen}` : ""}</p>
+          <p class="meta">${item.weight}</p>
         </div>
         <div class="row">
           <div class="qty">

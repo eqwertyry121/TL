@@ -52,8 +52,7 @@ export function App() {
   const cartLines = useMemo(() => Object.values(cart.lines), [cart.lines]);
   const cartQuantity = cartLines.reduce((sum, line) => sum + line.quantity, 0);
   const subtotal = cartLines.reduce((sum, line) => sum + line.quantity * line.unitPriceMinor, 0);
-  const deliveryFee = cartQuantity ? data.runtime?.flat_delivery_fee_minor || 0 : 0;
-  const total = subtotal + deliveryFee;
+  const total = subtotal;
   const checkoutOpen = Boolean(data.runtime?.accepting_orders);
 
   const refresh = useCallback(async () => {
@@ -84,6 +83,10 @@ export function App() {
   useEffect(() => syncBackButton(route, () => window.history.back()), [route]);
 
   useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [route]);
+
+  useEffect(() => {
     if (route.name !== "order" || !token) return;
     let stopped = false;
     const load = async () => {
@@ -112,7 +115,7 @@ export function App() {
   }
 
   function setLine(item: MenuItem, quantity: number) {
-    const nextQuantity = Math.max(0, Math.min(10, quantity));
+    const nextQuantity = Math.max(0, Math.min(99, quantity));
     const line: CartLine = {
       itemId: item.id,
       title: item.title,
@@ -146,8 +149,8 @@ export function App() {
 
   async function submitOrder() {
     if (!token || submitting) return;
-    if (!draft.phone.trim() || !draft.street.trim() || !draft.termsAccepted) {
-      setError("Заполните телефон, адрес и согласие с условиями");
+    if (!draft.phone.trim() || !draft.street.trim()) {
+      setError("Поделитесь телефоном через Telegram и заполните адрес");
       return;
     }
     setSubmitting(true);
@@ -160,10 +163,10 @@ export function App() {
         {
           calculation_token: calc.calculation_token,
           phone: draft.phone.trim(),
-          address: [draft.street, draft.details, draft.note].filter(Boolean).join(", "),
+          address: [draft.street, draft.details].filter(Boolean).join(", "),
           comment: draft.comment.trim(),
           payment_method: "cash",
-          terms_accepted: draft.termsAccepted,
+          terms_accepted: true,
           locale,
         },
         pendingIdempotencyKey(),
@@ -196,14 +199,13 @@ export function App() {
     route.name === "dish" ? (
       <Dish item={itemLookup.get(route.id)} line={cart.lines[route.id]} onSetLine={setLine} locale={locale} />
     ) : route.name === "cart" ? (
-      <Cart lines={cartLines} itemLookup={itemLookup} subtotal={subtotal} deliveryFee={deliveryFee} total={total} checkoutOpen={checkoutOpen} locale={locale} onSetLine={setLine} />
+      <Cart lines={cartLines} itemLookup={itemLookup} subtotal={subtotal} total={total} checkoutOpen={checkoutOpen} locale={locale} onSetLine={setLine} />
     ) : route.name === "checkout" ? (
       <Checkout
         lines={cartLines}
         draft={draft}
         calculation={calculation}
         subtotal={subtotal}
-        deliveryFee={deliveryFee}
         total={total}
         checkoutOpen={checkoutOpen}
         locale={locale}
@@ -217,7 +219,7 @@ export function App() {
     ) : route.name === "orders" ? (
       <Orders orders={data.orders} locale={locale} />
     ) : route.name === "support" ? (
-      <Support support={data.runtime?.support_text || "@TakoLako_main_bot"} />
+      <Support support={data.runtime?.support_text || "@Tako_Lako"} />
     ) : route.name === "terms" ? (
       <Terms />
     ) : (
@@ -226,7 +228,6 @@ export function App() {
 
   return (
     <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header="Tako Lako" runtime={data.runtime}>
-      {api.mode === "demo" && <div className="demo-pill">Staging demo</div>}
       {error && (
         <div className="notice error">
           <AlertCircle size={18} />
@@ -274,7 +275,7 @@ function Shell({
           )}
           <div className="brand">
             <strong>{header}</strong>
-            <span>13:00-21:00 · RSD</span>
+            <span className="worktime">Рабочее время 13:00–21:00</span>
           </div>
           <div className="locale">
             {(["ru", "sr", "en"] as Locale[]).map((entry) => (
@@ -290,7 +291,7 @@ function Shell({
             {t(locale, "menu")}
           </a>
           <a className={route.name === "cart" ? "active" : ""} href="#/cart">
-            {t(locale, "cart")} {cartQuantity ? `· ${cartQuantity}` : ""}
+            {t(locale, "cart")} {cartQuantity ? <span className="nav-badge">{cartQuantity}</span> : ""}
           </a>
           <a className={route.name === "orders" ? "active" : ""} href="#/orders">
             {t(locale, "orders")}
@@ -308,16 +309,32 @@ function Shell({
 function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
   return (
     <div className="page">
-      {categories.map((category) => (
-        <section key={category.id}>
-          <h2>{category.title}</h2>
+      <section className="menu-hero">
+        <span>TAKO LAKO</span>
+        <h1>Грузинская еда без лишних шагов</h1>
+        <p>Выберите блюда, поделитесь телефоном и оформите заказ в Telegram.</p>
+      </section>
+      <div className="category-strip">
+        {categories.map((category, index) => (
+          <a href={`#cat-${category.id}`} key={category.id}>
+            <span>{categoryIcon(index)}</span>
+            {category.title}
+          </a>
+        ))}
+      </div>
+      {categories.map((category, categoryIndex) => (
+        <section id={`cat-${category.id}`} key={category.id} className="menu-section">
+          <div className="section-title">
+            <h2>{category.title}</h2>
+            <span>{category.items.length}</span>
+          </div>
           <div className="menu-grid">
             {category.items.map((item, index) => {
               const qty = cart.lines[item.id]?.quantity || 0;
               return (
                 <article className="dish-card" key={item.id}>
-                  <button className={`dish-art art-${index % 6}`} onClick={() => navigate({ name: "dish", id: item.id })}>
-                    <span>{initials(item.title)}</span>
+                  <button className={`dish-art art-${(categoryIndex + index) % 6}`} onClick={() => navigate({ name: "dish", id: item.id })}>
+                    <span>{foodVisual(item.title)}</span>
                   </button>
                   <div className="dish-body">
                     <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
@@ -328,11 +345,10 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
                       <span>{item.weight_text}</span>
                       <strong>{money(item.price_minor)}</strong>
                     </div>
-                    {item.allergen_text && <span className="allergen">{item.allergen_text}</span>}
                     <div className="row-actions">
-                      <Qty value={qty} onMinus={() => onSetLine(item, qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />
-                      <button className="primary small" onClick={() => onSetLine(item, qty + 1)}>
-                        {t(locale, "add")}
+                      {qty > 0 && <Qty value={qty} onMinus={() => onSetLine(item, qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />}
+                      <button className={qty > 0 ? "primary small" : "primary add-only"} onClick={() => onSetLine(item, qty + 1)}>
+                        {qty > 0 ? t(locale, "add") : `+ ${t(locale, "add")}`}
                       </button>
                     </div>
                   </div>
@@ -351,7 +367,7 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
   if (!item) return <div className="state">Блюдо не найдено</div>;
   return (
     <div className="page narrow">
-      <div className="hero-art art-2">{initials(item.title)}</div>
+      <div className="hero-art art-2">{foodVisual(item.title)}</div>
       <h1>{item.title}</h1>
       <p className="lead">{item.description}</p>
       <div className="panel-list">
@@ -359,15 +375,9 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
           <span>{item.weight_text}</span>
           <strong>{money(item.price_minor)}</strong>
         </div>
-        {item.allergen_text && (
-          <div className="notice">
-            <AlertCircle size={18} />
-            <span>{item.allergen_text}</span>
-          </div>
-        )}
       </div>
       <div className="bottom-action">
-        <Qty value={qty} onMinus={() => setQty(Math.max(1, qty - 1))} onPlus={() => setQty(Math.min(10, qty + 1))} />
+        <Qty value={qty} onMinus={() => setQty(Math.max(1, qty - 1))} onPlus={() => setQty(Math.min(99, qty + 1))} />
         <button className="primary" onClick={() => {
           onSetLine(item, qty);
           navigate({ name: "cart" });
@@ -383,7 +393,6 @@ function Cart({
   lines,
   itemLookup,
   subtotal,
-  deliveryFee,
   total,
   checkoutOpen,
   locale,
@@ -392,7 +401,6 @@ function Cart({
   lines: CartLine[];
   itemLookup: Map<string, MenuItem>;
   subtotal: number;
-  deliveryFee: number;
   total: number;
   checkoutOpen: boolean;
   locale: Locale;
@@ -417,7 +425,7 @@ function Cart({
           );
         })}
       </div>
-      <Totals subtotal={subtotal} deliveryFee={deliveryFee} total={total} locale={locale} />
+      <Totals subtotal={subtotal} total={total} locale={locale} />
       <button className="primary full" disabled={!checkoutOpen} onClick={() => navigate({ name: "checkout" })}>
         {checkoutOpen ? `${t(locale, "goCheckout")} · ${money(total)}` : t(locale, "checkoutClosed")}
       </button>
@@ -430,7 +438,6 @@ function Checkout({
   draft,
   calculation,
   subtotal,
-  deliveryFee,
   total,
   checkoutOpen,
   locale,
@@ -443,7 +450,6 @@ function Checkout({
   draft: CheckoutDraft;
   calculation: Calculation | null;
   subtotal: number;
-  deliveryFee: number;
   total: number;
   checkoutOpen: boolean;
   locale: Locale;
@@ -460,18 +466,13 @@ function Checkout({
     <div className="page narrow">
       <h1>{t(locale, "checkout")}</h1>
       <div className="form">
-        <label>
-          <span>{t(locale, "phone")}</span>
-          <div className="input-row">
-            <input value={draft.phone} inputMode="tel" maxLength={32} onChange={(event) => onDraft({ phone: event.target.value })} />
-            <button className="icon-button bordered" onClick={async () => {
-              const phone = await requestTelegramContact();
-              if (phone) onDraft({ phone });
-            }}>
-              <Phone size={18} />
-            </button>
-          </div>
-        </label>
+        <button className={draft.phone ? "contact-share active-contact" : "contact-share"} onClick={async () => {
+          const phone = await requestTelegramContact();
+          if (phone) onDraft({ phone });
+        }}>
+          <Phone size={18} />
+          {draft.phone ? `Телефон получен: ${maskPhone(draft.phone)}` : "Поделиться телефоном для связи"}
+        </button>
         <label>
           <span>{t(locale, "street")}</span>
           <input value={draft.street} maxLength={120} onChange={(event) => onDraft({ street: event.target.value })} />
@@ -479,10 +480,6 @@ function Checkout({
         <label>
           <span>{t(locale, "details")}</span>
           <input value={draft.details} maxLength={120} onChange={(event) => onDraft({ details: event.target.value })} />
-        </label>
-        <label>
-          <span>{t(locale, "note")}</span>
-          <input value={draft.note} maxLength={120} onChange={(event) => onDraft({ note: event.target.value })} />
         </label>
         <label>
           <span>{t(locale, "comment")}</span>
@@ -493,13 +490,9 @@ function Checkout({
         <AlertCircle size={18} />
         <span>{t(locale, "addressWarning")}</span>
       </div>
-      <Totals subtotal={calculation?.subtotal_minor || subtotal} deliveryFee={calculation?.delivery_fee_minor || deliveryFee} total={calculation?.total_minor || total} locale={locale} />
-      <label className="check-row">
-        <input type="checkbox" checked={draft.termsAccepted} onChange={(event) => onDraft({ termsAccepted: event.target.checked })} />
-        <span>{t(locale, "agree")}</span>
-      </label>
+      <Totals subtotal={calculation?.subtotal_minor || subtotal} total={calculation?.subtotal_minor || total} locale={locale} />
       <button className="primary full" disabled={!checkoutOpen || submitting} onClick={onSubmit}>
-        {submitting ? "..." : `${t(locale, "placeOrder")} · ${money(calculation?.total_minor || total)}`}
+        {submitting ? "..." : `${t(locale, "placeOrder")} · ${money(calculation?.subtotal_minor || total)}`}
       </button>
     </div>
   );
@@ -526,7 +519,7 @@ function OrderScreen({ order, locale }: { order?: Order; locale: Locale }) {
           </div>
         ))}
       </div>
-      <Totals subtotal={order.subtotal_minor} deliveryFee={order.delivery_fee_minor} total={order.total_minor} locale={locale} />
+      <Totals subtotal={order.subtotal_minor} total={order.subtotal_minor} locale={locale} />
       <div className="panel-list">
         <div className="split"><span>{t(locale, "phone")}</span><strong>{maskPhone(order.phone)}</strong></div>
         <div className="split"><span>{t(locale, "cash")}</span><strong>{order.payment_status === "PAID" ? "PAID" : "CASH"}</strong></div>
@@ -556,11 +549,12 @@ function Orders({ orders, locale }: { orders: Order[]; locale: Locale }) {
 }
 
 function Support({ support }: { support: string }) {
+  const handle = support.replace("@", "") || "Tako_Lako";
   return (
     <div className="page narrow">
       <h1>Поддержка</h1>
-      <p className="lead">{support}</p>
-      <a className="primary full as-link" href={`https://t.me/${support.replace("@", "")}`}>Открыть Telegram</a>
+      <p className="lead">По любому вопросу по заказу напишите менеджеру напрямую в Telegram.</p>
+      <a className="primary full as-link" href={`https://t.me/${handle}`}>Написать менеджеру @{handle}</a>
     </div>
   );
 }
@@ -584,11 +578,10 @@ function Qty({ value, onMinus, onPlus }: { value: number; onMinus: () => void; o
   );
 }
 
-function Totals({ subtotal, deliveryFee, total, locale }: { subtotal: number; deliveryFee: number; total: number; locale: Locale }) {
+function Totals({ subtotal, total, locale }: { subtotal: number; total: number; locale: Locale }) {
   return (
     <div className="totals">
       <div><span>{t(locale, "subtotal")}</span><strong>{money(subtotal)}</strong></div>
-      <div><span>{t(locale, "deliveryFee")}</span><strong>{money(deliveryFee)}</strong></div>
       <div><span>{t(locale, "total")}</span><strong>{money(total)}</strong></div>
     </div>
   );
@@ -602,8 +595,19 @@ function localizedStatus(order: Order, locale: Locale): string {
   return t(locale, "cancelled");
 }
 
-function initials(value: string): string {
-  return value.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+function categoryIcon(index: number): string {
+  return ["🥟", "🧀", "🍲", "🥤", "🔥", "⭐"][index % 6];
+}
+
+function foodVisual(title: string): string {
+  const lower = title.toLowerCase();
+  if (lower.includes("хинкали")) return "🥟";
+  if (lower.includes("хачапури")) return "🧀";
+  if (lower.includes("чахохбили")) return "🍗";
+  if (lower.includes("лобио")) return "🍲";
+  if (lower.includes("лимонад")) return "🥤";
+  if (lower.includes("морс")) return "🍓";
+  return "🍽️";
 }
 
 function errorText(err: unknown): string {
@@ -621,6 +625,8 @@ function errorText(err: unknown): string {
       return "Заказ уже отправляется. Проверьте статус";
     case "AUTH_INVALID":
       return "Telegram авторизация не прошла";
+    case "INVALID_INPUT":
+      return "Поделитесь телефоном через Telegram и заполните адрес";
     default:
       return "Сервер недоступен. Попробуйте ещё раз";
   }

@@ -104,7 +104,7 @@ func ValidateSchedule(input []ScheduleDay) ([]ScheduleDay, error) {
 		if err != nil {
 			return nil, ErrInvalidInput
 		}
-		if !day.Closed && !(openSeconds < cutoffSeconds && cutoffSeconds <= closeSeconds) {
+		if !(openSeconds < cutoffSeconds && cutoffSeconds <= closeSeconds) {
 			return nil, ErrInvalidInput
 		}
 		output = append(output, day)

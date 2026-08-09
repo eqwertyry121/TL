@@ -95,7 +95,7 @@ export function App() {
       <aside className="sidebar">
         <div className="brand">
           <strong>TK ADMIN</strong>
-          <span>{api.mode === "demo" ? "staging demo" : "real backend"}</span>
+          <span>control panel</span>
         </div>
         <nav>
           {tabs.map((entry) => {
@@ -237,7 +237,6 @@ function DishForm({ item, categories, token, onSave, onCancel }: { item: AdminMe
       <Text label="Description RU" value={form.description_ru} onChange={(description_ru) => setForm({ ...form, description_ru })} />
       <NumberInput label="Price RSD" value={form.price_minor} onChange={(price_minor) => setForm({ ...form, price_minor })} />
       <Text label="Weight text" value={form.weight_text} onChange={(weight_text) => setForm({ ...form, weight_text })} />
-      <Text label="Allergens RU" value={form.allergen_text_ru} onChange={(allergen_text_ru) => setForm({ ...form, allergen_text_ru })} />
       <Text label="Photo path" value={form.photo_path} onChange={(photo_path) => setForm({ ...form, photo_path })} />
       <label className="upload"><Upload size={16} /> Upload photo <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void upload(event.target.files?.[0])} /></label>
       <NumberInput label="Sort" value={form.sort_order} onChange={(sort_order) => setForm({ ...form, sort_order })} />
@@ -337,7 +336,7 @@ function SettingsTab({ settings, onSave }: { settings: Settings; onSave(input: S
   useEffect(() => setForm(settings), [settings]);
   return (
     <section className="panel editor">
-      <NumberInput label="Flat delivery fee RSD" value={form.flat_delivery_fee_minor} onChange={(flat_delivery_fee_minor) => setForm({ ...form, flat_delivery_fee_minor })} />
+      <div className="warn">Доставка бесплатно: отдельная цена доставки отключена.</div>
       <NumberInput label="Max dish quantity" value={form.max_item_quantity} onChange={(max_item_quantity) => setForm({ ...form, max_item_quantity })} />
       <NumberInput label="Max comment length" value={form.max_comment_length} onChange={(max_comment_length) => setForm({ ...form, max_comment_length })} />
       <Text label="Support Telegram" value={form.support_text} onChange={(support_text) => setForm({ ...form, support_text })} />
@@ -345,7 +344,7 @@ function SettingsTab({ settings, onSave }: { settings: Settings; onSave(input: S
       <Text label="Terms URL" value={form.terms_url} onChange={(terms_url) => setForm({ ...form, terms_url })} />
       <label className="check"><input type="checkbox" checked={form.cash_enabled} onChange={(event) => setForm({ ...form, cash_enabled: event.target.checked })} /> Cash enabled</label>
       <div className="warn">Card/crypto остаются disabled до этапа 5 и production provider config.</div>
-      <button className="primary" onClick={() => void onSave(form)}><Save size={16} /> Save settings</button>
+      <button className="primary" onClick={() => void onSave({ ...form, flat_delivery_fee_minor: 0 })}><Save size={16} /> Save settings</button>
     </section>
   );
 }

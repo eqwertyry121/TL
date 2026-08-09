@@ -52,7 +52,7 @@ export function paymentText(order: Order): string {
 }
 
 export function problemLink(order: Order): string {
-  return `https://t.me/TakoLako_main_bot?text=${encodeURIComponent(`Проблема с заказом #${order.public_number}`)}`;
+  return `https://t.me/Tako_Lako?text=${encodeURIComponent(`Проблема с заказом #${order.public_number}`)}`;
 }
 
 export function mapLink(address?: string): string {

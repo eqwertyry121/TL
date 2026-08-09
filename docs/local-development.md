@@ -14,7 +14,7 @@ Open:
 http://127.0.0.1:5173/
 ```
 
-GitHub Pages builds the same app in staging demo mode, because production
+GitHub Pages builds the same app in demo mode, because production
 backend is not deployed yet.
 
 ## Staff Mini Apps
@@ -55,7 +55,7 @@ Open:
 http://127.0.0.1:5176/
 ```
 
-In staging demo mode, Client/Kitchen/Courier/Admin share browser
+In demo mode, Client/Kitchen/Courier/Admin share browser
 `localStorage`. Create a cash order in Client, open Kitchen, press
 `ЗАКАЗ ГОТОВ`, then open Courier and press `ДОСТАВЛЕНО`. Admin can also hide
 demo dishes, change delivery fee and toggle manual `ВЫХОДНОЙ`; Client will see

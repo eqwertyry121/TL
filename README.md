@@ -24,7 +24,7 @@ http://127.0.0.1:5173/
 pnpm client:dev
 ```
 
-GitHub Pages собирает `apps/client` в staging demo mode, пока production backend
+GitHub Pages собирает `apps/client` в demo mode, пока production backend
 не перенесён на сервер.
 
 Staff Mini Apps для этапа 3:
@@ -54,7 +54,7 @@ pnpm admin:dev
 ```
 
 Admin управляет меню, графиком, ручным `ВЫХОДНОЙ`, заказами, staff,
-настройками и простой аналитикой. На GitHub Pages это staging demo mode без
+настройками и простой аналитикой. На GitHub Pages это demo mode без
 общей серверной БД.
 
 `PLAN_v1.md` сохранён как исходный черновик. При противоречии приоритет имеют

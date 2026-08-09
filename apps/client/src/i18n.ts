@@ -15,7 +15,6 @@ type Key =
   | "phone"
   | "street"
   | "details"
-  | "note"
   | "comment"
   | "cash"
   | "placeOrder"
@@ -25,9 +24,7 @@ type Key =
   | "cancelled"
   | "retry"
   | "total"
-  | "deliveryFee"
   | "subtotal"
-  | "agree"
   | "addressWarning";
 
 const dict: Record<Locale, Record<Key, string>> = {
@@ -46,7 +43,6 @@ const dict: Record<Locale, Record<Key, string>> = {
     phone: "Телефон",
     street: "Улица и номер",
     details: "Подъезд, этаж, квартира",
-    note: "Ориентир",
     comment: "Комментарий к заказу",
     cash: "Наличными",
     placeOrder: "ОФОРМИТЬ",
@@ -56,9 +52,7 @@ const dict: Record<Locale, Record<Key, string>> = {
     cancelled: "Заказ отменён",
     retry: "Повторить",
     total: "Итого",
-    deliveryFee: "Доставка",
     subtotal: "Блюда",
-    agree: "Я согласен с условиями доставки",
     addressWarning: "Проверьте адрес и телефон перед отправкой.",
   },
   sr: {
@@ -76,7 +70,6 @@ const dict: Record<Locale, Record<Key, string>> = {
     phone: "Telefon",
     street: "Ulica i broj",
     details: "Ulaz, sprat, stan",
-    note: "Napomena za adresu",
     comment: "Komentar uz porudžbinu",
     cash: "Gotovina",
     placeOrder: "NARUČI",
@@ -86,9 +79,7 @@ const dict: Record<Locale, Record<Key, string>> = {
     cancelled: "Porudžbina je otkazana",
     retry: "Pokušaj ponovo",
     total: "Ukupno",
-    deliveryFee: "Dostava",
     subtotal: "Jela",
-    agree: "Slažem se sa uslovima dostave",
     addressWarning: "Proverite adresu i telefon pre slanja.",
   },
   en: {
@@ -106,7 +97,6 @@ const dict: Record<Locale, Record<Key, string>> = {
     phone: "Phone",
     street: "Street and number",
     details: "Entrance, floor, apartment",
-    note: "Address note",
     comment: "Order comment",
     cash: "Cash",
     placeOrder: "PLACE ORDER",
@@ -116,9 +106,7 @@ const dict: Record<Locale, Record<Key, string>> = {
     cancelled: "Order cancelled",
     retry: "Retry",
     total: "Total",
-    deliveryFee: "Delivery",
     subtotal: "Items",
-    agree: "I agree to the delivery terms",
     addressWarning: "Check address and phone before sending.",
   },
 };

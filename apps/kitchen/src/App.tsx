@@ -89,7 +89,6 @@ export function App() {
         </div>
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>
       </header>
-      {api.mode === "demo" && <div className="demo">Staging demo · заказы берутся из Client Mini App этого браузера</div>}
       <div className={offline ? "status bad" : "status"}>
         {offline ? <WifiOff size={18} /> : <Clock size={18} />}
         <span>{offline ? "Нет связи" : wakeStatus}</span>
@@ -158,4 +157,3 @@ function playBeep() {
     void ctx.close();
   }, 140);
 }
-

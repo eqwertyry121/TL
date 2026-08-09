@@ -54,9 +54,7 @@ export interface CheckoutDraft {
   phone: string;
   street: string;
   details: string;
-  note: string;
   comment: string;
-  termsAccepted: boolean;
 }
 
 export interface Api {

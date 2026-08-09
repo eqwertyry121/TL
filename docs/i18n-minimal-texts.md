@@ -16,4 +16,3 @@
 | support | Поддержка | Podrška | Support |
 | invalid_address | Проверьте адрес и телефон | Proverite adresu i telefon | Check address and phone |
 | payment_error | Оплата не прошла. Попробуйте ещё раз. | Plaćanje nije uspelo. Pokušajte ponovo. | Payment failed. Please try again. |
-| delivery_terms_accept | Я согласен с условиями доставки | Slažem se sa uslovima dostave | I agree to the delivery terms |

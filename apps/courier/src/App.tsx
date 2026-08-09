@@ -72,7 +72,6 @@ export function App() {
         </div>
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>
       </header>
-      {api.mode === "demo" && <div className="demo">Staging demo · нажми на кухне `ЗАКАЗ ГОТОВ`, чтобы заказ появился здесь</div>}
       <div className={offline ? "status bad" : "status"}>
         {offline ? <WifiOff size={18} /> : <MapPin size={18} />}
         <span>{offline ? "Нет связи" : "Заказы обновляются каждые 5 секунд"}</span>
@@ -129,4 +128,3 @@ function Menu({ order }: { order: Order }) {
 function secondsAgo(value: Date) {
   return Math.max(0, Math.floor((Date.now() - value.getTime()) / 1000));
 }
-

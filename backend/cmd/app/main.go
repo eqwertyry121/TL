@@ -61,7 +61,7 @@ func run(logger *slog.Logger) error {
 		}
 	}
 
-	worker := notifications.New(pool, cfg.NotificationPollInterval, cfg.NotificationDryRun, logger)
+	worker := notifications.New(pool, box, cfg.NotificationPollInterval, cfg.NotificationDryRun, cfg.ClientBotToken, cfg.StaffBotToken, cfg.PublicBaseURL, logger)
 	go worker.Run(ctx)
 
 	srv := &http.Server{

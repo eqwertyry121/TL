@@ -22,7 +22,7 @@ https://eqwertyry121.github.io/TL/
   - `/admin/` from `apps/admin/dist`
 - Workflow: `.github/workflows/pages.yml`
 - В workflow используется официальный GitHub Pages deploy через Actions.
-- Сейчас это Client/Kitchen/Courier/Admin Mini Apps в staging demo mode на
+- Сейчас это Client/Kitchen/Courier/Admin Mini Apps в demo mode на
   fixture/localStorage-данных. Backend API, Telegram webhooks и база позже
   будут жить на VPS.
 
