@@ -306,6 +306,7 @@ function Shell({
                 <ArrowLeft size={20} />
               </button>
             )}
+            {isRoot && <span className="brand-mark" aria-hidden="true">TL</span>}
             <div className="brand">
               <strong>{header}</strong>
               <span className="worktime">Рабочее время 13:00–21:00</span>
@@ -375,17 +376,46 @@ function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
 
 function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
   const flatItems = categories.flatMap((category, categoryIndex) => category.items.map((item, index) => ({ item, visualIndex: categoryIndex + index })));
+  const cartQuantity = Object.values(cart.lines).reduce((sum, line) => sum + line.quantity, 0);
   return (
     <div className="page">
+      <section className="menu-hero" aria-label="Tako Lako меню">
+        <div className="hero-copy">
+          <span className="eyebrow">Tako Lako · small batch kitchen</span>
+          <h1>Меню на сегодня</h1>
+          <p>Выбирай блюда без лишнего шума: количество, телефон из Telegram, адрес — и заказ сразу уходит в работу.</p>
+          <div className="trust-strip">
+            <span><Clock size={16} />13:00—21:00</span>
+            <span><Phone size={16} />контакт из Telegram</span>
+            <span><ShoppingCart size={16} />наличными курьеру</span>
+          </div>
+        </div>
+        <div className="hero-showcase" aria-hidden="true">
+          <div className="hero-plate">
+            <span>🥟</span>
+            <span>🧀</span>
+            <span>🌿</span>
+          </div>
+          <div className="hero-stat">
+            <strong>{flatItems.length}</strong>
+            <span>позиций</span>
+          </div>
+          <div className="hero-stat muted-card">
+            <strong>{cartQuantity}</strong>
+            <span>в корзине</span>
+          </div>
+        </div>
+      </section>
       <section className="menu-section">
         <div className="menu-grid">
           {flatItems.map(({ item, visualIndex }) => {
             const qty = cart.lines[item.id]?.quantity || 0;
             const minQuantity = itemMinQuantity(item);
             return (
-              <article className="dish-card" key={item.id}>
+              <article className={qty > 0 ? "dish-card in-cart" : "dish-card"} key={item.id}>
                 <button className={`dish-art art-${visualIndex % 6}`} onClick={() => navigate({ name: "dish", id: item.id })}>
-                  <span>{foodVisual(item.title)}</span>
+                  <span className="dish-emoji">{foodVisual(item.title)}</span>
+                  <small className="dish-badge">{item.weight_text}</small>
                 </button>
                 <div className="dish-body">
                   <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
@@ -419,8 +449,12 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
   if (!item) return <div className="state">Блюдо не найдено</div>;
   const minQuantity = itemMinQuantity(item);
   return (
-    <div className="page narrow">
-      <div className="hero-art art-2">{foodVisual(item.title)}</div>
+    <div className="page narrow dish-page">
+      <div className="hero-art art-2">
+        <span className="dish-emoji">{foodVisual(item.title)}</span>
+        <small className="dish-badge">{item.weight_text}</small>
+      </div>
+      <span className="eyebrow">Tako Lako special</span>
       <h1>{item.title}</h1>
       <p className="lead">{item.description}</p>
       <div className="panel-list">
@@ -461,7 +495,7 @@ function Cart({
 }) {
   if (!lines.length) return <div className="state">{t(locale, "emptyCart")}</div>;
   return (
-    <div className="page narrow">
+    <div className="page narrow cart-page">
       <h1>{t(locale, "cart")}</h1>
       <div className="list">
         {lines.map((line) => {
@@ -516,7 +550,7 @@ function Checkout({
   }, [lines.length]);
   if (!lines.length) return <div className="state">{t(locale, "emptyCart")}</div>;
   return (
-    <div className="page narrow">
+    <div className="page narrow checkout-page">
       <h1>{t(locale, "checkout")}</h1>
       <div className="form">
         <button className={draft.phone ? "contact-share active-contact" : "contact-share"} onClick={async () => {
@@ -554,7 +588,7 @@ function Checkout({
 function OrderScreen({ order, locale }: { order?: Order; locale: Locale }) {
   if (!order) return <div className="state">Заказ не найден</div>;
   return (
-    <div className="page narrow">
+    <div className="page narrow order-page">
       <div className="order-status">
         <Check size={22} />
         <div>

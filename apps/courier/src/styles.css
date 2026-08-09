@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap");
 
 :root {
   --page-max: 92rem;
@@ -18,9 +18,11 @@
   --accent-2: #9fbd73;
   --copper-dark: #1d4f38;
   --gold-soft: #d9cf8f;
+  --cream: #fff9e9;
+  --glass: rgba(255, 255, 248, 0.72);
   --danger: #ef4444;
   --font-body: "Manrope", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-display: "Unbounded", "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Cormorant Garamond", "Manrope", ui-serif, Georgia, serif;
   font-family: var(--font-body);
   background: var(--bg);
   color: var(--text);
@@ -43,6 +45,7 @@ body {
   background:
     radial-gradient(circle at 12% 0%, rgba(159, 189, 115, 0.24), transparent 30%),
     radial-gradient(circle at 88% 10%, rgba(29, 79, 56, 0.14), transparent 32%),
+    radial-gradient(circle at 50% 96%, rgba(217, 207, 143, 0.14), transparent 34%),
     var(--bg);
 }
 
@@ -55,7 +58,10 @@ body::before {
   background:
     radial-gradient(circle at 18% 22%, rgba(217, 207, 143, 0.16), transparent 28%),
     radial-gradient(circle at 82% 18%, rgba(47, 125, 87, 0.14), transparent 30%),
-    radial-gradient(circle at 50% 92%, rgba(8, 32, 20, 0.12), transparent 34%);
+    radial-gradient(circle at 50% 92%, rgba(8, 32, 20, 0.12), transparent 34%),
+    linear-gradient(rgba(21, 64, 43, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(21, 64, 43, 0.035) 1px, transparent 1px);
+  background-size: auto, auto, auto, 2.35rem 2.35rem, 2.35rem 2.35rem;
   animation: ambientShift 12s ease-in-out infinite alternate;
 }
 
@@ -104,6 +110,7 @@ p {
   overflow: hidden;
   background:
     radial-gradient(circle at 18% 0%, rgba(217, 207, 143, 0.26), transparent 32%),
+    radial-gradient(circle at 100% 10%, rgba(159, 189, 115, 0.24), transparent 36%),
     linear-gradient(135deg, #0b1710 0%, var(--copper-dark) 48%, var(--accent) 100%);
   color: #fff;
   box-shadow: 0 0.8rem 2rem rgba(8, 32, 20, 0.28);
@@ -162,8 +169,12 @@ h1 {
 .card {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--panel);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(159, 189, 115, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 250, 0.95), rgba(246, 251, 241, 0.9)),
+    var(--panel);
   box-shadow: 0 0.85rem 2rem rgba(31, 63, 45, 0.1);
+  backdrop-filter: blur(0.7rem);
 }
 
 .status {
@@ -221,10 +232,12 @@ h1 {
 }
 
 .card {
+  position: relative;
   display: grid;
   gap: clamp(0.8rem, 2vw, 1.05rem);
   min-height: clamp(20rem, 46dvh, 33rem);
   padding: clamp(1rem, 2.4vw, 1.4rem);
+  overflow: hidden;
   animation: cardIn 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
@@ -266,7 +279,7 @@ h1 {
   gap: 0.7rem;
   border-radius: var(--radius-sm);
   padding: clamp(0.85rem, 2vw, 1.1rem);
-  background: var(--panel-soft);
+  background: rgba(237, 245, 232, 0.88);
   color: var(--text);
   box-shadow: inset 0 0 0 1px var(--line);
 }
@@ -310,7 +323,9 @@ h1 {
   height: clamp(2.15rem, 6.2vw, 2.65rem);
   border-radius: 50%;
   overflow: hidden;
-  background: linear-gradient(135deg, #102016, var(--copper-dark));
+  background:
+    radial-gradient(circle at 22% 0%, rgba(217, 207, 143, 0.18), transparent 34%),
+    linear-gradient(135deg, #102016, var(--copper-dark));
   color: #fff;
   font-size: 0.78rem;
   font-weight: 800;
@@ -356,7 +371,7 @@ ul {
 li {
   padding: clamp(0.65rem, 1.5vw, 0.85rem);
   border-radius: var(--radius-sm);
-  background: var(--panel-soft);
+  background: rgba(237, 245, 232, 0.9);
 }
 
 .cash {
@@ -398,7 +413,7 @@ li {
 .eta button {
   min-height: 2.75rem;
   border-radius: var(--radius-sm);
-  background: #edf5e8;
+  background: rgba(237, 245, 232, 0.9);
   color: var(--copper-dark);
   font-size: clamp(0.95rem, 2.5vw, 1.08rem);
   font-weight: 800;
@@ -412,6 +427,7 @@ li {
 }
 
 .primary {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -421,6 +437,7 @@ li {
   border-radius: var(--radius-md);
   padding: 0 clamp(1rem, 2.6vw, 1.35rem);
   background:
+    radial-gradient(circle at 24% 0%, rgba(255, 255, 255, 0.28), transparent 30%),
     linear-gradient(135deg, rgba(217, 207, 143, 0.2), transparent 36%),
     linear-gradient(135deg, var(--accent-2), var(--accent) 58%, var(--copper-dark));
   color: #fff;
@@ -429,7 +446,22 @@ li {
   font-weight: 800;
   letter-spacing: 0.01em;
   text-transform: uppercase;
+  overflow: hidden;
   transition: transform 140ms ease, filter 140ms ease;
+}
+
+.primary::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background: linear-gradient(110deg, transparent 0 36%, rgba(255, 255, 255, 0.22) 48%, transparent 60% 100%);
+  transform: translateX(-130%);
+  transition: transform 430ms ease;
+}
+
+.primary:hover::after {
+  transform: translateX(130%);
 }
 
 .full {
@@ -460,9 +492,10 @@ li {
   width: min(82vw, 19rem);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--panel);
+  background: rgba(255, 255, 250, 0.92);
   padding: 0.85rem;
   box-shadow: 0 1.2rem 2.75rem rgba(8, 32, 20, 0.18);
+  backdrop-filter: blur(0.9rem);
 }
 
 .popover a,
