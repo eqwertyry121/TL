@@ -221,8 +221,15 @@ h2 {
   white-space: nowrap;
 }
 
-.brand .worktime {
+.app-header .brand .worktime {
   color: #fff;
+  -webkit-text-fill-color: #fff;
+  text-shadow: 0 0.25rem 0.75rem rgba(18, 13, 11, 0.28);
+}
+
+.app-header .brand .worktime * {
+  color: inherit;
+  -webkit-text-fill-color: inherit;
 }
 
 .locale {
