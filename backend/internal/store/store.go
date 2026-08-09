@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +37,66 @@ type CreateOrderInput struct {
 	Locale           string             `json:"locale"`
 }
 
+type UpsertCategoryInput struct {
+	TitleRU   string `json:"title_ru"`
+	TitleSR   string `json:"title_sr"`
+	TitleEN   string `json:"title_en"`
+	SortOrder int    `json:"sort_order"`
+	Visible   bool   `json:"visible"`
+	Version   int    `json:"version"`
+}
+
+type UpsertMenuItemInput struct {
+	CategoryID     uuid.UUID `json:"category_id"`
+	TitleRU        string    `json:"title_ru"`
+	TitleSR        string    `json:"title_sr"`
+	TitleEN        string    `json:"title_en"`
+	DescriptionRU  string    `json:"description_ru"`
+	DescriptionSR  string    `json:"description_sr"`
+	DescriptionEN  string    `json:"description_en"`
+	PriceMinor     int       `json:"price_minor"`
+	PhotoPath      string    `json:"photo_path"`
+	WeightText     string    `json:"weight_text"`
+	AllergenTextRU string    `json:"allergen_text_ru"`
+	AllergenTextSR string    `json:"allergen_text_sr"`
+	AllergenTextEN string    `json:"allergen_text_en"`
+	SortOrder      int       `json:"sort_order"`
+	Visible        bool      `json:"visible"`
+	Version        int       `json:"version"`
+}
+
+type UpdateSettingsInput struct {
+	FlatDeliveryFeeMinor int    `json:"flat_delivery_fee_minor"`
+	SupportText          string `json:"support_text"`
+	SupportPhone         string `json:"support_phone"`
+	TermsURL             string `json:"terms_url"`
+	MaxItemQuantity      int    `json:"max_item_quantity"`
+	MaxCommentLength     int    `json:"max_comment_length"`
+	CashEnabled          bool   `json:"cash_enabled"`
+	CardEnabled          bool   `json:"card_enabled"`
+	CryptoEnabled        bool   `json:"crypto_enabled"`
+	Version              int    `json:"version"`
+}
+
+type AdminOrderFilter struct {
+	Status string
+	Query  string
+	Date   string
+}
+
+type AddStaffInput struct {
+	TelegramUserID int64     `json:"telegram_user_id"`
+	DisplayLabel   string    `json:"display_label"`
+	Role           core.Role `json:"role"`
+	Active         bool      `json:"active"`
+}
+
+type UpdateStaffInput struct {
+	DisplayLabel string    `json:"display_label"`
+	Role         core.Role `json:"role"`
+	Active       bool      `json:"active"`
+}
+
 func New(pool *pgxpool.Pool, box *cryptobox.Box) *Store {
 	return &Store{pool: pool, box: box}
 }
@@ -55,11 +116,11 @@ func (s *Store) BootstrapOwner(ctx context.Context, telegramUserID int64) error 
 	}
 	for _, role := range []core.Role{core.RoleAdmin, core.RoleKitchen, core.RoleCourier} {
 		_, err := s.pool.Exec(ctx, `
-			INSERT INTO staff (user_id, telegram_user_id, role, active, created_by)
-			VALUES ($1, $2, $3, true, $1)
+			INSERT INTO staff (user_id, telegram_user_id, role, display_label, active, created_by)
+			VALUES ($1, $2, $3, $4, true, $1)
 			ON CONFLICT (telegram_user_id, role)
-			DO UPDATE SET active=true, user_id=EXCLUDED.user_id, updated_at=now()
-		`, user.ID, telegramUserID, string(role))
+			DO UPDATE SET active=true, user_id=EXCLUDED.user_id, display_label=EXCLUDED.display_label, updated_at=now()
+		`, user.ID, telegramUserID, string(role), "Owner "+string(role))
 		if err != nil {
 			return err
 		}
@@ -156,7 +217,8 @@ func (s *Store) Settings(ctx context.Context) (core.Settings, error) {
 	var settings core.Settings
 	err := s.pool.QueryRow(ctx, `
 		SELECT timezone, currency, manual_day_off, day_off_banner, flat_delivery_fee_minor,
-			support_text, max_item_quantity, max_comment_length, cash_enabled, card_enabled, crypto_enabled
+			support_text, support_phone, terms_url, max_item_quantity, max_comment_length,
+			cash_enabled, card_enabled, crypto_enabled, version
 		FROM app_settings WHERE id=true
 	`).Scan(
 		&settings.Timezone,
@@ -165,30 +227,145 @@ func (s *Store) Settings(ctx context.Context) (core.Settings, error) {
 		&settings.DayOffBanner,
 		&settings.FlatDeliveryFeeMinor,
 		&settings.SupportText,
+		&settings.SupportPhone,
+		&settings.TermsURL,
 		&settings.MaxItemQuantity,
 		&settings.MaxCommentLength,
 		&settings.CashEnabled,
 		&settings.CardEnabled,
 		&settings.CryptoEnabled,
+		&settings.Version,
 	)
+	if err != nil {
+		return core.Settings{}, err
+	}
+	settings.Schedule, err = s.Schedule(ctx)
 	return settings, err
+}
+
+func (s *Store) Schedule(ctx context.Context) ([]core.ScheduleDay, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT day_of_week, closed, to_char(open_time, 'HH24:MI'), to_char(order_cutoff_time, 'HH24:MI'),
+			to_char(close_time, 'HH24:MI'), version
+		FROM restaurant_schedule
+		ORDER BY day_of_week
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	days := []core.ScheduleDay{}
+	for rows.Next() {
+		var day core.ScheduleDay
+		if err := rows.Scan(&day.DayOfWeek, &day.Closed, &day.OpenTime, &day.OrderCutoffTime, &day.CloseTime, &day.Version); err != nil {
+			return nil, err
+		}
+		days = append(days, day)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(days) == 0 {
+		return core.DefaultSchedule(), nil
+	}
+	return days, nil
 }
 
 func (s *Store) SetManualDayOff(ctx context.Context, sess core.Session, enabled bool) (core.Settings, error) {
 	if sess.ActiveRole != core.RoleAdmin {
 		return core.Settings{}, core.ErrForbidden
 	}
-	_, err := s.pool.Exec(ctx, `
-		UPDATE app_settings SET manual_day_off=$1, updated_at=now() WHERE id=true
+	before, err := s.Settings(ctx)
+	if err != nil {
+		return core.Settings{}, err
+	}
+	_, err = s.pool.Exec(ctx, `
+		UPDATE app_settings SET manual_day_off=$1, version=version+1, updated_at=now() WHERE id=true
 	`, enabled)
 	if err != nil {
 		return core.Settings{}, err
 	}
-	_, _ = s.pool.Exec(ctx, `
-		INSERT INTO audit_log (actor_user_id, actor_role, action, target_type)
-		VALUES ($1, $2, 'settings.manual_day_off', 'app_settings')
-	`, sess.UserID, string(sess.ActiveRole))
-	return s.Settings(ctx)
+	after, err := s.Settings(ctx)
+	if err != nil {
+		return core.Settings{}, err
+	}
+	_ = s.insertAudit(ctx, sess, "settings.manual_day_off", "app_settings", nil, "", map[string]any{"manual_day_off": before.ManualDayOff}, map[string]any{"manual_day_off": after.ManualDayOff})
+	return after, nil
+}
+
+func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input UpdateSettingsInput) (core.Settings, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.Settings{}, core.ErrForbidden
+	}
+	if input.FlatDeliveryFeeMinor < 0 || input.MaxItemQuantity <= 0 || input.MaxCommentLength <= 0 || !input.CashEnabled {
+		return core.Settings{}, core.ErrInvalidInput
+	}
+	if input.CardEnabled || input.CryptoEnabled {
+		return core.Settings{}, core.ErrInvalidInput
+	}
+	before, err := s.Settings(ctx)
+	if err != nil {
+		return core.Settings{}, err
+	}
+	result, err := s.pool.Exec(ctx, `
+		UPDATE app_settings
+		SET flat_delivery_fee_minor=$1, support_text=$2, support_phone=$3, terms_url=$4,
+			max_item_quantity=$5, max_comment_length=$6, cash_enabled=$7, card_enabled=false,
+			crypto_enabled=false, version=version+1, updated_at=now()
+		WHERE id=true AND version=$8
+	`, input.FlatDeliveryFeeMinor, safe(input.SupportText), safe(input.SupportPhone), safe(input.TermsURL),
+		input.MaxItemQuantity, input.MaxCommentLength, input.CashEnabled, input.Version)
+	if err != nil {
+		return core.Settings{}, err
+	}
+	if result.RowsAffected() == 0 {
+		return core.Settings{}, core.ErrOrderStatusConflict
+	}
+	after, err := s.Settings(ctx)
+	if err != nil {
+		return core.Settings{}, err
+	}
+	_ = s.insertAudit(ctx, sess, "settings.update", "app_settings", nil, "", safeSettingsAudit(before), safeSettingsAudit(after))
+	return after, nil
+}
+
+func (s *Store) UpdateSchedule(ctx context.Context, sess core.Session, input []core.ScheduleDay) ([]core.ScheduleDay, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return nil, core.ErrForbidden
+	}
+	days, err := core.ValidateSchedule(input)
+	if err != nil {
+		return nil, err
+	}
+	before, err := s.Schedule(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer rollback(ctx, tx)
+	for _, day := range days {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO restaurant_schedule (day_of_week, closed, open_time, order_cutoff_time, close_time)
+			VALUES ($1, $2, $3::time, $4::time, $5::time)
+			ON CONFLICT (day_of_week)
+			DO UPDATE SET closed=EXCLUDED.closed, open_time=EXCLUDED.open_time,
+				order_cutoff_time=EXCLUDED.order_cutoff_time, close_time=EXCLUDED.close_time,
+				version=restaurant_schedule.version+1, updated_at=now()
+		`, day.DayOfWeek, day.Closed, day.OpenTime, day.OrderCutoffTime, day.CloseTime)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := s.insertAuditTx(ctx, tx, sess, "schedule.update", "restaurant_schedule", nil, "", map[string]any{"schedule": before}, map[string]any{"schedule": days}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return s.Schedule(ctx)
 }
 
 func (s *Store) Menu(ctx context.Context, locale string) ([]core.Category, error) {
@@ -250,6 +427,287 @@ func (s *Store) Menu(ctx context.Context, locale string) ([]core.Category, error
 	return categories, itemRows.Err()
 }
 
+func (s *Store) AdminMenu(ctx context.Context, sess core.Session) ([]core.AdminCategory, []core.AdminMenuItem, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return nil, nil, core.ErrForbidden
+	}
+	categories, err := s.AdminCategories(ctx, sess)
+	if err != nil {
+		return nil, nil, err
+	}
+	items, err := s.AdminMenuItems(ctx, sess)
+	return categories, items, err
+}
+
+func (s *Store) AdminCategories(ctx context.Context, sess core.Session) ([]core.AdminCategory, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return nil, core.ErrForbidden
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT c.id, c.title_ru, c.title_sr, c.title_en, c.sort_order, c.visible, c.archived,
+			COUNT(mi.id)::int AS item_count, c.version, c.created_at, c.updated_at
+		FROM categories c
+		LEFT JOIN menu_items mi ON mi.category_id=c.id AND mi.archived=false
+		GROUP BY c.id
+		ORDER BY c.archived, c.sort_order, c.title_ru
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	categories := []core.AdminCategory{}
+	for rows.Next() {
+		var cat core.AdminCategory
+		if err := rows.Scan(&cat.ID, &cat.TitleRU, &cat.TitleSR, &cat.TitleEN, &cat.SortOrder, &cat.Visible, &cat.Archived, &cat.ItemCount, &cat.Version, &cat.CreatedAt, &cat.UpdatedAt); err != nil {
+			return nil, err
+		}
+		categories = append(categories, cat)
+	}
+	return categories, rows.Err()
+}
+
+func (s *Store) AdminMenuItems(ctx context.Context, sess core.Session) ([]core.AdminMenuItem, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return nil, core.ErrForbidden
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT mi.id, mi.category_id, mi.title_ru, mi.title_sr, mi.title_en, mi.description_ru, mi.description_sr,
+			mi.description_en, mi.price_minor, mi.currency, mi.photo_path, mi.weight_text, mi.allergen_text_ru,
+			mi.allergen_text_sr, mi.allergen_text_en, mi.sort_order, mi.visible, mi.archived,
+			EXISTS (SELECT 1 FROM order_items oi WHERE oi.menu_item_id=mi.id) AS used_in_orders,
+			mi.version, mi.created_at, mi.updated_at
+		FROM menu_items mi
+		ORDER BY mi.archived, mi.sort_order, mi.title_ru
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []core.AdminMenuItem{}
+	for rows.Next() {
+		var item core.AdminMenuItem
+		if err := rows.Scan(
+			&item.ID, &item.CategoryID, &item.TitleRU, &item.TitleSR, &item.TitleEN, &item.DescriptionRU, &item.DescriptionSR,
+			&item.DescriptionEN, &item.PriceMinor, &item.Currency, &item.PhotoPath, &item.WeightText, &item.AllergenTextRU,
+			&item.AllergenTextSR, &item.AllergenTextEN, &item.SortOrder, &item.Visible, &item.Archived, &item.UsedInOrders,
+			&item.Version, &item.CreatedAt, &item.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) CreateCategory(ctx context.Context, sess core.Session, input UpsertCategoryInput) (core.AdminCategory, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.AdminCategory{}, core.ErrForbidden
+	}
+	if strings.TrimSpace(input.TitleRU) == "" {
+		return core.AdminCategory{}, core.ErrInvalidInput
+	}
+	var id uuid.UUID
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO categories (title_ru, title_sr, title_en, sort_order, visible)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id
+	`, safe(input.TitleRU), safe(input.TitleSR), safe(input.TitleEN), input.SortOrder, input.Visible).Scan(&id)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	_ = s.insertAudit(ctx, sess, "category.create", "category", &id, "", nil, map[string]any{"title_ru": safe(input.TitleRU)})
+	return s.adminCategoryByID(ctx, id)
+}
+
+func (s *Store) UpdateCategory(ctx context.Context, sess core.Session, id uuid.UUID, input UpsertCategoryInput) (core.AdminCategory, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.AdminCategory{}, core.ErrForbidden
+	}
+	if strings.TrimSpace(input.TitleRU) == "" || input.Version <= 0 {
+		return core.AdminCategory{}, core.ErrInvalidInput
+	}
+	before, err := s.adminCategoryByID(ctx, id)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	result, err := s.pool.Exec(ctx, `
+		UPDATE categories
+		SET title_ru=$1, title_sr=$2, title_en=$3, sort_order=$4, visible=$5, version=version+1, updated_at=now()
+		WHERE id=$6 AND version=$7 AND archived=false
+	`, safe(input.TitleRU), safe(input.TitleSR), safe(input.TitleEN), input.SortOrder, input.Visible, id, input.Version)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	if result.RowsAffected() == 0 {
+		return core.AdminCategory{}, core.ErrOrderStatusConflict
+	}
+	after, err := s.adminCategoryByID(ctx, id)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	_ = s.insertAudit(ctx, sess, "category.update", "category", &id, "", categoryAudit(before), categoryAudit(after))
+	return after, nil
+}
+
+func (s *Store) ArchiveCategory(ctx context.Context, sess core.Session, id uuid.UUID, reason string) (core.AdminCategory, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.AdminCategory{}, core.ErrForbidden
+	}
+	before, err := s.adminCategoryByID(ctx, id)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	result, err := s.pool.Exec(ctx, `
+		UPDATE categories SET visible=false, archived=true, version=version+1, updated_at=now()
+		WHERE id=$1 AND archived=false
+	`, id)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	if result.RowsAffected() == 0 {
+		return core.AdminCategory{}, core.ErrOrderStatusConflict
+	}
+	after, err := s.adminCategoryByID(ctx, id)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	_ = s.insertAudit(ctx, sess, "category.archive", "category", &id, safe(reason), categoryAudit(before), categoryAudit(after))
+	return after, nil
+}
+
+func (s *Store) DeleteOrArchiveCategory(ctx context.Context, sess core.Session, id uuid.UUID, reason string) (string, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return "", core.ErrForbidden
+	}
+	var count int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM menu_items WHERE category_id=$1`, id).Scan(&count); err != nil {
+		return "", err
+	}
+	if count == 0 {
+		_, err := s.pool.Exec(ctx, `DELETE FROM categories WHERE id=$1`, id)
+		if err != nil {
+			return "", err
+		}
+		_ = s.insertAudit(ctx, sess, "category.delete", "category", &id, safe(reason), nil, nil)
+		return "deleted", nil
+	}
+	_, err := s.ArchiveCategory(ctx, sess, id, reason)
+	return "archived", err
+}
+
+func (s *Store) CreateMenuItem(ctx context.Context, sess core.Session, input UpsertMenuItemInput) (core.AdminMenuItem, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.AdminMenuItem{}, core.ErrForbidden
+	}
+	if strings.TrimSpace(input.TitleRU) == "" || input.PriceMinor < 0 || input.CategoryID == uuid.Nil {
+		return core.AdminMenuItem{}, core.ErrInvalidInput
+	}
+	var id uuid.UUID
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO menu_items (
+			category_id, title_ru, title_sr, title_en, description_ru, description_sr, description_en,
+			price_minor, photo_path, weight_text, allergen_text_ru, allergen_text_sr, allergen_text_en,
+			sort_order, visible
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		RETURNING id
+	`, input.CategoryID, safe(input.TitleRU), safe(input.TitleSR), safe(input.TitleEN), safe(input.DescriptionRU), safe(input.DescriptionSR),
+		safe(input.DescriptionEN), input.PriceMinor, safe(input.PhotoPath), safe(input.WeightText), safe(input.AllergenTextRU),
+		safe(input.AllergenTextSR), safe(input.AllergenTextEN), input.SortOrder, input.Visible).Scan(&id)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	_ = s.insertAudit(ctx, sess, "menu_item.create", "menu_item", &id, "", nil, map[string]any{"title_ru": safe(input.TitleRU), "price_minor": input.PriceMinor})
+	return s.adminMenuItemByID(ctx, id)
+}
+
+func (s *Store) UpdateMenuItem(ctx context.Context, sess core.Session, id uuid.UUID, input UpsertMenuItemInput) (core.AdminMenuItem, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.AdminMenuItem{}, core.ErrForbidden
+	}
+	if strings.TrimSpace(input.TitleRU) == "" || input.PriceMinor < 0 || input.CategoryID == uuid.Nil || input.Version <= 0 {
+		return core.AdminMenuItem{}, core.ErrInvalidInput
+	}
+	before, err := s.adminMenuItemByID(ctx, id)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	result, err := s.pool.Exec(ctx, `
+		UPDATE menu_items
+		SET category_id=$1, title_ru=$2, title_sr=$3, title_en=$4, description_ru=$5, description_sr=$6,
+			description_en=$7, price_minor=$8, photo_path=$9, weight_text=$10, allergen_text_ru=$11,
+			allergen_text_sr=$12, allergen_text_en=$13, sort_order=$14, visible=$15,
+			version=version+1, updated_at=now()
+		WHERE id=$16 AND version=$17 AND archived=false
+	`, input.CategoryID, safe(input.TitleRU), safe(input.TitleSR), safe(input.TitleEN), safe(input.DescriptionRU), safe(input.DescriptionSR),
+		safe(input.DescriptionEN), input.PriceMinor, safe(input.PhotoPath), safe(input.WeightText), safe(input.AllergenTextRU),
+		safe(input.AllergenTextSR), safe(input.AllergenTextEN), input.SortOrder, input.Visible, id, input.Version)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	if result.RowsAffected() == 0 {
+		return core.AdminMenuItem{}, core.ErrOrderStatusConflict
+	}
+	after, err := s.adminMenuItemByID(ctx, id)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	action := "menu_item.update"
+	reason := ""
+	if before.PriceMinor != after.PriceMinor {
+		action = "menu_item.price_change"
+		reason = fmt.Sprintf("%d -> %d", before.PriceMinor, after.PriceMinor)
+	}
+	_ = s.insertAudit(ctx, sess, action, "menu_item", &id, reason, menuItemAudit(before), menuItemAudit(after))
+	return after, nil
+}
+
+func (s *Store) ArchiveMenuItem(ctx context.Context, sess core.Session, id uuid.UUID, reason string) (core.AdminMenuItem, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.AdminMenuItem{}, core.ErrForbidden
+	}
+	before, err := s.adminMenuItemByID(ctx, id)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	result, err := s.pool.Exec(ctx, `
+		UPDATE menu_items SET visible=false, archived=true, version=version+1, updated_at=now()
+		WHERE id=$1 AND archived=false
+	`, id)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	if result.RowsAffected() == 0 {
+		return core.AdminMenuItem{}, core.ErrOrderStatusConflict
+	}
+	after, err := s.adminMenuItemByID(ctx, id)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	_ = s.insertAudit(ctx, sess, "menu_item.archive", "menu_item", &id, safe(reason), menuItemAudit(before), menuItemAudit(after))
+	return after, nil
+}
+
+func (s *Store) DeleteOrArchiveMenuItem(ctx context.Context, sess core.Session, id uuid.UUID, reason string) (string, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return "", core.ErrForbidden
+	}
+	var used bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM order_items WHERE menu_item_id=$1)`, id).Scan(&used); err != nil {
+		return "", err
+	}
+	if !used {
+		_, err := s.pool.Exec(ctx, `DELETE FROM menu_items WHERE id=$1`, id)
+		if err != nil {
+			return "", err
+		}
+		_ = s.insertAudit(ctx, sess, "menu_item.delete", "menu_item", &id, safe(reason), nil, nil)
+		return "deleted", nil
+	}
+	_, err := s.ArchiveMenuItem(ctx, sess, id, reason)
+	return "archived", err
+}
+
 func (s *Store) Calculate(ctx context.Context, sess core.Session, input []core.CartItemInput, now time.Time) (core.Calculation, error) {
 	if sess.ActiveRole != core.RoleClient {
 		return core.Calculation{}, core.ErrForbidden
@@ -282,9 +740,10 @@ func (s *Store) Calculate(ctx context.Context, sess core.Session, input []core.C
 		var title string
 		var price, version int
 		err := s.pool.QueryRow(ctx, `
-			SELECT title_ru, price_minor, version
-			FROM menu_items
-			WHERE id=$1 AND visible=true AND archived=false
+			SELECT mi.title_ru, mi.price_minor, mi.version
+			FROM menu_items mi
+			JOIN categories c ON c.id=mi.category_id
+			WHERE mi.id=$1 AND mi.visible=true AND mi.archived=false AND c.visible=true AND c.archived=false
 		`, id).Scan(&title, &price, &version)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return core.Calculation{}, core.ErrItemUnavailable
@@ -524,16 +983,568 @@ func (s *Store) ClientOrderByID(ctx context.Context, sess core.Session, orderID 
 	return s.OrderByID(ctx, orderID, true)
 }
 
-func (s *Store) AdminOrders(ctx context.Context, sess core.Session) ([]core.Order, error) {
+func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter AdminOrderFilter) ([]core.Order, error) {
 	if sess.ActiveRole != core.RoleAdmin {
 		return nil, core.ErrForbidden
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id FROM orders ORDER BY created_at DESC LIMIT 100`)
+	where := []string{"true"}
+	args := []any{}
+	if filter.Status != "" {
+		where = append(where, fmt.Sprintf("fulfillment_status=$%d", len(args)+1))
+		args = append(args, filter.Status)
+	}
+	if filter.Date != "" {
+		where = append(where, fmt.Sprintf("created_at::date=$%d::date", len(args)+1))
+		args = append(args, filter.Date)
+	}
+	query := strings.TrimSpace(filter.Query)
+	if query != "" {
+		if publicNumber, err := strconv.Atoi(query); err == nil {
+			where = append(where, fmt.Sprintf("(public_number=$%d OR phone_hash=$%d)", len(args)+1, len(args)+2))
+			args = append(args, publicNumber, hashPII(query))
+		} else {
+			where = append(where, fmt.Sprintf("phone_hash=$%d", len(args)+1))
+			args = append(args, hashPII(query))
+		}
+	}
+	sqlQuery := fmt.Sprintf(`SELECT id FROM orders WHERE %s ORDER BY created_at DESC LIMIT 100`, strings.Join(where, " AND "))
+	rows, err := s.pool.Query(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	return s.ordersFromIDRows(ctx, rows, true)
+}
+
+func (s *Store) AdminOrderByID(ctx context.Context, sess core.Session, orderID uuid.UUID) (core.Order, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.Order{}, core.ErrForbidden
+	}
+	order, err := s.OrderByID(ctx, orderID, true)
+	if err != nil {
+		return core.Order{}, err
+	}
+	order.Events, err = s.OrderEvents(ctx, orderID)
+	return order, err
+}
+
+func (s *Store) CancelOrder(ctx context.Context, sess core.Session, orderID uuid.UUID, reason string) (core.Order, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.Order{}, core.ErrForbidden
+	}
+	reason = safe(reason)
+	if reason == "" {
+		return core.Order{}, core.ErrInvalidInput
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.Order{}, err
+	}
+	defer rollback(ctx, tx)
+	var from string
+	err = tx.QueryRow(ctx, `
+		UPDATE orders
+		SET fulfillment_status='CANCELLED',
+			payment_status=CASE WHEN payment_status='CASH_PENDING' THEN 'FAILED' ELSE payment_status END,
+			cancelled_at=now(), updated_at=now(), version=version+1
+		WHERE id=$1 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY')
+		RETURNING CASE WHEN ready_at IS NULL THEN 'NEW' ELSE 'OUT_FOR_DELIVERY' END
+	`, orderID).Scan(&from)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return core.Order{}, core.ErrOrderStatusConflict
+	}
+	if err != nil {
+		return core.Order{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO order_events (order_id, from_status, to_status, action, actor_user_id, actor_role, reason)
+		VALUES ($1, $2, 'CANCELLED', 'admin_cancel', $3, $4, $5)
+	`, orderID, from, sess.UserID, string(sess.ActiveRole), reason); err != nil {
+		return core.Order{}, err
+	}
+	if err := s.insertAuditTx(ctx, tx, sess, "order.cancel", "order", &orderID, reason, map[string]any{"status": from}, map[string]any{"status": "CANCELLED"}); err != nil {
+		return core.Order{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.Order{}, err
+	}
+	return s.AdminOrderByID(ctx, sess, orderID)
+}
+
+func (s *Store) ReturnOrderToNew(ctx context.Context, sess core.Session, orderID uuid.UUID, reason string) (core.Order, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.Order{}, core.ErrForbidden
+	}
+	reason = safe(reason)
+	if reason == "" {
+		return core.Order{}, core.ErrInvalidInput
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.Order{}, err
+	}
+	defer rollback(ctx, tx)
+	tag, err := tx.Exec(ctx, `
+		UPDATE orders
+		SET fulfillment_status='NEW', ready_at=NULL, updated_at=now(), version=version+1
+		WHERE id=$1 AND fulfillment_status='OUT_FOR_DELIVERY'
+	`, orderID)
+	if err != nil {
+		return core.Order{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return core.Order{}, core.ErrOrderStatusConflict
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO order_events (order_id, from_status, to_status, action, actor_user_id, actor_role, reason)
+		VALUES ($1, 'OUT_FOR_DELIVERY', 'NEW', 'admin_return_to_new', $2, $3, $4)
+	`, orderID, sess.UserID, string(sess.ActiveRole), reason); err != nil {
+		return core.Order{}, err
+	}
+	if err := s.insertAuditTx(ctx, tx, sess, "order.return_to_new", "order", &orderID, reason, map[string]any{"status": "OUT_FOR_DELIVERY"}, map[string]any{"status": "NEW"}); err != nil {
+		return core.Order{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.Order{}, err
+	}
+	return s.AdminOrderByID(ctx, sess, orderID)
+}
+
+func (s *Store) UpdateOrderContact(ctx context.Context, sess core.Session, orderID uuid.UUID, phone, address, reason string) (core.Order, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.Order{}, core.ErrForbidden
+	}
+	phone = safe(phone)
+	address = safe(address)
+	reason = safe(reason)
+	if phone == "" || address == "" || reason == "" {
+		return core.Order{}, core.ErrInvalidInput
+	}
+	phoneCipher, err := s.box.Encrypt(phone)
+	if err != nil {
+		return core.Order{}, err
+	}
+	addressCipher, err := s.box.Encrypt(address)
+	if err != nil {
+		return core.Order{}, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.Order{}, err
+	}
+	defer rollback(ctx, tx)
+	tag, err := tx.Exec(ctx, `
+		UPDATE orders SET phone_ciphertext=$1, phone_hash=$2, address_ciphertext=$3, updated_at=now(), version=version+1
+		WHERE id=$4 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY')
+	`, phoneCipher, hashPII(phone), addressCipher, orderID)
+	if err != nil {
+		return core.Order{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return core.Order{}, core.ErrOrderStatusConflict
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO order_events (order_id, action, actor_user_id, actor_role, reason)
+		VALUES ($1, 'admin_edit_contact', $2, $3, $4)
+	`, orderID, sess.UserID, string(sess.ActiveRole), reason); err != nil {
+		return core.Order{}, err
+	}
+	if err := s.insertAuditTx(ctx, tx, sess, "order.edit_contact", "order", &orderID, reason, map[string]any{"contact": "masked"}, map[string]any{"contact": "changed"}); err != nil {
+		return core.Order{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.Order{}, err
+	}
+	return s.AdminOrderByID(ctx, sess, orderID)
+}
+
+func (s *Store) ResendOrderNotification(ctx context.Context, sess core.Session, orderID uuid.UUID, recipient, reason string) error {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.ErrForbidden
+	}
+	recipient = safe(recipient)
+	if recipient != "client" && recipient != "courier" {
+		return core.ErrInvalidInput
+	}
+	template := "client_order_status"
+	if recipient == "courier" {
+		template = "courier_ready_order"
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
+		VALUES ($1, $2, $3, $4)
+	`, orderID, recipient, template, fmt.Sprintf("order:%s:resend:%s:%d", orderID, recipient, time.Now().UnixNano()))
+	if err != nil {
+		return err
+	}
+	return s.insertAudit(ctx, sess, "order.resend_notification", "order", &orderID, safe(reason), nil, map[string]any{"recipient": recipient})
+}
+
+func (s *Store) AddOrderNote(ctx context.Context, sess core.Session, orderID uuid.UUID, reason string) error {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.ErrForbidden
+	}
+	reason = safe(reason)
+	if reason == "" {
+		return core.ErrInvalidInput
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO order_events (order_id, action, actor_user_id, actor_role, reason)
+		VALUES ($1, 'admin_note', $2, $3, $4)
+	`, orderID, sess.UserID, string(sess.ActiveRole), reason)
+	if err != nil {
+		return err
+	}
+	return s.insertAudit(ctx, sess, "order.note", "order", &orderID, reason, nil, nil)
+}
+
+func (s *Store) AdminStaff(ctx context.Context, sess core.Session) ([]core.StaffMember, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return nil, core.ErrForbidden
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, telegram_user_id, display_label, role, active, created_at, updated_at
+		FROM staff
+		ORDER BY active DESC, role, telegram_user_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	staff := []core.StaffMember{}
+	for rows.Next() {
+		var member core.StaffMember
+		if err := rows.Scan(&member.ID, &member.TelegramUserID, &member.DisplayLabel, &member.Role, &member.Active, &member.CreatedAt, &member.UpdatedAt); err != nil {
+			return nil, err
+		}
+		staff = append(staff, member)
+	}
+	return staff, rows.Err()
+}
+
+func (s *Store) AddStaff(ctx context.Context, sess core.Session, input AddStaffInput) (core.StaffMember, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.StaffMember{}, core.ErrForbidden
+	}
+	if input.TelegramUserID <= 0 || !validStaffRole(input.Role) {
+		return core.StaffMember{}, core.ErrInvalidInput
+	}
+	if input.DisplayLabel == "" {
+		input.DisplayLabel = fmt.Sprintf("%d", input.TelegramUserID)
+	}
+	if input.Active && input.Role == core.RoleCourier {
+		if err := s.ensureNoOtherActiveCourier(ctx, uuid.Nil); err != nil {
+			return core.StaffMember{}, err
+		}
+	}
+	user, err := s.UpsertTelegramUser(ctx, core.User{
+		TelegramUserID: input.TelegramUserID,
+		FirstName:      safe(input.DisplayLabel),
+		LanguageCode:   "ru",
+	})
+	if err != nil {
+		return core.StaffMember{}, err
+	}
+	var id uuid.UUID
+	err = s.pool.QueryRow(ctx, `
+		INSERT INTO staff (user_id, telegram_user_id, role, display_label, active, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (telegram_user_id, role)
+		DO UPDATE SET user_id=EXCLUDED.user_id, display_label=EXCLUDED.display_label,
+			active=EXCLUDED.active, updated_at=now()
+		RETURNING id
+	`, user.ID, input.TelegramUserID, string(input.Role), safe(input.DisplayLabel), input.Active, sess.UserID).Scan(&id)
+	if err != nil {
+		return core.StaffMember{}, err
+	}
+	member, err := s.staffByID(ctx, id)
+	if err != nil {
+		return core.StaffMember{}, err
+	}
+	_ = s.insertAudit(ctx, sess, "staff.upsert", "staff", &id, "", nil, staffAudit(member))
+	return member, nil
+}
+
+func (s *Store) UpdateStaff(ctx context.Context, sess core.Session, id uuid.UUID, input UpdateStaffInput) (core.StaffMember, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.StaffMember{}, core.ErrForbidden
+	}
+	if !validStaffRole(input.Role) {
+		return core.StaffMember{}, core.ErrInvalidInput
+	}
+	before, err := s.staffByID(ctx, id)
+	if err != nil {
+		return core.StaffMember{}, err
+	}
+	if before.Role == core.RoleAdmin && before.Active && !input.Active {
+		if err := s.ensureNotLastAdmin(ctx, id); err != nil {
+			return core.StaffMember{}, err
+		}
+	}
+	if input.Active && input.Role == core.RoleCourier {
+		if err := s.ensureNoOtherActiveCourier(ctx, id); err != nil {
+			return core.StaffMember{}, err
+		}
+	}
+	if input.DisplayLabel == "" {
+		input.DisplayLabel = before.DisplayLabel
+	}
+	result, err := s.pool.Exec(ctx, `
+		UPDATE staff SET role=$1, display_label=$2, active=$3, updated_at=now()
+		WHERE id=$4
+	`, string(input.Role), safe(input.DisplayLabel), input.Active, id)
+	if err != nil {
+		return core.StaffMember{}, err
+	}
+	if result.RowsAffected() == 0 {
+		return core.StaffMember{}, core.ErrInvalidInput
+	}
+	after, err := s.staffByID(ctx, id)
+	if err != nil {
+		return core.StaffMember{}, err
+	}
+	if before.Active && !after.Active {
+		_, _ = s.pool.Exec(ctx, `
+			UPDATE sessions SET revoked_at=now()
+			WHERE telegram_user_id=$1 AND active_role=$2 AND revoked_at IS NULL
+		`, after.TelegramUserID, string(after.Role))
+	}
+	_ = s.insertAudit(ctx, sess, "staff.update", "staff", &id, "", staffAudit(before), staffAudit(after))
+	return after, nil
+}
+
+func (s *Store) AdminDashboard(ctx context.Context, sess core.Session, now time.Time) (core.AdminDashboard, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.AdminDashboard{}, core.ErrForbidden
+	}
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return core.AdminDashboard{}, err
+	}
+	accept := core.CanAcceptOrder(now, settings)
+	payments := []string{}
+	if settings.CashEnabled {
+		payments = append(payments, "cash")
+	}
+	if settings.CardEnabled {
+		payments = append(payments, "card")
+	}
+	if settings.CryptoEnabled {
+		payments = append(payments, "crypto")
+	}
+	runtime := core.Runtime{
+		ServerTime:           now.UTC(),
+		Timezone:             settings.Timezone,
+		AcceptingOrders:      accept.OK,
+		Reason:               accept.Reason,
+		NextOpening:          accept.NextOpening,
+		DayOffBanner:         settings.DayOffBanner,
+		FlatDeliveryFeeMinor: settings.FlatDeliveryFeeMinor,
+		Currency:             settings.Currency,
+		EnabledPayments:      payments,
+		SupportedLocales:     []string{"ru", "sr", "en"},
+		SupportText:          settings.SupportText,
+	}
+	loc, err := time.LoadLocation(settings.Timezone)
+	if err != nil {
+		loc = time.FixedZone("Europe/Belgrade", 3600)
+	}
+	localNow := now.In(loc)
+	startLocal := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, loc)
+	endLocal := startLocal.Add(24 * time.Hour)
+	var dashboard core.AdminDashboard
+	err = s.pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE fulfillment_status='NEW')::int,
+			COUNT(*) FILTER (WHERE fulfillment_status='OUT_FOR_DELIVERY')::int,
+			COUNT(*) FILTER (WHERE created_at >= $1 AND created_at < $2)::int,
+			COALESCE(SUM(total_minor) FILTER (
+				WHERE created_at >= $1 AND created_at < $2
+					AND fulfillment_status='DELIVERED' AND payment_status='PAID'
+			), 0)::int
+		FROM orders
+	`, startLocal.UTC(), endLocal.UTC()).Scan(&dashboard.NewOrders, &dashboard.OutForDelivery, &dashboard.OrdersToday, &dashboard.RevenueTodayMinor)
+	if err != nil {
+		return core.AdminDashboard{}, err
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT concat(template, ': ', last_error_code)
+		FROM notification_jobs
+		WHERE status='failed'
+		ORDER BY updated_at DESC
+		LIMIT 5
+	`)
+	if err != nil {
+		return core.AdminDashboard{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var text string
+		if err := rows.Scan(&text); err != nil {
+			return core.AdminDashboard{}, err
+		}
+		dashboard.NotificationErrors = append(dashboard.NotificationErrors, text)
+	}
+	dashboard.Runtime = runtime
+	dashboard.GeneratedAt = now.UTC()
+	return dashboard, rows.Err()
+}
+
+func (s *Store) AdminAnalytics(ctx context.Context, sess core.Session, from, to time.Time, now time.Time) (core.AdminAnalytics, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.AdminAnalytics{}, core.ErrForbidden
+	}
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	analytics := core.AdminAnalytics{
+		Currency:    settings.Currency,
+		From:        from.UTC(),
+		To:          to.UTC(),
+		GeneratedAt: now.UTC(),
+	}
+	err = s.pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*)::int,
+			COUNT(*) FILTER (WHERE fulfillment_status='DELIVERED')::int,
+			COUNT(*) FILTER (WHERE fulfillment_status='CANCELLED')::int,
+			COALESCE(SUM(total_minor) FILTER (WHERE fulfillment_status='DELIVERED' AND payment_status='PAID'), 0)::int
+		FROM orders
+		WHERE created_at >= $1 AND created_at < $2
+	`, from.UTC(), to.UTC()).Scan(
+		&analytics.Summary.AllOrders,
+		&analytics.Summary.DeliveredOrders,
+		&analytics.Summary.CancelledOrders,
+		&analytics.Summary.RevenueMinor,
+	)
+	if err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	if analytics.Summary.DeliveredOrders > 0 {
+		analytics.Summary.AverageCheckMinor = analytics.Summary.RevenueMinor / analytics.Summary.DeliveredOrders
+	}
+	statusRows, err := s.pool.Query(ctx, `
+		SELECT fulfillment_status, COUNT(*)::int,
+			COALESCE(SUM(total_minor) FILTER (WHERE fulfillment_status='DELIVERED' AND payment_status='PAID'), 0)::int
+		FROM orders
+		WHERE created_at >= $1 AND created_at < $2
+		GROUP BY fulfillment_status
+		ORDER BY fulfillment_status
+	`, from.UTC(), to.UTC())
+	if err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	defer statusRows.Close()
+	for statusRows.Next() {
+		var row core.AnalyticsBreakdown
+		if err := statusRows.Scan(&row.Key, &row.Count, &row.RevenueMinor); err != nil {
+			return core.AdminAnalytics{}, err
+		}
+		analytics.Statuses = append(analytics.Statuses, row)
+	}
+	if err := statusRows.Err(); err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	paymentRows, err := s.pool.Query(ctx, `
+		SELECT payment_method, COUNT(*)::int,
+			COALESCE(SUM(total_minor) FILTER (WHERE fulfillment_status='DELIVERED' AND payment_status='PAID'), 0)::int
+		FROM orders
+		WHERE created_at >= $1 AND created_at < $2
+		GROUP BY payment_method
+		ORDER BY payment_method
+	`, from.UTC(), to.UTC())
+	if err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	defer paymentRows.Close()
+	for paymentRows.Next() {
+		var row core.AnalyticsBreakdown
+		if err := paymentRows.Scan(&row.Key, &row.Count, &row.RevenueMinor); err != nil {
+			return core.AdminAnalytics{}, err
+		}
+		analytics.Payments = append(analytics.Payments, row)
+	}
+	if err := paymentRows.Err(); err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	topRows, err := s.pool.Query(ctx, `
+		SELECT oi.snapshot_title, SUM(oi.quantity)::int, SUM(oi.line_total_minor)::int
+		FROM order_items oi
+		JOIN orders o ON o.id=oi.order_id
+		WHERE o.created_at >= $1 AND o.created_at < $2
+			AND o.fulfillment_status='DELIVERED' AND o.payment_status='PAID'
+		GROUP BY oi.snapshot_title
+		ORDER BY SUM(oi.quantity) DESC, oi.snapshot_title
+		LIMIT 10
+	`, from.UTC(), to.UTC())
+	if err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	defer topRows.Close()
+	for topRows.Next() {
+		var row core.TopDish
+		if err := topRows.Scan(&row.Title, &row.Quantity, &row.RevenueMinor); err != nil {
+			return core.AdminAnalytics{}, err
+		}
+		analytics.TopDishes = append(analytics.TopDishes, row)
+	}
+	if err := topRows.Err(); err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	dailyRows, err := s.pool.Query(ctx, `
+		SELECT to_char(created_at AT TIME ZONE $3, 'YYYY-MM-DD') AS day,
+			COUNT(*)::int,
+			COUNT(*) FILTER (WHERE fulfillment_status='DELIVERED')::int,
+			COUNT(*) FILTER (WHERE fulfillment_status='CANCELLED')::int,
+			COALESCE(SUM(total_minor) FILTER (WHERE fulfillment_status='DELIVERED' AND payment_status='PAID'), 0)::int
+		FROM orders
+		WHERE created_at >= $1 AND created_at < $2
+		GROUP BY day
+		ORDER BY day
+	`, from.UTC(), to.UTC(), settings.Timezone)
+	if err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	defer dailyRows.Close()
+	for dailyRows.Next() {
+		var row core.DailyAnalyticsRow
+		if err := dailyRows.Scan(&row.Day, &row.Orders, &row.Delivered, &row.Cancelled, &row.RevenueMinor); err != nil {
+			return core.AdminAnalytics{}, err
+		}
+		analytics.DailyRows = append(analytics.DailyRows, row)
+	}
+	return analytics, dailyRows.Err()
+}
+
+func (s *Store) AuditLog(ctx context.Context, sess core.Session) ([]core.AuditEntry, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return nil, core.ErrForbidden
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, actor_role, action, target_type, target_id, reason, before_json, after_json, created_at
+		FROM audit_log
+		ORDER BY created_at DESC
+		LIMIT 100
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	entries := []core.AuditEntry{}
+	for rows.Next() {
+		var entry core.AuditEntry
+		var targetID *uuid.UUID
+		var beforeRaw, afterRaw []byte
+		if err := rows.Scan(&entry.ID, &entry.ActorRole, &entry.Action, &entry.TargetType, &targetID, &entry.Reason, &beforeRaw, &afterRaw, &entry.CreatedAt); err != nil {
+			return nil, err
+		}
+		entry.TargetID = targetID
+		_ = json.Unmarshal(beforeRaw, &entry.Before)
+		_ = json.Unmarshal(afterRaw, &entry.After)
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
 }
 
 func (s *Store) MarkReady(ctx context.Context, sess core.Session, orderID uuid.UUID, idempotencyKey, requestHash string) (core.Order, error) {
@@ -693,6 +1704,26 @@ func (s *Store) orderItems(ctx context.Context, orderID uuid.UUID) ([]core.Order
 	return items, rows.Err()
 }
 
+func (s *Store) OrderEvents(ctx context.Context, orderID uuid.UUID) ([]core.OrderEvent, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, order_id, from_status, to_status, action, actor_role, reason, created_at
+		FROM order_events WHERE order_id=$1 ORDER BY created_at ASC
+	`, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	events := []core.OrderEvent{}
+	for rows.Next() {
+		var event core.OrderEvent
+		if err := rows.Scan(&event.ID, &event.OrderID, &event.FromStatus, &event.ToStatus, &event.Action, &event.ActorRole, &event.Reason, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
 func (s *Store) ordersByStatus(ctx context.Context, status core.FulfillmentStatus, includePII bool) ([]core.Order, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id FROM orders WHERE fulfillment_status=$1 ORDER BY updated_at ASC LIMIT 50
@@ -775,6 +1806,152 @@ func (s *Store) finishIdempotency(ctx context.Context, tx pgx.Tx, userID uuid.UU
 		WHERE actor_user_id=$2 AND operation=$3 AND key=$4
 	`, raw, userID, operation, key)
 	return err
+}
+
+func (s *Store) adminCategoryByID(ctx context.Context, id uuid.UUID) (core.AdminCategory, error) {
+	var cat core.AdminCategory
+	err := s.pool.QueryRow(ctx, `
+		SELECT c.id, c.title_ru, c.title_sr, c.title_en, c.sort_order, c.visible, c.archived,
+			COUNT(mi.id)::int AS item_count, c.version, c.created_at, c.updated_at
+		FROM categories c
+		LEFT JOIN menu_items mi ON mi.category_id=c.id AND mi.archived=false
+		WHERE c.id=$1
+		GROUP BY c.id
+	`, id).Scan(&cat.ID, &cat.TitleRU, &cat.TitleSR, &cat.TitleEN, &cat.SortOrder, &cat.Visible, &cat.Archived, &cat.ItemCount, &cat.Version, &cat.CreatedAt, &cat.UpdatedAt)
+	return cat, err
+}
+
+func (s *Store) adminMenuItemByID(ctx context.Context, id uuid.UUID) (core.AdminMenuItem, error) {
+	var item core.AdminMenuItem
+	err := s.pool.QueryRow(ctx, `
+		SELECT mi.id, mi.category_id, mi.title_ru, mi.title_sr, mi.title_en, mi.description_ru, mi.description_sr,
+			mi.description_en, mi.price_minor, mi.currency, mi.photo_path, mi.weight_text, mi.allergen_text_ru,
+			mi.allergen_text_sr, mi.allergen_text_en, mi.sort_order, mi.visible, mi.archived,
+			EXISTS (SELECT 1 FROM order_items oi WHERE oi.menu_item_id=mi.id) AS used_in_orders,
+			mi.version, mi.created_at, mi.updated_at
+		FROM menu_items mi
+		WHERE mi.id=$1
+	`, id).Scan(
+		&item.ID, &item.CategoryID, &item.TitleRU, &item.TitleSR, &item.TitleEN, &item.DescriptionRU, &item.DescriptionSR,
+		&item.DescriptionEN, &item.PriceMinor, &item.Currency, &item.PhotoPath, &item.WeightText, &item.AllergenTextRU,
+		&item.AllergenTextSR, &item.AllergenTextEN, &item.SortOrder, &item.Visible, &item.Archived, &item.UsedInOrders,
+		&item.Version, &item.CreatedAt, &item.UpdatedAt,
+	)
+	return item, err
+}
+
+func (s *Store) staffByID(ctx context.Context, id uuid.UUID) (core.StaffMember, error) {
+	var member core.StaffMember
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, telegram_user_id, display_label, role, active, created_at, updated_at
+		FROM staff WHERE id=$1
+	`, id).Scan(&member.ID, &member.TelegramUserID, &member.DisplayLabel, &member.Role, &member.Active, &member.CreatedAt, &member.UpdatedAt)
+	return member, err
+}
+
+func (s *Store) ensureNotLastAdmin(ctx context.Context, id uuid.UUID) error {
+	var count int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM staff WHERE role='ADMIN' AND active=true AND id<>$1`, id).Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		return core.ErrInvalidInput
+	}
+	return nil
+}
+
+func (s *Store) ensureNoOtherActiveCourier(ctx context.Context, id uuid.UUID) error {
+	var count int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM staff WHERE role='COURIER' AND active=true AND id<>$1`, id).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return core.ErrInvalidInput
+	}
+	return nil
+}
+
+func (s *Store) insertAudit(ctx context.Context, sess core.Session, action, targetType string, targetID *uuid.UUID, reason string, before, after map[string]any) error {
+	return s.insertAuditExec(ctx, s.pool, sess, action, targetType, targetID, reason, before, after)
+}
+
+func (s *Store) insertAuditTx(ctx context.Context, tx pgx.Tx, sess core.Session, action, targetType string, targetID *uuid.UUID, reason string, before, after map[string]any) error {
+	return s.insertAuditExec(ctx, tx, sess, action, targetType, targetID, reason, before, after)
+}
+
+type auditExecutor interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+func (s *Store) insertAuditExec(ctx context.Context, exec auditExecutor, sess core.Session, action, targetType string, targetID *uuid.UUID, reason string, before, after map[string]any) error {
+	beforeRaw, err := json.Marshal(emptyMap(before))
+	if err != nil {
+		return err
+	}
+	afterRaw, err := json.Marshal(emptyMap(after))
+	if err != nil {
+		return err
+	}
+	_, err = exec.Exec(ctx, `
+		INSERT INTO audit_log (actor_user_id, actor_role, action, target_type, target_id, reason, before_json, after_json)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, sess.UserID, string(sess.ActiveRole), action, targetType, targetID, safe(reason), beforeRaw, afterRaw)
+	return err
+}
+
+func emptyMap(value map[string]any) map[string]any {
+	if value == nil {
+		return map[string]any{}
+	}
+	return value
+}
+
+func categoryAudit(cat core.AdminCategory) map[string]any {
+	return map[string]any{
+		"title_ru": cat.TitleRU,
+		"visible":  cat.Visible,
+		"archived": cat.Archived,
+		"sort":     cat.SortOrder,
+		"version":  cat.Version,
+	}
+}
+
+func menuItemAudit(item core.AdminMenuItem) map[string]any {
+	return map[string]any{
+		"title_ru":    item.TitleRU,
+		"price_minor": item.PriceMinor,
+		"visible":     item.Visible,
+		"archived":    item.Archived,
+		"version":     item.Version,
+	}
+}
+
+func staffAudit(member core.StaffMember) map[string]any {
+	return map[string]any{
+		"telegram_user_id": member.TelegramUserID,
+		"display_label":    member.DisplayLabel,
+		"role":             member.Role,
+		"active":           member.Active,
+	}
+}
+
+func safeSettingsAudit(settings core.Settings) map[string]any {
+	return map[string]any{
+		"flat_delivery_fee_minor": settings.FlatDeliveryFeeMinor,
+		"support_text":            settings.SupportText,
+		"support_phone":           settings.SupportPhone,
+		"terms_url":               settings.TermsURL,
+		"max_item_quantity":       settings.MaxItemQuantity,
+		"max_comment_length":      settings.MaxCommentLength,
+		"cash_enabled":            settings.CashEnabled,
+		"card_enabled":            settings.CardEnabled,
+		"crypto_enabled":          settings.CryptoEnabled,
+		"version":                 settings.Version,
+	}
+}
+
+func validStaffRole(role core.Role) bool {
+	return role == core.RoleKitchen || role == core.RoleCourier || role == core.RoleAdmin
 }
 
 func roleAllowed(role core.Role, roles []core.Role) bool {

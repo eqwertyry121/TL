@@ -3,13 +3,21 @@ package httpapi
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	_ "image/jpeg"
 
 	tgauth "github.com/eqwertyry121/TL/backend/internal/auth"
 	"github.com/eqwertyry121/TL/backend/internal/config"
@@ -18,6 +26,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	_ "golang.org/x/image/webp"
 )
 
 type Server struct {
@@ -40,6 +49,12 @@ func (s *Server) Routes() http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Get("/health", s.health)
+	if s.cfg.MediaDir != "" {
+		fileServer := http.StripPrefix("/media/", http.FileServer(http.Dir(s.cfg.MediaDir)))
+		r.Get("/media/*", func(w http.ResponseWriter, r *http.Request) {
+			fileServer.ServeHTTP(w, r)
+		})
+	}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/runtime", s.runtime)
@@ -62,8 +77,36 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/courier/orders/{id}/delivered", s.markDelivered)
 
 			r.Get("/admin/orders", s.adminOrders)
+			r.Get("/admin/orders/{id}", s.adminOrder)
+			r.Post("/admin/orders/{id}/cancel", s.adminCancelOrder)
+			r.Post("/admin/orders/{id}/return-to-new", s.adminReturnOrderToNew)
+			r.Put("/admin/orders/{id}/contact", s.adminUpdateOrderContact)
+			r.Post("/admin/orders/{id}/resend", s.adminResendOrderNotification)
+			r.Post("/admin/orders/{id}/note", s.adminAddOrderNote)
+			r.Get("/admin/dashboard", s.adminDashboard)
+			r.Get("/admin/menu", s.adminMenu)
+			r.Get("/admin/categories", s.adminCategories)
+			r.Post("/admin/categories", s.adminCreateCategory)
+			r.Put("/admin/categories/{id}", s.adminUpdateCategory)
+			r.Post("/admin/categories/{id}/archive", s.adminArchiveCategory)
+			r.Delete("/admin/categories/{id}", s.adminDeleteCategory)
+			r.Get("/admin/items", s.adminMenuItems)
+			r.Post("/admin/items", s.adminCreateMenuItem)
+			r.Put("/admin/items/{id}", s.adminUpdateMenuItem)
+			r.Post("/admin/items/{id}/archive", s.adminArchiveMenuItem)
+			r.Delete("/admin/items/{id}", s.adminDeleteMenuItem)
 			r.Get("/admin/settings", s.adminSettings)
+			r.Put("/admin/settings", s.adminUpdateSettings)
 			r.Put("/admin/settings/manual-day-off", s.setManualDayOff)
+			r.Get("/admin/schedule", s.adminSchedule)
+			r.Put("/admin/schedule", s.adminUpdateSchedule)
+			r.Get("/admin/staff", s.adminStaff)
+			r.Post("/admin/staff", s.adminAddStaff)
+			r.Put("/admin/staff/{id}", s.adminUpdateStaff)
+			r.Get("/admin/analytics", s.adminAnalytics)
+			r.Get("/admin/analytics.csv", s.adminAnalyticsCSV)
+			r.Get("/admin/audit", s.adminAudit)
+			r.Post("/admin/uploads/menu-photo", s.adminUploadMenuPhoto)
 		})
 	})
 	return r
@@ -279,12 +322,308 @@ func (s *Server) courierOrders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminOrders(w http.ResponseWriter, r *http.Request) {
-	orders, err := s.store.AdminOrders(r.Context(), mustSession(r))
+	orders, err := s.store.AdminOrders(r.Context(), mustSession(r), store.AdminOrderFilter{
+		Status: r.URL.Query().Get("status"),
+		Query:  r.URL.Query().Get("q"),
+		Date:   r.URL.Query().Get("date"),
+	})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"orders": orders})
+}
+
+func (s *Server) adminOrder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	order, err := s.store.AdminOrderByID(r.Context(), mustSession(r), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *Server) adminCancelOrder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	order, err := s.store.CancelOrder(r.Context(), mustSession(r), id, req.Reason)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *Server) adminReturnOrderToNew(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	order, err := s.store.ReturnOrderToNew(r.Context(), mustSession(r), id, req.Reason)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *Server) adminUpdateOrderContact(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		Phone   string `json:"phone"`
+		Address string `json:"address"`
+		Reason  string `json:"reason"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	order, err := s.store.UpdateOrderContact(r.Context(), mustSession(r), id, req.Phone, req.Address, req.Reason)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *Server) adminResendOrderNotification(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		Recipient string `json:"recipient"`
+		Reason    string `json:"reason"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.store.ResendOrderNotification(r.Context(), mustSession(r), id, req.Recipient, req.Reason); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) adminAddOrderNote(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.store.AddOrderNote(r.Context(), mustSession(r), id, req.Reason); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) adminDashboard(w http.ResponseWriter, r *http.Request) {
+	dashboard, err := s.store.AdminDashboard(r.Context(), mustSession(r), s.now())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dashboard)
+}
+
+func (s *Server) adminMenu(w http.ResponseWriter, r *http.Request) {
+	categories, items, err := s.store.AdminMenu(r.Context(), mustSession(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"categories": categories, "items": items})
+}
+
+func (s *Server) adminCategories(w http.ResponseWriter, r *http.Request) {
+	categories, err := s.store.AdminCategories(r.Context(), mustSession(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"categories": categories})
+}
+
+func (s *Server) adminCreateCategory(w http.ResponseWriter, r *http.Request) {
+	var req store.UpsertCategoryInput
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	category, err := s.store.CreateCategory(r.Context(), mustSession(r), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, category)
+}
+
+func (s *Server) adminUpdateCategory(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req store.UpsertCategoryInput
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	category, err := s.store.UpdateCategory(r.Context(), mustSession(r), id, req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, category)
+}
+
+func (s *Server) adminArchiveCategory(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	category, err := s.store.ArchiveCategory(r.Context(), mustSession(r), id, req.Reason)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, category)
+}
+
+func (s *Server) adminDeleteCategory(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	result, err := s.store.DeleteOrArchiveCategory(r.Context(), mustSession(r), id, r.URL.Query().Get("reason"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"result": result})
+}
+
+func (s *Server) adminMenuItems(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.AdminMenuItems(r.Context(), mustSession(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) adminCreateMenuItem(w http.ResponseWriter, r *http.Request) {
+	var req store.UpsertMenuItemInput
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	item, err := s.store.CreateMenuItem(r.Context(), mustSession(r), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) adminUpdateMenuItem(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req store.UpsertMenuItemInput
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	item, err := s.store.UpdateMenuItem(r.Context(), mustSession(r), id, req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) adminArchiveMenuItem(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	item, err := s.store.ArchiveMenuItem(r.Context(), mustSession(r), id, req.Reason)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) adminDeleteMenuItem(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	result, err := s.store.DeleteOrArchiveMenuItem(r.Context(), mustSession(r), id, r.URL.Query().Get("reason"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"result": result})
 }
 
 func (s *Server) markReady(w http.ResponseWriter, r *http.Request) {
@@ -328,6 +667,20 @@ func (s *Server) adminSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, settings)
 }
 
+func (s *Server) adminUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	var req store.UpdateSettingsInput
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	settings, err := s.store.UpdateSettings(r.Context(), mustSession(r), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
 func (s *Server) setManualDayOff(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Enabled bool `json:"enabled"`
@@ -342,6 +695,180 @@ func (s *Server) setManualDayOff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, settings)
+}
+
+func (s *Server) adminSchedule(w http.ResponseWriter, r *http.Request) {
+	if mustSession(r).ActiveRole != core.RoleAdmin {
+		writeError(w, core.ErrForbidden)
+		return
+	}
+	days, err := s.store.Schedule(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"schedule": days})
+}
+
+func (s *Server) adminUpdateSchedule(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Schedule []core.ScheduleDay `json:"schedule"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	days, err := s.store.UpdateSchedule(r.Context(), mustSession(r), req.Schedule)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"schedule": days})
+}
+
+func (s *Server) adminStaff(w http.ResponseWriter, r *http.Request) {
+	staff, err := s.store.AdminStaff(r.Context(), mustSession(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"staff": staff})
+}
+
+func (s *Server) adminAddStaff(w http.ResponseWriter, r *http.Request) {
+	var req store.AddStaffInput
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	member, err := s.store.AddStaff(r.Context(), mustSession(r), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, member)
+}
+
+func (s *Server) adminUpdateStaff(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req store.UpdateStaffInput
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	member, err := s.store.UpdateStaff(r.Context(), mustSession(r), id, req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, member)
+}
+
+func (s *Server) adminAnalytics(w http.ResponseWriter, r *http.Request) {
+	from, to, err := s.analyticsRange(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	analytics, err := s.store.AdminAnalytics(r.Context(), mustSession(r), from, to, s.now())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, analytics)
+}
+
+func (s *Server) adminAnalyticsCSV(w http.ResponseWriter, r *http.Request) {
+	from, to, err := s.analyticsRange(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	analytics, err := s.store.AdminAnalytics(r.Context(), mustSession(r), from, to, s.now())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=tk-analytics.csv")
+	writer := csv.NewWriter(w)
+	_ = writer.Write([]string{"day", "orders", "delivered", "cancelled", "revenue_minor"})
+	for _, row := range analytics.DailyRows {
+		_ = writer.Write([]string{
+			row.Day,
+			fmt.Sprintf("%d", row.Orders),
+			fmt.Sprintf("%d", row.Delivered),
+			fmt.Sprintf("%d", row.Cancelled),
+			fmt.Sprintf("%d", row.RevenueMinor),
+		})
+	}
+	writer.Flush()
+}
+
+func (s *Server) adminAudit(w http.ResponseWriter, r *http.Request) {
+	entries, err := s.store.AuditLog(r.Context(), mustSession(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+}
+
+func (s *Server) adminUploadMenuPhoto(w http.ResponseWriter, r *http.Request) {
+	if mustSession(r).ActiveRole != core.RoleAdmin {
+		writeError(w, core.ErrForbidden)
+		return
+	}
+	if s.cfg.MediaDir == "" {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	if err := r.ParseMultipartForm(6 << 20); err != nil {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	defer file.Close()
+	if header.Size > 5<<20 {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	img, _, err := image.Decode(io.LimitReader(file, 5<<20))
+	if err != nil {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	bounds := img.Bounds()
+	if bounds.Dx() < 64 || bounds.Dy() < 64 || bounds.Dx() > 4096 || bounds.Dy() > 4096 {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	mediaSubdir := filepath.Join(s.cfg.MediaDir, "menu")
+	if err := os.MkdirAll(mediaSubdir, 0o755); err != nil {
+		writeError(w, err)
+		return
+	}
+	filename := uuid.NewString() + ".png"
+	target := filepath.Join(mediaSubdir, filename)
+	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer out.Close()
+	if err := png.Encode(out, img); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"photo_path": "/media/menu/" + filename})
 }
 
 func (s *Server) withSession(next http.Handler) http.Handler {
@@ -363,6 +890,45 @@ func (s *Server) withSession(next http.Handler) http.Handler {
 
 func mustSession(r *http.Request) core.Session {
 	return r.Context().Value(sessionKey).(core.Session)
+}
+
+func parseUUIDParam(r *http.Request, name string) (uuid.UUID, error) {
+	return uuid.Parse(chi.URLParam(r, name))
+}
+
+func (s *Server) analyticsRange(r *http.Request) (time.Time, time.Time, error) {
+	loc, err := time.LoadLocation(s.cfg.Timezone)
+	if err != nil {
+		loc = time.FixedZone("Europe/Belgrade", 3600)
+	}
+	now := s.now().In(loc)
+	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	preset := r.URL.Query().Get("range")
+	switch preset {
+	case "", "today":
+		return startOfToday, startOfToday.Add(24 * time.Hour), nil
+	case "7d":
+		return startOfToday.AddDate(0, 0, -6), startOfToday.Add(24 * time.Hour), nil
+	case "month":
+		start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, loc)
+		return start, start.AddDate(0, 1, 0), nil
+	case "custom":
+		from, err := time.ParseInLocation("2006-01-02", r.URL.Query().Get("from"), loc)
+		if err != nil {
+			return time.Time{}, time.Time{}, core.ErrInvalidInput
+		}
+		to, err := time.ParseInLocation("2006-01-02", r.URL.Query().Get("to"), loc)
+		if err != nil {
+			return time.Time{}, time.Time{}, core.ErrInvalidInput
+		}
+		to = to.Add(24 * time.Hour)
+		if !from.Before(to) || to.Sub(from) > 370*24*time.Hour {
+			return time.Time{}, time.Time{}, core.ErrInvalidInput
+		}
+		return from, to, nil
+	default:
+		return time.Time{}, time.Time{}, core.ErrInvalidInput
+	}
 }
 
 func decodeJSON(r *http.Request, target any) error {
@@ -390,6 +956,8 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, core.ErrForbidden):
 		status, code, messageKey = http.StatusForbidden, "FORBIDDEN", "forbidden"
+	case errors.Is(err, core.ErrInvalidInput):
+		status, code, messageKey = http.StatusBadRequest, "INVALID_INPUT", "invalid_input"
 	case errors.Is(err, core.ErrRestaurantClosed):
 		status, code, messageKey = http.StatusConflict, "RESTAURANT_CLOSED", "restaurant_closed"
 	case errors.Is(err, core.ErrManualDayOff):

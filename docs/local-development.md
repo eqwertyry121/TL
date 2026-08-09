@@ -43,10 +43,24 @@ Open:
 http://127.0.0.1:5175/
 ```
 
-In staging demo mode, Client/Kitchen/Courier share browser `localStorage`.
-Create a cash order in Client, open Kitchen, press `ЗАКАЗ ГОТОВ`, then open
-Courier and press `ДОСТАВЛЕНО`. Real cross-device sync requires PostgreSQL and
-backend deployment.
+Admin:
+
+```powershell
+pnpm admin:dev
+```
+
+Open:
+
+```text
+http://127.0.0.1:5176/
+```
+
+In staging demo mode, Client/Kitchen/Courier/Admin share browser
+`localStorage`. Create a cash order in Client, open Kitchen, press
+`ЗАКАЗ ГОТОВ`, then open Courier and press `ДОСТАВЛЕНО`. Admin can also hide
+demo dishes, change delivery fee and toggle manual `ВЫХОДНОЙ`; Client will see
+those demo changes in the same browser. Real cross-device sync requires
+PostgreSQL and backend deployment.
 
 ## Legacy static preview
 
@@ -80,6 +94,9 @@ Backend URL:
 ```text
 http://127.0.0.1:8080
 ```
+
+Uploaded menu photos are served from `/media/...` and stored in `MEDIA_DIR`
+(`backend/uploads` by default). This folder is ignored by git.
 
 ## Dev sessions
 

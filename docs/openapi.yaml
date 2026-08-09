@@ -95,12 +95,188 @@ paths:
       responses:
         "200":
           description: Manual day-off switch updated
+  /admin/dashboard:
+    get:
+      responses:
+        "200":
+          description: Admin home cards, current runtime and notification errors
+  /admin/menu:
+    get:
+      responses:
+        "200":
+          description: Full admin menu including hidden and archived records
+  /admin/categories:
+    get:
+      responses:
+        "200":
+          description: Admin category list
+    post:
+      responses:
+        "201":
+          description: Category created
+  /admin/categories/{id}:
+    put:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Category updated with optimistic version check
+    delete:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Empty category deleted, otherwise archived
+  /admin/categories/{id}/archive:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Category hidden and archived
+  /admin/items:
+    get:
+      responses:
+        "200":
+          description: Admin dish list
+    post:
+      responses:
+        "201":
+          description: Dish created
+  /admin/items/{id}:
+    put:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Dish updated with optimistic version check
+    delete:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Unused dish deleted, used dish archived
+  /admin/items/{id}/archive:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Dish hidden and archived
+  /admin/uploads/menu-photo:
+    post:
+      responses:
+        "201":
+          description: JPEG/PNG/WebP menu photo decoded, stripped and stored as PNG
+  /admin/settings:
+    get:
+      responses:
+        "200":
+          description: Safe admin settings without secrets
+    put:
+      responses:
+        "200":
+          description: Safe admin settings updated
+  /admin/schedule:
+    get:
+      responses:
+        "200":
+          description: Weekly restaurant schedule
+    put:
+      responses:
+        "200":
+          description: Weekly restaurant schedule replaced after validation
+  /admin/orders:
+    get:
+      responses:
+        "200":
+          description: Admin order console with status/date/search filters
+  /admin/orders/{id}:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+      responses:
+        "200":
+          description: Admin order detail with PII and events
+  /admin/orders/{id}/cancel:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+      responses:
+        "200":
+          description: Admin cancels active order with required reason
+  /admin/orders/{id}/return-to-new:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+      responses:
+        "200":
+          description: Admin returns OUT_FOR_DELIVERY order to NEW
+  /admin/orders/{id}/contact:
+    put:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+      responses:
+        "200":
+          description: Admin edits phone/address with audit redaction
+  /admin/orders/{id}/resend:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+      responses:
+        "200":
+          description: Admin creates a notification retry job
+  /admin/orders/{id}/note:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+      responses:
+        "200":
+          description: Admin adds internal note
+  /admin/staff:
+    get:
+      responses:
+        "200":
+          description: Staff list
+    post:
+      responses:
+        "201":
+          description: Staff role added by numeric Telegram ID
+  /admin/staff/{id}:
+    put:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Staff role updated, with last ADMIN and one courier checks
+  /admin/analytics:
+    get:
+      responses:
+        "200":
+          description: Simple PostgreSQL analytics
+  /admin/analytics.csv:
+    get:
+      responses:
+        "200":
+          description: CSV export without phone/address
+  /admin/audit:
+    get:
+      responses:
+        "200":
+          description: Safe admin audit log
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
   parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     orderId:
       name: id
       in: path

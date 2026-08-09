@@ -14,15 +14,17 @@ https://eqwertyry121.github.io/TL/
 
 ## Как устроено
 
-- Source apps: `apps/client`, `apps/kitchen`, `apps/courier`
+- Source apps: `apps/client`, `apps/kitchen`, `apps/courier`, `apps/admin`
 - Build output artifact:
   - `/` from `apps/client/dist`
   - `/kitchen/` from `apps/kitchen/dist`
   - `/courier/` from `apps/courier/dist`
+  - `/admin/` from `apps/admin/dist`
 - Workflow: `.github/workflows/pages.yml`
 - В workflow используется официальный GitHub Pages deploy через Actions.
-- Сейчас это Client/Kitchen/Courier Mini Apps в staging demo mode на fixture-
-  данных. Backend API, Telegram webhooks и база позже будут жить на VPS.
+- Сейчас это Client/Kitchen/Courier/Admin Mini Apps в staging demo mode на
+  fixture/localStorage-данных. Backend API, Telegram webhooks и база позже
+  будут жить на VPS.
 
 ## Что нужно включить в GitHub
 

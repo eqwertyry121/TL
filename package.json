@@ -8,6 +8,7 @@
     "client:dev": "pnpm --filter @tk-delivery/client dev",
     "client:build": "pnpm --filter @tk-delivery/client build",
     "kitchen:dev": "pnpm --filter @tk-delivery/kitchen dev",
-    "courier:dev": "pnpm --filter @tk-delivery/courier dev"
+    "courier:dev": "pnpm --filter @tk-delivery/courier dev",
+    "admin:dev": "pnpm --filter @tk-delivery/admin dev"
   }
 }

@@ -52,6 +52,7 @@ const (
 var (
 	ErrForbidden             = errors.New("forbidden")
 	ErrInvalidRole           = errors.New("invalid role")
+	ErrInvalidInput          = errors.New("invalid input")
 	ErrRestaurantClosed      = errors.New("restaurant closed")
 	ErrManualDayOff          = errors.New("manual day off")
 	ErrItemUnavailable       = errors.New("item unavailable")
@@ -83,17 +84,21 @@ type Session struct {
 }
 
 type Settings struct {
-	Timezone             string `json:"timezone"`
-	Currency             string `json:"currency"`
-	ManualDayOff         bool   `json:"manual_day_off"`
-	DayOffBanner         string `json:"day_off_banner"`
-	FlatDeliveryFeeMinor int    `json:"flat_delivery_fee_minor"`
-	SupportText          string `json:"support_text"`
-	MaxItemQuantity      int    `json:"max_item_quantity"`
-	MaxCommentLength     int    `json:"max_comment_length"`
-	CashEnabled          bool   `json:"cash_enabled"`
-	CardEnabled          bool   `json:"card_enabled"`
-	CryptoEnabled        bool   `json:"crypto_enabled"`
+	Timezone             string        `json:"timezone"`
+	Currency             string        `json:"currency"`
+	ManualDayOff         bool          `json:"manual_day_off"`
+	DayOffBanner         string        `json:"day_off_banner"`
+	FlatDeliveryFeeMinor int           `json:"flat_delivery_fee_minor"`
+	SupportText          string        `json:"support_text"`
+	SupportPhone         string        `json:"support_phone"`
+	TermsURL             string        `json:"terms_url"`
+	MaxItemQuantity      int           `json:"max_item_quantity"`
+	MaxCommentLength     int           `json:"max_comment_length"`
+	CashEnabled          bool          `json:"cash_enabled"`
+	CardEnabled          bool          `json:"card_enabled"`
+	CryptoEnabled        bool          `json:"crypto_enabled"`
+	Version              int           `json:"version"`
+	Schedule             []ScheduleDay `json:"schedule,omitempty"`
 }
 
 type Runtime struct {
@@ -115,6 +120,54 @@ type Category struct {
 	Title     string     `json:"title"`
 	SortOrder int        `json:"sort_order"`
 	Items     []MenuItem `json:"items"`
+}
+
+type ScheduleDay struct {
+	DayOfWeek       int    `json:"day_of_week"`
+	Closed          bool   `json:"closed"`
+	OpenTime        string `json:"open_time"`
+	OrderCutoffTime string `json:"order_cutoff_time"`
+	CloseTime       string `json:"close_time"`
+	Version         int    `json:"version,omitempty"`
+}
+
+type AdminCategory struct {
+	ID        uuid.UUID `json:"id"`
+	TitleRU   string    `json:"title_ru"`
+	TitleSR   string    `json:"title_sr"`
+	TitleEN   string    `json:"title_en"`
+	SortOrder int       `json:"sort_order"`
+	Visible   bool      `json:"visible"`
+	Archived  bool      `json:"archived"`
+	ItemCount int       `json:"item_count"`
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type AdminMenuItem struct {
+	ID             uuid.UUID `json:"id"`
+	CategoryID     uuid.UUID `json:"category_id"`
+	TitleRU        string    `json:"title_ru"`
+	TitleSR        string    `json:"title_sr"`
+	TitleEN        string    `json:"title_en"`
+	DescriptionRU  string    `json:"description_ru"`
+	DescriptionSR  string    `json:"description_sr"`
+	DescriptionEN  string    `json:"description_en"`
+	PriceMinor     int       `json:"price_minor"`
+	Currency       string    `json:"currency"`
+	PhotoPath      string    `json:"photo_path"`
+	WeightText     string    `json:"weight_text"`
+	AllergenTextRU string    `json:"allergen_text_ru"`
+	AllergenTextSR string    `json:"allergen_text_sr"`
+	AllergenTextEN string    `json:"allergen_text_en"`
+	SortOrder      int       `json:"sort_order"`
+	Visible        bool      `json:"visible"`
+	Archived       bool      `json:"archived"`
+	UsedInOrders   bool      `json:"used_in_orders"`
+	Version        int       `json:"version"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type MenuItem struct {
@@ -176,6 +229,7 @@ type Order struct {
 	DeliveredAt       *time.Time        `json:"delivered_at,omitempty"`
 	CancelledAt       *time.Time        `json:"cancelled_at,omitempty"`
 	Items             []OrderItem       `json:"items"`
+	Events            []OrderEvent      `json:"events,omitempty"`
 }
 
 type OrderItem struct {
@@ -184,4 +238,87 @@ type OrderItem struct {
 	UnitPriceMinor int       `json:"unit_price_minor"`
 	Quantity       int       `json:"quantity"`
 	LineTotalMinor int       `json:"line_total_minor"`
+}
+
+type OrderEvent struct {
+	ID         uuid.UUID `json:"id"`
+	OrderID    uuid.UUID `json:"order_id"`
+	FromStatus string    `json:"from_status"`
+	ToStatus   string    `json:"to_status"`
+	Action     string    `json:"action"`
+	ActorRole  string    `json:"actor_role"`
+	Reason     string    `json:"reason"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type StaffMember struct {
+	ID             uuid.UUID `json:"id"`
+	TelegramUserID int64     `json:"telegram_user_id"`
+	DisplayLabel   string    `json:"display_label"`
+	Role           Role      `json:"role"`
+	Active         bool      `json:"active"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type AdminDashboard struct {
+	Runtime            Runtime   `json:"runtime"`
+	NewOrders          int       `json:"new_orders"`
+	OutForDelivery     int       `json:"out_for_delivery"`
+	OrdersToday        int       `json:"orders_today"`
+	RevenueTodayMinor  int       `json:"revenue_today_minor"`
+	NotificationErrors []string  `json:"notification_errors"`
+	GeneratedAt        time.Time `json:"generated_at"`
+}
+
+type AnalyticsSummary struct {
+	AllOrders         int `json:"all_orders"`
+	DeliveredOrders   int `json:"delivered_orders"`
+	CancelledOrders   int `json:"cancelled_orders"`
+	RevenueMinor      int `json:"revenue_minor"`
+	AverageCheckMinor int `json:"average_check_minor"`
+}
+
+type AnalyticsBreakdown struct {
+	Key          string `json:"key"`
+	Count        int    `json:"count"`
+	RevenueMinor int    `json:"revenue_minor"`
+}
+
+type TopDish struct {
+	Title        string `json:"title"`
+	Quantity     int    `json:"quantity"`
+	RevenueMinor int    `json:"revenue_minor"`
+}
+
+type DailyAnalyticsRow struct {
+	Day          string `json:"day"`
+	Orders       int    `json:"orders"`
+	Delivered    int    `json:"delivered"`
+	Cancelled    int    `json:"cancelled"`
+	RevenueMinor int    `json:"revenue_minor"`
+}
+
+type AdminAnalytics struct {
+	Currency    string               `json:"currency"`
+	From        time.Time            `json:"from"`
+	To          time.Time            `json:"to"`
+	GeneratedAt time.Time            `json:"generated_at"`
+	Summary     AnalyticsSummary     `json:"summary"`
+	Statuses    []AnalyticsBreakdown `json:"statuses"`
+	Payments    []AnalyticsBreakdown `json:"payments"`
+	TopDishes   []TopDish            `json:"top_dishes"`
+	DailyRows   []DailyAnalyticsRow  `json:"daily_rows"`
+}
+
+type AuditEntry struct {
+	ID         uuid.UUID      `json:"id"`
+	ActorRole  string         `json:"actor_role"`
+	Action     string         `json:"action"`
+	TargetType string         `json:"target_type"`
+	TargetID   *uuid.UUID     `json:"target_id,omitempty"`
+	Reason     string         `json:"reason"`
+	Before     map[string]any `json:"before,omitempty"`
+	After      map[string]any `json:"after,omitempty"`
+	CreatedAt  time.Time      `json:"created_at"`
 }

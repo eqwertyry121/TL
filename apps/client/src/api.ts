@@ -1,10 +1,12 @@
-import type { Category, Order, Runtime } from "@tk-delivery/api-client/generated";
+import type { AdminCategory, AdminMenuItem, Category, Order, Runtime, Settings } from "@tk-delivery/api-client/generated";
 import { demoCategories, demoRuntime } from "./fixtures";
 import { rawInitData } from "./telegram";
 import type { Api, Calculation, CreateOrderInput, Locale, Session } from "./types";
 
 const demoOrdersKey = "tk-client-demo-orders-v1";
 const demoCalculationsKey = "tk-client-demo-calculations-v1";
+const demoMenuKey = "tk-admin-demo-menu-v1";
+const demoSettingsKey = "tk-admin-demo-settings-v1";
 
 export function createApi(): Api {
   const appEnv = import.meta.env.VITE_APP_ENV || (import.meta.env.PROD ? "production" : "development");
@@ -48,19 +50,21 @@ function demoApi(): Api {
       };
     },
     async runtime() {
-      return { ...demoRuntime, server_time: new Date().toISOString() };
+      return { ...loadDemoRuntime(), server_time: new Date().toISOString() };
     },
     async menu() {
-      return { categories: demoCategories };
+      return { categories: loadDemoCategories() };
     },
     async calculate(_token, items) {
-      const lookup = menuLookup(demoCategories);
+      const categories = loadDemoCategories();
+      const runtime = loadDemoRuntime();
+      const lookup = menuLookup(categories);
       const calculationItems = items.map(({ item_id, quantity }) => {
         const item = lookup.get(item_id);
         if (!item || quantity <= 0 || quantity > 10) {
           throw apiError("INVALID_QUANTITY");
         }
-        return {
+      return {
           item_id,
           title: item.title,
           unit_price_minor: item.price_minor,
@@ -74,8 +78,8 @@ function demoApi(): Api {
         calculation_token: crypto.randomUUID(),
         items: calculationItems,
         subtotal_minor: subtotal,
-        delivery_fee_minor: demoRuntime.flat_delivery_fee_minor,
-        total_minor: subtotal + demoRuntime.flat_delivery_fee_minor,
+        delivery_fee_minor: runtime.flat_delivery_fee_minor,
+        total_minor: subtotal + runtime.flat_delivery_fee_minor,
         currency: "RSD",
         expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       } satisfies Calculation;
@@ -170,6 +174,57 @@ async function read(response: Response) {
 
 function menuLookup(categories: Category[]) {
   return new Map(categories.flatMap((category) => category.items.map((item) => [item.id, item])));
+}
+
+function loadDemoRuntime(): Runtime {
+  const settings = loadJSON<Settings | null>(demoSettingsKey, null);
+  if (!settings) return demoRuntime;
+  return {
+    ...demoRuntime,
+    accepting_orders: !settings.manual_day_off,
+    reason: settings.manual_day_off ? "manual_day_off" : "open",
+    day_off_banner: settings.day_off_banner,
+    flat_delivery_fee_minor: settings.flat_delivery_fee_minor,
+    support_text: settings.support_text,
+    enabled_payments: settings.cash_enabled ? ["cash"] : [],
+  };
+}
+
+function loadDemoCategories(): Category[] {
+  const menu = loadJSON<{ categories: AdminCategory[]; items: AdminMenuItem[] } | null>(demoMenuKey, null);
+  if (!menu) return demoCategories;
+  return menu.categories
+    .filter((category) => category.visible && !category.archived)
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((category) => ({
+      id: category.id,
+      title: category.title_ru,
+      sort_order: category.sort_order,
+      items: menu.items
+        .filter((item) => item.category_id === category.id && item.visible && !item.archived)
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((item) => ({
+          id: item.id,
+          category_id: item.category_id,
+          title: item.title_ru,
+          description: item.description_ru,
+          price_minor: item.price_minor,
+          currency: item.currency,
+          photo_path: item.photo_path,
+          weight_text: item.weight_text,
+          allergen_text: item.allergen_text_ru,
+          sort_order: item.sort_order,
+          version: item.version,
+        })),
+    }));
+}
+
+function loadJSON<T>(key: string, fallback: T): T {
+  try {
+    return JSON.parse(localStorage.getItem(key) || "") as T;
+  } catch {
+    return fallback;
+  }
 }
 
 interface DemoOrder extends Order {

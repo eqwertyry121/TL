@@ -57,12 +57,19 @@ jobs:
           VITE_APP_ENV: staging
           VITE_DEMO_MODE: "true"
 
+      - name: Build admin Mini App
+        run: pnpm --filter @tk-delivery/admin build
+        env:
+          VITE_APP_ENV: staging
+          VITE_DEMO_MODE: "true"
+
       - name: Prepare Pages artifact
         run: |
-          mkdir -p pages/kitchen pages/courier
+          mkdir -p pages/kitchen pages/courier pages/admin
           cp -R apps/client/dist/. pages/
           cp -R apps/kitchen/dist/. pages/kitchen/
           cp -R apps/courier/dist/. pages/courier/
+          cp -R apps/admin/dist/. pages/admin/
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

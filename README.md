@@ -41,5 +41,21 @@ pnpm kitchen:dev
 pnpm courier:dev
 ```
 
+Admin Mini App для этапа 4:
+
+```text
+https://eqwertyry121.github.io/TL/admin/
+```
+
+Локально:
+
+```powershell
+pnpm admin:dev
+```
+
+Admin управляет меню, графиком, ручным `ВЫХОДНОЙ`, заказами, staff,
+настройками и простой аналитикой. На GitHub Pages это staging demo mode без
+общей серверной БД.
+
 `PLAN_v1.md` сохранён как исходный черновик. При противоречии приоритет имеют
 мастер-ТЗ, файл текущего этапа и `AGENTS.md`.

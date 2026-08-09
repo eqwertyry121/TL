@@ -17,6 +17,7 @@ type Config struct {
 	Env                      string
 	HTTPAddr                 string
 	PublicBaseURL            string
+	MediaDir                 string
 	DatabaseURL              string
 	Timezone                 string
 	Currency                 string
@@ -40,6 +41,7 @@ func Load() (Config, error) {
 		Env:                      get("APP_ENV", "development"),
 		HTTPAddr:                 get("HTTP_ADDR", ":8080"),
 		PublicBaseURL:            get("APP_PUBLIC_BASE_URL", "http://127.0.0.1:8080"),
+		MediaDir:                 get("MEDIA_DIR", "backend/uploads"),
 		DatabaseURL:              get("POSTGRES_DSN", "postgres://tk_delivery:tk_delivery@localhost:5432/tk_delivery?sslmode=disable"),
 		Timezone:                 get("APP_TIMEZONE", "Europe/Belgrade"),
 		Currency:                 get("APP_CURRENCY", "RSD"),
