@@ -214,6 +214,8 @@ type Order struct {
 	ID                uuid.UUID         `json:"id"`
 	PublicNumber      int               `json:"public_number"`
 	ClientUserID      uuid.UUID         `json:"client_user_id,omitempty"`
+	ClientUsername    string            `json:"client_username,omitempty"`
+	ClientFirstName   string            `json:"client_first_name,omitempty"`
 	FulfillmentStatus FulfillmentStatus `json:"fulfillment_status"`
 	PaymentMethod     PaymentMethod     `json:"payment_method"`
 	PaymentStatus     PaymentStatus     `json:"payment_status"`

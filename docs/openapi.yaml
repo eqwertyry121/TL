@@ -82,6 +82,13 @@ paths:
       responses:
         "200":
           description: OUT_FOR_DELIVERY orders with phone/address
+  /courier/orders/{id}/eta:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+      responses:
+        "200":
+          description: Courier notifies client that delivery is expected in 5, 10, 15 or 20 minutes
   /courier/orders/{id}/delivered:
     post:
       parameters:
@@ -134,6 +141,13 @@ paths:
       responses:
         "200":
           description: Category hidden and archived
+  /admin/categories/{id}/restore:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Category restored from archive and made visible
   /admin/items:
     get:
       responses:
@@ -163,6 +177,13 @@ paths:
       responses:
         "200":
           description: Dish hidden and archived
+  /admin/items/{id}/restore:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Dish restored from archive and made visible
   /admin/uploads/menu-photo:
     post:
       responses:

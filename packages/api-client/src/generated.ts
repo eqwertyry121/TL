@@ -99,6 +99,8 @@ export interface OrderItem {
 export interface Order {
   id: string;
   public_number: number;
+  client_username?: string;
+  client_first_name?: string;
   fulfillment_status: FulfillmentStatus;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;

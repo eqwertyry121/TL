@@ -1,7 +1,7 @@
 import type { Order, Role } from "@tk-delivery/api-client/generated";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
-import { createStaffApi, money, orderAge, paymentText, problemLink } from "@tk-delivery/staff-core";
-import { AlertTriangle, Bell, Check, Clock, MoreVertical, RefreshCw, Volume2, WifiOff } from "lucide-react";
+import { clientLabel, createStaffApi, kitchenTimeText, money, paymentText, problemLink } from "@tk-delivery/staff-core";
+import { AlertTriangle, Check, MoreVertical, RefreshCw, Volume2, WifiOff } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const api = createStaffApi("KITCHEN");
@@ -14,7 +14,6 @@ export function App() {
   const [offline, setOffline] = useState(false);
   const [busy, setBusy] = useState("");
   const [soundEnabled, setSoundEnabled] = useState(false);
-  const [wakeStatus, setWakeStatus] = useState("Экран может выключиться");
   const seen = useRef(new Set<string>());
 
   const sortedOrders = useMemo(() => [...orders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [orders]);
@@ -64,9 +63,8 @@ export function App() {
     try {
       const nav = navigator as Navigator & { wakeLock?: { request(type: "screen"): Promise<unknown> } };
       await nav.wakeLock?.request("screen");
-      setWakeStatus("Экран удерживается активным");
     } catch {
-      setWakeStatus("Экран может выключиться");
+      // Wake Lock is best-effort. The UI should stay simple for staff.
     }
   }
 
@@ -87,19 +85,16 @@ export function App() {
     <div className="app">
       <header className="header">
         <div>
-          <h1>НОВЫЕ ЗАКАЗЫ</h1>
-          <p>{sortedOrders.length} активных · {lastUpdated ? `обновлено ${secondsAgo(lastUpdated)} сек назад` : "ожидание"}</p>
+          <h1>Кухня</h1>
+          <p>{sortedOrders.length} новых · {lastUpdated ? `обновлено ${secondsAgo(lastUpdated)} сек назад` : "ожидание"}</p>
         </div>
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>
       </header>
-      <div className={offline ? "status bad" : "status"}>
-        {offline ? <WifiOff size={18} /> : <Clock size={18} />}
-        <span>{offline ? "Нет связи" : wakeStatus}</span>
-      </div>
+      {offline && <div className="status bad"><WifiOff size={18} /><span>Нет связи с сервером</span></div>}
       {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="KITCHEN" />}
       {!soundEnabled && (
         <button className="secondary full" onClick={enableSoundAndWake}>
-          <Volume2 size={18} /> Включить звук
+          <Volume2 size={18} /> Включить звук новых заказов
         </button>
       )}
       <main className="list">
@@ -108,9 +103,13 @@ export function App() {
             <div className="card-head">
               <div>
                 <strong>Заказ #{order.public_number}</strong>
-                <span>{orderAge(order)} · {paymentText(order)}</span>
+                <span>{kitchenTimeText(order)}</span>
               </div>
               <Menu order={order} />
+            </div>
+            <div className="meta-grid">
+              <div><span>Клиент</span><strong>{clientLabel(order)}</strong></div>
+              <div><span>Оплата</span><strong>{paymentText(order)}</strong></div>
             </div>
             <ul>
               {order.items.map((item) => <li key={item.menu_item_id}>{item.quantity} × {item.snapshot_title}</li>)}

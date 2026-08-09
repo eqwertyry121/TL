@@ -74,6 +74,7 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/kitchen/orders/{id}/ready", s.markReady)
 
 			r.Get("/courier/orders", s.courierOrders)
+			r.Post("/courier/orders/{id}/eta", s.courierETA)
 			r.Post("/courier/orders/{id}/delivered", s.markDelivered)
 
 			r.Get("/admin/orders", s.adminOrders)
@@ -89,11 +90,13 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/admin/categories", s.adminCreateCategory)
 			r.Put("/admin/categories/{id}", s.adminUpdateCategory)
 			r.Post("/admin/categories/{id}/archive", s.adminArchiveCategory)
+			r.Post("/admin/categories/{id}/restore", s.adminRestoreCategory)
 			r.Delete("/admin/categories/{id}", s.adminDeleteCategory)
 			r.Get("/admin/items", s.adminMenuItems)
 			r.Post("/admin/items", s.adminCreateMenuItem)
 			r.Put("/admin/items/{id}", s.adminUpdateMenuItem)
 			r.Post("/admin/items/{id}/archive", s.adminArchiveMenuItem)
+			r.Post("/admin/items/{id}/restore", s.adminRestoreMenuItem)
 			r.Delete("/admin/items/{id}", s.adminDeleteMenuItem)
 			r.Get("/admin/settings", s.adminSettings)
 			r.Put("/admin/settings", s.adminUpdateSettings)
@@ -321,6 +324,26 @@ func (s *Server) courierOrders(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"orders": orders})
 }
 
+func (s *Server) courierETA(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		Minutes int `json:"minutes"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.store.SendCourierETA(r.Context(), mustSession(r), id, req.Minutes); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (s *Server) adminOrders(w http.ResponseWriter, r *http.Request) {
 	orders, err := s.store.AdminOrders(r.Context(), mustSession(r), store.AdminOrderFilter{
 		Status: r.URL.Query().Get("status"),
@@ -535,6 +558,27 @@ func (s *Server) adminArchiveCategory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, category)
 }
 
+func (s *Server) adminRestoreCategory(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	category, err := s.store.RestoreCategory(r.Context(), mustSession(r), id, req.Reason)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, category)
+}
+
 func (s *Server) adminDeleteCategory(w http.ResponseWriter, r *http.Request) {
 	id, err := parseUUIDParam(r, "id")
 	if err != nil {
@@ -605,6 +649,27 @@ func (s *Server) adminArchiveMenuItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	item, err := s.store.ArchiveMenuItem(r.Context(), mustSession(r), id, req.Reason)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) adminRestoreMenuItem(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	item, err := s.store.RestoreMenuItem(r.Context(), mustSession(r), id, req.Reason)
 	if err != nil {
 		writeError(w, err)
 		return

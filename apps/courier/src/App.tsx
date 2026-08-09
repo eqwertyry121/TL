@@ -1,6 +1,6 @@
 import type { Order, Role } from "@tk-delivery/api-client/generated";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
-import { createStaffApi, mapLink, money, orderAge, paymentText, problemLink } from "@tk-delivery/staff-core";
+import { clientLabel, courierTimeText, createStaffApi, mapLink, money, paymentText, problemLink } from "@tk-delivery/staff-core";
 import { Check, Copy, MapPin, MoreVertical, Phone, RefreshCw, WifiOff } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -13,6 +13,7 @@ export function App() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [offline, setOffline] = useState(false);
   const [busy, setBusy] = useState("");
+  const [etaBusy, setEtaBusy] = useState("");
 
   const sortedOrders = useMemo(() => [...orders].sort((a, b) => new Date(a.ready_at || a.created_at).getTime() - new Date(b.ready_at || b.created_at).getTime()), [orders]);
 
@@ -66,19 +67,28 @@ export function App() {
     }
   }
 
+  async function sendETA(order: Order, minutes: number) {
+    const key = `${order.id}:${minutes}`;
+    setEtaBusy(key);
+    try {
+      await api.sendCourierETA(token, order.id, minutes);
+    } catch {
+      await refresh();
+    } finally {
+      setEtaBusy("");
+    }
+  }
+
   return (
     <div className="app">
       <header className="header">
         <div>
-          <h1>ДОСТАВКИ</h1>
-          <p>{sortedOrders.length} активных · {lastUpdated ? `обновлено ${secondsAgo(lastUpdated)} сек назад` : "ожидание"}</p>
+          <h1>Курьер</h1>
+          <p>{sortedOrders.length} в доставке · {lastUpdated ? `обновлено ${secondsAgo(lastUpdated)} сек назад` : "ожидание"}</p>
         </div>
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>
       </header>
-      <div className={offline ? "status bad" : "status"}>
-        {offline ? <WifiOff size={18} /> : <MapPin size={18} />}
-        <span>{offline ? "Нет связи" : "Заказы обновляются каждые 5 секунд"}</span>
-      </div>
+      {offline && <div className="status bad"><WifiOff size={18} /><span>Нет связи с сервером</span></div>}
       {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="COURIER" />}
       <main className="list">
         {sortedOrders.length === 0 ? <div className="empty">Готовых доставок нет</div> : sortedOrders.map((order) => (
@@ -86,9 +96,13 @@ export function App() {
             <div className="card-head">
               <div>
                 <strong>Заказ #{order.public_number}</strong>
-                <span>{orderAge(order)} · {paymentText(order)}</span>
+                <span>{courierTimeText(order)} · {paymentText(order)}</span>
               </div>
               <Menu order={order} />
+            </div>
+            <div className="client">
+              <span>Клиент</span>
+              <strong>{clientLabel(order)}</strong>
             </div>
             <div className="address">
               <MapPin size={20} />
@@ -102,6 +116,16 @@ export function App() {
               {order.items.map((item) => <li key={item.menu_item_id}>{item.quantity} × {item.snapshot_title}</li>)}
             </ul>
             <div className="cash">{order.payment_method === "cash" ? money(order.total_minor) : "ОПЛАЧЕН"}</div>
+            <div className="eta">
+              <span>Сообщить клиенту, что приедешь через:</span>
+              <div>
+                {[5, 10, 15, 20].map((minutes) => (
+                  <button key={minutes} disabled={etaBusy === `${order.id}:${minutes}`} onClick={() => void sendETA(order, minutes)}>
+                    {minutes} мин
+                  </button>
+                ))}
+              </div>
+            </div>
             <button className="primary full" disabled={busy === order.id} onClick={() => void markDelivered(order)}>
               <Check size={20} /> ДОСТАВЛЕНО
             </button>

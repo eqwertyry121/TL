@@ -16,6 +16,7 @@ export interface StaffApi {
   authenticate(role: StaffRole): Promise<StaffSession>;
   listKitchenOrders(token: string): Promise<{ orders: Order[] }>;
   listCourierOrders(token: string): Promise<{ orders: Order[] }>;
+  sendCourierETA(token: string, id: string, minutes: number): Promise<{ ok: boolean }>;
   markReady(token: string, id: string, idempotencyKey: string): Promise<Order>;
   markDelivered(token: string, id: string, idempotencyKey: string): Promise<Order>;
 }
@@ -39,12 +40,35 @@ export function money(value: number): string {
 }
 
 export function orderAge(order: Order): string {
-  const from = new Date(order.ready_at || order.created_at).getTime();
+  return elapsedSince(order.ready_at || order.created_at);
+}
+
+export function kitchenTimeText(order: Order): string {
+  return `Создан ${elapsedSince(order.created_at)}`;
+}
+
+export function courierTimeText(order: Order): string {
+  return `Готов ${elapsedSince(order.ready_at || order.created_at)}`;
+}
+
+export function clientLabel(order: Order): string {
+  const username = (order.client_username || "").trim();
+  if (username) return username.startsWith("@") ? username : `@${username}`;
+  const firstName = (order.client_first_name || "").trim();
+  if (firstName) return firstName;
+  return "Клиент Telegram";
+}
+
+function elapsedSince(value: string): string {
+  const from = new Date(value).getTime();
   const minutes = Math.max(0, Math.floor((Date.now() - from) / 60000));
   if (minutes < 1) return "только что";
-  if (minutes === 1) return "1 минута";
-  if (minutes < 5) return `${minutes} минуты`;
-  return `${minutes} минут`;
+  if (minutes < 60) return `${minutes} мин назад`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours < 24) return rest ? `${hours} ч ${rest} мин назад` : `${hours} ч назад`;
+  const days = Math.floor(hours / 24);
+  return `${days} д назад`;
 }
 
 export function paymentText(order: Order): string {
@@ -76,6 +100,7 @@ function realApi(baseURL: string, appEnv: string): StaffApi {
     },
     listKitchenOrders: (token) => get(`${baseURL}/api/v1/kitchen/orders`, token),
     listCourierOrders: (token) => get(`${baseURL}/api/v1/courier/orders`, token),
+    sendCourierETA: (token, id, minutes) => post(`${baseURL}/api/v1/courier/orders/${id}/eta`, { minutes }, token),
     markReady: (token, id, idempotencyKey) => post(`${baseURL}/api/v1/kitchen/orders/${id}/ready`, {}, token, { "Idempotency-Key": idempotencyKey }),
     markDelivered: (token, id, idempotencyKey) => post(`${baseURL}/api/v1/courier/orders/${id}/delivered`, {}, token, { "Idempotency-Key": idempotencyKey }),
   };
@@ -98,6 +123,9 @@ function demoApi(role: StaffRole): StaffApi {
     async listCourierOrders() {
       return { orders: loadDemoOrders().filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").map(stripDemo) };
     },
+    async sendCourierETA() {
+      return { ok: true };
+    },
     async markReady(_token, id) {
       return transitionDemoOrder(id, "NEW", "OUT_FOR_DELIVERY");
     },
@@ -116,6 +144,7 @@ function unconfiguredApi(): StaffApi {
     authenticate: () => fail() as Promise<StaffSession>,
     listKitchenOrders: fail,
     listCourierOrders: fail,
+    sendCourierETA: fail,
     markReady: fail,
     markDelivered: fail,
   };

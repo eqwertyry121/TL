@@ -336,6 +336,10 @@ func (w *Worker) markFailed(ctx context.Context, current job, cause error) {
 }
 
 func clientText(publicNumber int, template string) string {
+	if strings.HasPrefix(template, "client_eta_") {
+		minutes := strings.TrimPrefix(template, "client_eta_")
+		return fmt.Sprintf("Заказ #%d скоро приедет. Курьер ориентировочно будет у вас в течение %s минут.", publicNumber, minutes)
+	}
 	switch template {
 	case "client_order_out_for_delivery":
 		return fmt.Sprintf("Заказ #%d передан в доставку.", publicNumber)

@@ -90,10 +90,12 @@ export interface AdminApi {
   createCategory(token: string, input: CategoryInput): Promise<AdminCategory>;
   updateCategory(token: string, id: string, input: CategoryInput): Promise<AdminCategory>;
   archiveCategory(token: string, id: string, reason: string): Promise<AdminCategory>;
+  restoreCategory(token: string, id: string, reason: string): Promise<AdminCategory>;
   deleteCategory(token: string, id: string, reason: string): Promise<{ result: string }>;
   createItem(token: string, input: MenuItemInput): Promise<AdminMenuItem>;
   updateItem(token: string, id: string, input: MenuItemInput): Promise<AdminMenuItem>;
   archiveItem(token: string, id: string, reason: string): Promise<AdminMenuItem>;
+  restoreItem(token: string, id: string, reason: string): Promise<AdminMenuItem>;
   deleteItem(token: string, id: string, reason: string): Promise<{ result: string }>;
   settings(token: string): Promise<Settings>;
   updateSettings(token: string, input: SettingsInput): Promise<Settings>;
@@ -131,13 +133,13 @@ export function money(value: number): string {
 export function statusText(status: Order["fulfillment_status"]): string {
   switch (status) {
     case "NEW":
-      return "NEW";
+      return "Новый";
     case "OUT_FOR_DELIVERY":
-      return "OUT FOR DELIVERY";
+      return "В доставке";
     case "DELIVERED":
-      return "DELIVERED";
+      return "Доставлен";
     case "CANCELLED":
-      return "CANCELLED";
+      return "Отменён";
   }
 }
 
@@ -160,10 +162,12 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
     createCategory: (token, input) => post(`${baseURL}/api/v1/admin/categories`, input, token),
     updateCategory: (token, id, input) => put(`${baseURL}/api/v1/admin/categories/${id}`, input, token),
     archiveCategory: (token, id, reason) => post(`${baseURL}/api/v1/admin/categories/${id}/archive`, { reason }, token),
+    restoreCategory: (token, id, reason) => post(`${baseURL}/api/v1/admin/categories/${id}/restore`, { reason }, token),
     deleteCategory: (token, id, reason) => del(`${baseURL}/api/v1/admin/categories/${id}?reason=${encodeURIComponent(reason)}`, token),
     createItem: (token, input) => post(`${baseURL}/api/v1/admin/items`, input, token),
     updateItem: (token, id, input) => put(`${baseURL}/api/v1/admin/items/${id}`, input, token),
     archiveItem: (token, id, reason) => post(`${baseURL}/api/v1/admin/items/${id}/archive`, { reason }, token),
+    restoreItem: (token, id, reason) => post(`${baseURL}/api/v1/admin/items/${id}/restore`, { reason }, token),
     deleteItem: (token, id, reason) => del(`${baseURL}/api/v1/admin/items/${id}?reason=${encodeURIComponent(reason)}`, token),
     settings: (token) => get(`${baseURL}/api/v1/admin/settings`, token),
     updateSettings: (token, input) => put(`${baseURL}/api/v1/admin/settings`, input, token),
@@ -255,6 +259,18 @@ function demoApi(): AdminApi {
       pushAudit("category.archive", "category", id, reason, before, category);
       return category;
     },
+    async restoreCategory(_token, id, reason) {
+      const menu = loadMenu();
+      const category = mustFind(menu.categories, id);
+      const before = { ...category };
+      category.visible = true;
+      category.archived = false;
+      category.version += 1;
+      category.updated_at = nowISO();
+      saveMenu(menu);
+      pushAudit("category.restore", "category", id, reason, before, category);
+      return category;
+    },
     async deleteCategory(_token, id, reason) {
       const menu = loadMenu();
       const hasItems = menu.items.some((item) => item.category_id === id);
@@ -305,6 +321,19 @@ function demoApi(): AdminApi {
       refreshCategoryCounts(menu);
       saveMenu(menu);
       pushAudit("menu_item.archive", "menu_item", id, reason, before, item);
+      return item;
+    },
+    async restoreItem(_token, id, reason) {
+      const menu = loadMenu();
+      const item = mustFind(menu.items, id);
+      const before = { ...item };
+      item.visible = true;
+      item.archived = false;
+      item.version += 1;
+      item.updated_at = nowISO();
+      refreshCategoryCounts(menu);
+      saveMenu(menu);
+      pushAudit("menu_item.restore", "menu_item", id, reason, before, item);
       return item;
     },
     async deleteItem(_token, id, reason) {
@@ -426,10 +455,12 @@ function unconfiguredApi(): AdminApi {
     createCategory: fail,
     updateCategory: fail,
     archiveCategory: fail,
+    restoreCategory: fail,
     deleteCategory: fail,
     createItem: fail,
     updateItem: fail,
     archiveItem: fail,
+    restoreItem: fail,
     deleteItem: fail,
     settings: fail,
     updateSettings: fail,

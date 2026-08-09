@@ -577,6 +577,32 @@ func (s *Store) ArchiveCategory(ctx context.Context, sess core.Session, id uuid.
 	return after, nil
 }
 
+func (s *Store) RestoreCategory(ctx context.Context, sess core.Session, id uuid.UUID, reason string) (core.AdminCategory, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.AdminCategory{}, core.ErrForbidden
+	}
+	before, err := s.adminCategoryByID(ctx, id)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	result, err := s.pool.Exec(ctx, `
+		UPDATE categories SET visible=true, archived=false, version=version+1, updated_at=now()
+		WHERE id=$1 AND archived=true
+	`, id)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	if result.RowsAffected() == 0 {
+		return core.AdminCategory{}, core.ErrOrderStatusConflict
+	}
+	after, err := s.adminCategoryByID(ctx, id)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	_ = s.insertAudit(ctx, sess, "category.restore", "category", &id, safe(reason), categoryAudit(before), categoryAudit(after))
+	return after, nil
+}
+
 func (s *Store) DeleteOrArchiveCategory(ctx context.Context, sess core.Session, id uuid.UUID, reason string) (string, error) {
 	if sess.ActiveRole != core.RoleAdmin {
 		return "", core.ErrForbidden
@@ -687,6 +713,32 @@ func (s *Store) ArchiveMenuItem(ctx context.Context, sess core.Session, id uuid.
 		return core.AdminMenuItem{}, err
 	}
 	_ = s.insertAudit(ctx, sess, "menu_item.archive", "menu_item", &id, safe(reason), menuItemAudit(before), menuItemAudit(after))
+	return after, nil
+}
+
+func (s *Store) RestoreMenuItem(ctx context.Context, sess core.Session, id uuid.UUID, reason string) (core.AdminMenuItem, error) {
+	if sess.ActiveRole != core.RoleAdmin {
+		return core.AdminMenuItem{}, core.ErrForbidden
+	}
+	before, err := s.adminMenuItemByID(ctx, id)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	result, err := s.pool.Exec(ctx, `
+		UPDATE menu_items SET visible=true, archived=false, version=version+1, updated_at=now()
+		WHERE id=$1 AND archived=true
+	`, id)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	if result.RowsAffected() == 0 {
+		return core.AdminMenuItem{}, core.ErrOrderStatusConflict
+	}
+	after, err := s.adminMenuItemByID(ctx, id)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	_ = s.insertAudit(ctx, sess, "menu_item.restore", "menu_item", &id, safe(reason), menuItemAudit(before), menuItemAudit(after))
 	return after, nil
 }
 
@@ -1578,6 +1630,51 @@ func (s *Store) MarkDelivered(ctx context.Context, sess core.Session, orderID uu
 	return s.transition(ctx, sess, orderID, "orders.mark_delivered", idempotencyKey, requestHash, core.StatusOutForDelivery, core.StatusDelivered)
 }
 
+func (s *Store) SendCourierETA(ctx context.Context, sess core.Session, orderID uuid.UUID, minutes int) error {
+	if sess.ActiveRole != core.RoleCourier {
+		return core.ErrForbidden
+	}
+	if minutes != 5 && minutes != 10 && minutes != 15 && minutes != 20 {
+		return core.ErrInvalidInput
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(ctx, tx)
+
+	var publicNumber int
+	err = tx.QueryRow(ctx, `
+		SELECT public_number
+		FROM orders
+		WHERE id=$1 AND fulfillment_status='OUT_FOR_DELIVERY'
+		FOR UPDATE
+	`, orderID).Scan(&publicNumber)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return core.ErrOrderStatusConflict
+	}
+	if err != nil {
+		return err
+	}
+	reason := fmt.Sprintf("Курьер сообщил клиенту ETA %d минут", minutes)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO order_events (order_id, action, actor_user_id, actor_role, reason)
+		VALUES ($1, 'courier_eta', $2, $3, $4)
+	`, orderID, sess.UserID, string(sess.ActiveRole), reason); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
+		VALUES ($1, 'client', $2, $3)
+	`, orderID, fmt.Sprintf("client_eta_%d", minutes), fmt.Sprintf("order:%s:eta:%d:%d", orderID, minutes, time.Now().UnixNano())); err != nil {
+		return err
+	}
+	if err := s.insertAuditTx(ctx, tx, sess, "order.courier_eta", "order", &orderID, reason, nil, map[string]any{"public_number": publicNumber, "minutes": minutes}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Store) transition(ctx context.Context, sess core.Session, orderID uuid.UUID, operation, idempotencyKey, requestHash string, from, to core.FulfillmentStatus) (core.Order, error) {
 	if strings.TrimSpace(idempotencyKey) == "" {
 		return core.Order{}, core.ErrIdempotencyConflict
@@ -1663,12 +1760,16 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 	var phoneCipher, addressCipher string
 	var ready, delivered, cancelled sql.NullTime
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, public_number, client_user_id, fulfillment_status, payment_method, payment_status,
-			subtotal_minor, delivery_fee_minor, total_minor, currency, phone_ciphertext, address_ciphertext,
-			customer_comment, locale, version, created_at, ready_at, delivered_at, cancelled_at
-		FROM orders WHERE id=$1
+		SELECT o.id, o.public_number, o.client_user_id, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
+			o.fulfillment_status, o.payment_method, o.payment_status,
+			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency, o.phone_ciphertext, o.address_ciphertext,
+			o.customer_comment, o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at
+		FROM orders o
+		JOIN users u ON u.id=o.client_user_id
+		WHERE o.id=$1
 	`, orderID).Scan(
-		&order.ID, &order.PublicNumber, &order.ClientUserID, &order.FulfillmentStatus, &order.PaymentMethod,
+		&order.ID, &order.PublicNumber, &order.ClientUserID, &order.ClientUsername, &order.ClientFirstName,
+		&order.FulfillmentStatus, &order.PaymentMethod,
 		&order.PaymentStatus, &order.SubtotalMinor, &order.DeliveryFeeMinor, &order.TotalMinor, &order.Currency,
 		&phoneCipher, &addressCipher, &order.CustomerComment, &order.Locale, &order.Version, &order.CreatedAt,
 		&ready, &delivered, &cancelled,
