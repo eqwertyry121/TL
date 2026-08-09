@@ -967,10 +967,26 @@ textarea {
 
 @media (max-width: 32rem) {
   .top-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .header-main,
+  .brand {
+    overflow: hidden;
+  }
+
+  .brand strong {
+    max-width: 100%;
+    font-size: clamp(1.15rem, 4.7vw, 1.38rem);
+    line-height: 1.08;
+    white-space: normal;
   }
 
   .locale {
-    justify-self: start;
+    position: relative;
+    z-index: 1;
+    align-self: start;
+    justify-self: end;
   }
 }
