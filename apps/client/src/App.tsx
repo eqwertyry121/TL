@@ -83,7 +83,7 @@ export function App() {
   useEffect(() => syncBackButton(route, () => window.history.back()), [route]);
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "auto" });
   }, [route]);
 
   useEffect(() => {

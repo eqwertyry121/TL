@@ -736,20 +736,14 @@ main {
   }
 }
 
-@supports (content-visibility: auto) {
-  .panel,
-  .metric,
-  .order,
-  .schedule-card,
-  .row,
-  .menu-row,
-  .staff-row {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 12rem;
-  }
-}
-
 @media (hover: none), (pointer: coarse), (max-width: 56rem) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
   body::before {
     display: none;
   }
@@ -766,8 +760,14 @@ main {
     backdrop-filter: none;
   }
 
+  .sidebar,
+  .topbar,
+  .sticky-save {
+    position: static;
+  }
+
   .topbar {
-    box-shadow: 0 0.45rem 1.05rem rgba(63, 115, 70, 0.08);
+    box-shadow: none;
   }
 
   .panel,
@@ -775,15 +775,16 @@ main {
   .order,
   .schedule-card {
     animation: none;
-    box-shadow: 0 0.45rem 1.05rem rgba(63, 115, 70, 0.08);
-    transition: border-color 140ms ease, background 140ms ease;
+    box-shadow: none;
+    content-visibility: visible;
+    contain: none;
   }
 
   .panel:hover,
   .metric:hover,
   .order:hover,
   .schedule-card:hover {
-    box-shadow: 0 0.45rem 1.05rem rgba(63, 115, 70, 0.08);
+    box-shadow: none;
     transform: none;
   }
 
@@ -903,4 +904,48 @@ main {
   .schedule-card {
     border-radius: var(--radius-md);
   }
+}
+
+/* Baseline performance mode: Telegram WebView janks on sticky + blur + large shadows. */
+body::before {
+  display: none;
+}
+
+button:hover {
+  filter: none;
+}
+
+.sidebar,
+.topbar,
+.sticky-save {
+  position: static;
+}
+
+.topbar,
+.panel,
+.metric,
+.order,
+.schedule-card {
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.panel,
+.metric,
+.order,
+.schedule-card {
+  animation: none;
+  transition: none;
+}
+
+.panel:hover,
+.metric:hover,
+.order:hover,
+.schedule-card:hover {
+  box-shadow: none;
+  transform: none;
+}
+
+.primary::after {
+  display: none;
 }

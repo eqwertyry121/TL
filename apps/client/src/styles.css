@@ -42,7 +42,7 @@
 
 html {
   min-height: 100%;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
 }
 
 body {
@@ -57,17 +57,7 @@ body {
 }
 
 body::before {
-  position: fixed;
-  inset: -20%;
-  z-index: -1;
-  pointer-events: none;
-  content: "";
-  background:
-    radial-gradient(circle at 20% 20%, rgba(232, 207, 111, 0.1), transparent 28%),
-    radial-gradient(circle at 80% 18%, rgba(103, 173, 99, 0.16), transparent 30%),
-    radial-gradient(circle at 50% 90%, rgba(20, 54, 36, 0.26), transparent 34%);
-  filter: blur(0.2rem);
-  animation: ambientShift 12s ease-in-out infinite alternate;
+  display: none;
 }
 
 button,
@@ -161,7 +151,7 @@ h2 {
 }
 
 .app-header {
-  position: sticky;
+  position: relative;
   top: 0;
   z-index: 20;
   margin: 0 calc(0rem - var(--page-pad));
@@ -176,8 +166,8 @@ h2 {
     radial-gradient(circle at 100% 10%, rgba(215, 239, 178, 0.22), transparent 36%),
     linear-gradient(135deg, rgba(20, 54, 36, 0.94) 0%, rgba(76, 138, 85, 0.9) 54%, rgba(126, 190, 97, 0.8) 100%);
   color: #fff;
-  box-shadow: 0 1rem 2.4rem rgba(39, 85, 50, 0.24);
-  backdrop-filter: blur(1.2rem);
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .app-header::after {
@@ -555,7 +545,6 @@ h2 {
   display: grid;
   gap: var(--section-gap);
   padding-top: clamp(0.95rem, 2.3vw, 1.35rem);
-  animation: pageIn 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .eyebrow {
@@ -611,8 +600,8 @@ h2 {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface);
-  box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(0.85rem);
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .dish-card {
@@ -623,8 +612,7 @@ h2 {
     linear-gradient(180deg, rgba(255, 255, 250, 0.96), rgba(248, 252, 242, 0.88)),
     var(--surface-solid);
   isolation: isolate;
-  animation: cardIn 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+  transition: none;
 }
 
 .dish-card::before {
@@ -651,8 +639,8 @@ h2 {
 
 .dish-card:hover {
   border-color: rgba(47, 125, 87, 0.24);
-  transform: translateY(-0.32rem) rotateX(1.5deg);
-  box-shadow: var(--shadow-lift);
+  transform: none;
+  box-shadow: none;
 }
 
 .dish-card:hover::after {
@@ -711,7 +699,7 @@ h2 {
     rgba(55, 124, 70, 0.66) 66.66% 100%
   );
   clip-path: polygon(50% 0, 100% 25%, 100% 74%, 50% 100%, 0 74%, 0 25%);
-  filter: drop-shadow(0 0.55rem 0.55rem rgba(20, 54, 36, 0.24));
+  filter: none;
   opacity: 0.82;
 }
 
@@ -730,12 +718,12 @@ h2 {
   border-radius: 1.15rem;
   background: rgba(255, 255, 255, 0.13);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
-  filter: drop-shadow(0 0.85rem 1.1rem rgba(0, 0, 0, 0.22));
-  transition: transform 220ms ease;
+  filter: none;
+  transition: none;
 }
 
 .dish-card:hover .dish-emoji {
-  transform: translateY(-0.18rem) rotate(-4deg) scale(1.05);
+  transform: none;
 }
 
 .dish-badge {
@@ -754,14 +742,14 @@ h2 {
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
-  backdrop-filter: blur(0.7rem);
+  backdrop-filter: none;
 }
 
 .hero-art {
   min-height: clamp(14rem, 38dvh, 25rem);
   border-radius: var(--radius-lg);
   font-size: clamp(3rem, 13vw, 6.2rem);
-  box-shadow: var(--shadow-lift);
+  box-shadow: none;
 }
 
 .art-0 { background: linear-gradient(135deg, rgba(20, 54, 36, 0.9), rgba(76, 138, 85, 0.72) 58%, rgba(215, 239, 178, 0.66)); }
@@ -960,10 +948,9 @@ h2 {
     linear-gradient(135deg, rgba(20, 54, 36, 0.94), rgba(26, 53, 34, 0.92) 58%, rgba(76, 138, 85, 0.84));
   background-size: 150% 150%;
   color: #fff;
-  box-shadow: 0 1.25rem 3rem rgba(0, 31, 35, 0.38);
-  backdrop-filter: blur(1rem);
+  box-shadow: none;
+  backdrop-filter: none;
   transform: translateX(-50%);
-  animation: floatIn 360ms cubic-bezier(0.2, 0.8, 0.2, 1), subtlePulse 3.2s ease-in-out infinite, gradientDrift 8s ease-in-out infinite alternate;
 }
 
 .list,
@@ -1151,7 +1138,7 @@ textarea {
 }
 
 .bottom-action {
-  position: sticky;
+  position: static;
   bottom: var(--safe-bottom);
   z-index: 8;
   display: grid;
@@ -1159,7 +1146,7 @@ textarea {
   padding-top: 0.35rem;
   border-radius: var(--radius-lg);
   background: linear-gradient(180deg, transparent, rgba(243, 246, 238, 0.92) 42%);
-  backdrop-filter: blur(0.6rem);
+  backdrop-filter: none;
 }
 
 .state {
@@ -1250,25 +1237,14 @@ textarea {
   }
 }
 
-@supports (content-visibility: auto) {
-  .dish-card,
-  .line,
-  .history-line,
-  .order-status,
-  .panel-list,
-  .totals,
-  .notice,
-  .state {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 9rem;
-  }
-
-  .dish-card {
-    contain-intrinsic-size: auto 20rem;
-  }
-}
-
 @media (hover: none), (pointer: coarse), (max-width: 48rem) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
   html {
     scroll-behavior: auto;
   }
@@ -1281,12 +1257,9 @@ textarea {
     box-shadow: none;
   }
 
-  .app-shell::before {
-    opacity: 0.45;
-  }
-
+  .app-shell::before,
   .app-shell::after {
-    opacity: 0.28;
+    display: none;
   }
 
   .app-header,
@@ -1304,50 +1277,74 @@ textarea {
     backdrop-filter: none;
   }
 
-  .app-header {
-    box-shadow: 0 0.45rem 1.15rem rgba(39, 85, 50, 0.18);
+  .dish-card,
+  .line,
+  .history-line,
+  .order-status,
+  .panel-list,
+  .totals,
+  .notice,
+  .state {
+    content-visibility: visible;
+    contain: none;
   }
 
-  .app-header::before {
-    opacity: 0.24;
+  .app-header {
+    position: relative;
+    top: auto;
+    background: linear-gradient(135deg, #245936 0%, #67ad63 100%);
+    box-shadow: none;
+  }
+
+  .app-header::before,
+  .app-header::after,
+  .cube-scene {
+    display: none;
   }
 
   .dish-card {
     animation: none;
-    box-shadow: 0 0.45rem 1.05rem rgba(63, 115, 70, 0.08);
+    background: var(--surface-solid);
+    box-shadow: none;
+    contain: layout paint style;
     transform: none;
-    transition: border-color 140ms ease, background 140ms ease;
+    content-visibility: visible;
   }
 
+  .dish-card::before,
   .dish-card::after {
     display: none;
   }
 
   .dish-card:hover {
-    box-shadow: 0 0.45rem 1.05rem rgba(63, 115, 70, 0.08);
+    box-shadow: none;
     transform: none;
   }
 
+  .dish-art,
+  .hero-art {
+    background: linear-gradient(135deg, #79b575 0%, #d7efb2 100%) !important;
+  }
+
   .dish-art::before,
-  .hero-art::before {
-    background:
-      radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.22), transparent 18%),
-      radial-gradient(circle at 85% 18%, rgba(215, 239, 178, 0.14), transparent 24%),
-      linear-gradient(30deg, rgba(255, 255, 255, 0.035) 12%, transparent 12.5%, transparent 87%, rgba(255, 255, 255, 0.035) 87.5%, rgba(255, 255, 255, 0.035));
-    background-position: 0 0, 0 0, 0 0;
-    background-size: auto, auto, 1.8rem 3.1rem;
-    mix-blend-mode: normal;
-    opacity: 0.5;
+  .hero-art::before,
+  .dish-art::after,
+  .hero-art::after {
+    display: none;
   }
 
   .dish-emoji {
     filter: none;
+    box-shadow: none;
   }
 
   .cart-float {
-    box-shadow: 0 0.75rem 1.65rem rgba(0, 31, 35, 0.22);
-    animation: floatIn 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    box-shadow: none;
     transform: translate3d(-50%, 0, 0);
+  }
+
+  .bottom-action {
+    backdrop-filter: none;
   }
 
   .primary::after {
@@ -1483,4 +1480,165 @@ textarea {
     padding-right: 0.48rem;
   }
 
+}
+
+/* Baseline performance mode: keep Telegram WebView scrolling smooth. */
+body {
+  background: var(--bg-page);
+}
+
+.app-shell {
+  background: linear-gradient(180deg, #fffffa 0%, #fbfff5 100%);
+  box-shadow: none;
+}
+
+.app-shell::before,
+.app-shell::after,
+.app-header::before,
+.app-header::after,
+.cube-scene,
+.dish-art::before,
+.dish-art::after,
+.hero-art::before,
+.hero-art::after,
+.dish-card::before,
+.dish-card::after {
+  display: none;
+}
+
+.app-header {
+  position: relative;
+  top: auto;
+  box-shadow: none;
+  backdrop-filter: none;
+  contain: paint;
+}
+
+.page,
+.dish-card,
+.line,
+.history-line,
+.order-status,
+.panel-list,
+.totals,
+.notice,
+.state {
+  animation: none;
+  transition: none;
+  content-visibility: visible;
+  contain: none;
+}
+
+.dish-card,
+.dish-card:hover,
+.line,
+.history-line,
+.order-status,
+.panel-list,
+.totals,
+.notice,
+.state {
+  box-shadow: none;
+  transform: none;
+}
+
+.dish-art,
+.hero-art {
+  background: linear-gradient(135deg, #7fbe61 0%, #d7efb2 100%) !important;
+  box-shadow: none;
+}
+
+.dish-emoji,
+.hero-art {
+  text-shadow: none;
+}
+
+.dish-emoji {
+  box-shadow: none;
+  filter: none;
+  transform: none;
+}
+
+.dish-badge,
+.cart-float,
+.bottom-action {
+  backdrop-filter: none;
+}
+
+.cart-float {
+  background: #173d27;
+  background-image: none;
+  box-shadow: none;
+  contain: paint;
+  transform: translateX(-50%);
+}
+
+.bottom-action {
+  position: static;
+}
+
+.primary::after {
+  display: none;
+}
+
+.primary:hover,
+.secondary:hover,
+.icon-button:hover,
+.contact-share:hover {
+  filter: none;
+  transform: none;
+}
+
+.locale button,
+.nav a,
+.role-switch a {
+  transition: none;
+}
+
+.nav a:hover,
+.locale button:active,
+.nav a:active,
+.role-switch a:active {
+  transform: none;
+}
+
+.role-switch {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.role-switch a {
+  min-width: 0;
+  flex: initial;
+  padding: 0 0.35rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 32rem) {
+  .profile-badge {
+    max-width: none;
+    padding-right: 0.22rem;
+  }
+
+  .profile-badge > span:last-child {
+    display: none;
+  }
+
+  .header-actions {
+    gap: 0.3rem;
+  }
+}
+
+@media (max-width: 26rem) {
+  .brand-mark {
+    display: none;
+  }
+
+  .locale button {
+    min-width: 1.75rem;
+    min-height: 1.9rem;
+  }
 }

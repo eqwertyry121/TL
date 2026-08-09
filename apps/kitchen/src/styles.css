@@ -499,26 +499,27 @@ li {
   }
 }
 
-@supports (content-visibility: auto) {
-  .card,
-  .status,
-  .empty {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 16rem;
-  }
-}
-
 @media (hover: none), (pointer: coarse), (max-width: 48rem) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
   body::before {
     display: none;
   }
 
   .header {
-    box-shadow: 0 0.45rem 1.05rem rgba(39, 85, 50, 0.16);
+    position: relative;
+    top: auto;
+    background: linear-gradient(135deg, #245936 0%, #67ad63 100%);
+    box-shadow: none;
   }
 
   .header::after {
-    opacity: 0.18;
+    display: none;
   }
 
   .status,
@@ -530,12 +531,13 @@ li {
 
   .card {
     animation: none;
-    box-shadow: 0 0.45rem 1.05rem rgba(63, 115, 70, 0.08);
-    transition: border-color 140ms ease, background 140ms ease;
+    box-shadow: none;
+    content-visibility: visible;
+    contain: none;
   }
 
   .card:hover {
-    box-shadow: 0 0.45rem 1.05rem rgba(63, 115, 70, 0.08);
+    box-shadow: none;
     transform: none;
   }
 
@@ -576,4 +578,47 @@ li {
   .popover {
     right: -0.2rem;
   }
+}
+
+/* Baseline performance mode: Telegram WebView janks on sticky + blur + large shadows. */
+body::before {
+  display: none;
+}
+
+.header {
+  position: relative;
+  top: auto;
+  box-shadow: none;
+}
+
+.header::after {
+  display: none;
+}
+
+.icon,
+.primary,
+.secondary {
+  transition: none;
+}
+
+.status,
+.empty,
+.card,
+.popover {
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.card {
+  animation: none;
+  transition: none;
+}
+
+.card:hover {
+  box-shadow: none;
+  transform: none;
+}
+
+.primary::after {
+  display: none;
 }
