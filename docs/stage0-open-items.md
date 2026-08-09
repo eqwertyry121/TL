@@ -11,12 +11,13 @@
 
 ## Telegram
 
-- Уточнить username бота, token которого был передан.
-- Решить, это client bot или staff bot.
+- Client bot username: `@TakoLako_main_bot`.
+- Переданный token временно относится к `@TakoLako_main_bot`, но перед
+  production его нужно заменить через BotFather.
 - Создать второй bot для staff, если его ещё нет.
-- Передать числовой Telegram ID первого Admin.
-- Передать числовой Telegram ID Kitchen.
-- Передать числовой Telegram ID Courier.
+- Первый Admin Telegram ID: `1048084234`.
+- Для локального теста этот же Telegram ID получает `KITCHEN` и `COURIER`.
+- Перед production заменить Kitchen/Courier на реальные Telegram IDs.
 - Перед production заменить раскрытый в чате token через BotFather.
 
 ## Ресторан
@@ -28,16 +29,19 @@
 - Цвета, если есть брендовые.
 - Текст условий доставки.
 
+Сейчас используются fixture-значения из `docs/product-config.md`.
+
 ## Меню
 
-- Заполнить `docs/menu-template.csv`.
+- Production-меню позже заменить вместо fixture `docs/menu-fixtures.csv`.
 - Передать фотографии блюд.
 - Указать allergens/weight text, если нужно показывать.
 - Утвердить максимум количества одного блюда в заказе.
 
 ## Доставка
 
-- Подтвердить доставку `0 RSD` или единую сумму для всех адресов.
+- Fixture delivery fee: `300 RSD`.
+- Позже подтвердить доставку `0 RSD` или единую сумму для всех адресов.
 - Подтвердить обязательные поля адреса.
 - Подтвердить текст предупреждения проверить адрес/телефон.
 

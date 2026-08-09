@@ -64,6 +64,12 @@ ADMIN полностью управляет прикладной частью:
 URL или скрытая кнопка не являются защитой. Backend проверяет роль для каждого
 запроса.
 
+Один Telegram user может иметь несколько staff-доступов, если это нужно для
+тестирования или владелец ресторана реально совмещает роли. Это не добавляет
+новые роли: session всегда работает в одной выбранной роли из списка выше.
+Первый owner/tester для локальной разработки: Telegram ID `1048084234` с
+доступом к `ADMIN`, `KITCHEN` и `COURIER`.
+
 ## 4. Главный процесс заказа
 
 ### 4.1 Статусы выполнения
@@ -477,7 +483,8 @@ Backend считает итог самостоятельно. Если цена 
 ## 14. Минимальная модель данных
 
 - `users` — Telegram user и защищённый телефон;
-- `staff` — Telegram user, одна роль, active;
+- `staff` — Telegram user, role из `KITCHEN|COURIER|ADMIN`, active; один user
+  может иметь несколько staff roles;
 - `sessions` — hash случайного session token, expiry;
 - `categories` — три title, order, visible, archived;
 - `menu_items` — три title/description, price, photo path, weight/allergen text,

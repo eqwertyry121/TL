@@ -11,10 +11,11 @@
 2. [Staff and bots](staff-and-bots.md)
 3. [Payment/fiscal decisions](payment-fiscal-decisions.md)
 4. [Menu template](menu-template.csv)
-5. [Minimal texts](i18n-minimal-texts.md)
-6. [Wireframes](wireframes.md)
-7. [GitHub Pages preview](github-pages.md)
-8. [Open items](stage0-open-items.md)
+5. [Menu fixtures](menu-fixtures.csv)
+6. [Minimal texts](i18n-minimal-texts.md)
+7. [Wireframes](wireframes.md)
+8. [GitHub Pages preview](github-pages.md)
+9. [Open items](stage0-open-items.md)
 
 ## Этапы
 

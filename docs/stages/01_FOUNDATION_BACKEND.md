@@ -9,7 +9,7 @@
 ## Критерии входа
 
 - Этап 0 принят либо есть обезличенные fixtures.
-- Известны Go module name, два bot audiences и initial ADMIN Telegram ID.
+- Известны Go module name, bot audiences и initial ADMIN Telegram ID.
 - Подтверждён упрощённый state flow.
 
 ## 1. Структура
@@ -100,6 +100,8 @@ wildcard origins.
 - role enum `KITCHEN|COURIER|ADMIN`;
 - active;
 - created_by/timestamps.
+- unique `(telegram_user_id, role)`;
+- один Telegram user может иметь несколько staff roles для owner/tester flow.
 
 `sessions`:
 
@@ -215,6 +217,13 @@ Frontend держит session token только в памяти. При нов�
 
 Initial ADMIN создаётся CLI-командой с numeric Telegram ID. Потом ADMIN
 добавляет остальных через UI/API.
+
+Local bootstrap seed:
+
+- `BOOTSTRAP_OWNER_TELEGRAM_ID=1048084234`;
+- создать staff-доступы `ADMIN`, `KITCHEN`, `COURIER` для этого ID;
+- frontend staff app может предложить переключение активной роли только среди
+  ролей, разрешённых backend.
 
 ## 6. Runtime/menu API
 

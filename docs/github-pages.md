@@ -17,8 +17,8 @@ https://eqwertyry121.github.io/TL/
 - Source: `public/`
 - Workflow: `.github/workflows/pages.yml`
 - В workflow используется официальный GitHub Pages deploy через Actions.
-- Сейчас это только preview frontend. Backend API, Telegram webhooks и база
-  позже будут жить на VPS.
+- Сейчас это static demo prototype на fixture-данных. Backend API, Telegram
+  webhooks и база позже будут жить на VPS.
 
 ## Что нужно включить в GitHub
 
