@@ -339,11 +339,6 @@ function Shell({
             {t(locale, "support")}
           </a>
         </nav>
-        <div className="cube-scene" aria-hidden="true">
-          <span className="cube cube-one" />
-          <span className="cube cube-two" />
-          <span className="cube cube-three" />
-        </div>
         {isOwnerTelegramId(session?.telegram_user_id) && <OwnerRoleSwitch activeRole="CLIENT" />}
       </header>
       <main>{children}</main>
