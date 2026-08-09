@@ -1,0 +1,274 @@
+# Этап 3 — Kitchen и Courier
+
+## Цель
+
+Реализовать максимально простой рабочий процесс сотрудников:
+
+`NEW → одна кнопка Kitchen → OUT_FOR_DELIVERY → одна кнопка Courier → DELIVERED`.
+
+## Критерии входа
+
+- Этап 2 принят.
+- Staff bot настроен.
+- Telegram IDs Kitchen и единственного Courier внесены.
+- Утверждены notification texts и cash confirmation.
+
+## 1. Общий staff bootstrap
+
+- Открытие через staff bot.
+- Backend validates raw initData against staff bot.
+- Active role из PostgreSQL.
+- KITCHEN видит только Kitchen app.
+- COURIER видит только Courier app.
+- ADMIN не получает staff action автоматически, если не назначена нужная роль;
+  ADMIN использует собственный order console.
+- Revoked staff session перестаёт работать.
+
+Если открыть не свой URL, backend возвращает `FORBIDDEN`.
+
+## 2. Kitchen polling
+
+Каждые примерно 5 секунд:
+
+- `GET /kitchen/orders`;
+- response содержит только `NEW`;
+- ETag/updated marker уменьшает payload;
+- при resume — immediate refresh;
+- visible indicator:
+  `Обновлено N секунд назад` / `Нет связи`.
+
+Нет WebSocket/SSE. При таком масштабе polling проще и достаточно быстрый.
+
+## 3. Kitchen главный экран
+
+Header:
+
+- `НОВЫЕ ЗАКАЗЫ`;
+- количество;
+- connection indicator;
+- button refresh.
+
+Order card:
+
+- крупный `Заказ #N`;
+- время и возраст заказа;
+- items: quantity × title;
+- комментарий, если есть;
+- payment: `Наличные`/`Оплачен`;
+- крупная кнопка `ЗАКАЗ ГОТОВ`;
+- `⋯`.
+
+Ordering: сначала самый старый. Никаких колонок и drag-and-drop.
+
+## 4. Kitchen action
+
+После `ЗАКАЗ ГОТОВ`:
+
+1. Короткий confirm: `Заказ #N готов и передаётся курьеру?`.
+2. Button progress/disabled.
+3. `POST /kitchen/orders/{id}/ready` с idempotency и version.
+4. Success:
+   - card исчезает;
+   - backend status `OUT_FOR_DELIVERY`;
+   - courier notification queued;
+   - client notification queued.
+5. Conflict означает, что order уже изменён ADMIN/другим устройством; refresh.
+6. Timeout → проверить order state с тем же key, не создавать второй action.
+
+Kitchen не нажимает «Принять» и не ставит `PREPARING`.
+
+## 5. Kitchen звук и экран
+
+- Один заметный звук только при появлении нового order ID.
+- Вначале сотрудник нажимает `Включить звук` из-за browser autoplay rules.
+- Visual highlight и counter работают даже без звука.
+- Wake Lock запрашивается после user action, повторно при возвращении app.
+- Если OS/Telegram запретил Wake Lock, показать `Экран может выключиться`.
+- Звук и Wake Lock не являются гарантией; staff bot message можно отправлять
+  kitchen chat как дополнительный fallback, если владелец хочет.
+
+## 6. Kitchen menu `⋯`
+
+Только:
+
+- `Подробнее`;
+- `Сообщить о проблеме` — открыть ADMIN/support chat с номером.
+
+Не добавлять:
+
+- изменение menu;
+- отмену;
+- status choice;
+- скрытие блюда;
+- управление courier.
+
+## 7. Courier notification
+
+При Kitchen ready backend отправляет единственному active COURIER:
+
+- `Заказ #N готов к доставке`;
+- address;
+- phone;
+- cash amount или `Оплачен`;
+- button/link открыть Courier Mini App.
+
+Job retry работает из PostgreSQL. Если Telegram notification не отправилось,
+order всё равно появится app polling.
+
+## 8. Courier polling
+
+Каждые примерно 5 секунд:
+
+- `GET /courier/orders`;
+- все orders `OUT_FOR_DELIVERY`;
+- самые старые ready first;
+- no claim/assignment/mine/available sections;
+- immediate refresh on resume.
+
+Если orders несколько, courier сам решает последовательность.
+
+## 9. Courier главный экран
+
+Header `ДОСТАВКИ` + connection indicator.
+
+Card:
+
+- number/ready time;
+- full text address;
+- phone tap-to-call;
+- items/quantities;
+- payment;
+- cash amount крупно;
+- primary `ДОСТАВЛЕНО`;
+- `⋯`.
+
+Для единственного courier full address/phone доступны всем active courier
+sessions. После завершения detail скрывает PII из обычного списка; history
+может показывать только number/time/status.
+
+## 10. Courier delivered
+
+Online-paid:
+
+- confirm `Заказ #N доставлен?`.
+
+Cash:
+
+- confirm `Получены наличные X RSD?`;
+- без подтверждения action недоступен.
+
+Request:
+
+- idempotency + version;
+- only current `OUT_FOR_DELIVERY`;
+- success `DELIVERED`;
+- cash payment `PAID`;
+- client notification;
+- event/audit.
+
+Card исчезает из active list. Повтор request безопасен.
+
+## 11. Courier menu `⋯`
+
+- позвонить;
+- скопировать адрес;
+- открыть external map с URL-encoded text address;
+- проблема с доставкой → ADMIN/support chat.
+
+Map — только внешняя ссылка. Система не получает coordinates, не строит и не
+оптимизирует route.
+
+Проблема с доставкой не создаёт новый status в первой версии. ADMIN решает:
+исправить contact/address, вернуть order на кухню или отменить.
+
+## 12. Client updates
+
+Kitchen ready:
+
+- client bot: `Заказ #N передан курьеру`;
+- Client polling показывает `Заказ в доставке`.
+
+Courier delivered:
+
+- client bot: `Заказ #N доставлен`;
+- Client polling показывает delivered.
+
+Notification duplicate protection: recipient + order event unique.
+
+## 13. Admin recovery
+
+Временно минимальные backend/Admin actions:
+
+- вернуть ошибочно готовый order `OUT_FOR_DELIVERY → NEW`;
+- cancel с reason;
+- resend notification.
+
+Kitchen/Courier эти actions не видят.
+
+## 14. Тесты
+
+Backend:
+
+- KITCHEN ready только from NEW;
+- COURIER delivered только from OUT_FOR_DELIVERY;
+- roles forbidden;
+- kitchen projection has no address/phone;
+- duplicate ready/delivered one transition/job;
+- cash confirmation;
+- notification failure does not rollback status;
+- admin return/cancel audited.
+
+Frontend:
+
+- polling initial/new/removal;
+- connection stale/recovery;
+- sound dedupe and disabled fallback;
+- Wake Lock denied;
+- ready/delivered confirm;
+- timeout/conflict;
+- multiple courier orders simple list;
+- menu `⋯` actions.
+
+E2E:
+
+1. Client cash order → Kitchen appears automatically.
+2. No accept action.
+3. Kitchen one click/confirm ready.
+4. Client and Courier notification.
+5. Courier sees address/phone.
+6. Courier one click/confirm delivered/cash.
+7. Client sees delivered.
+8. Repeat with Telegram message failure: polling still works.
+9. Repeat accidental ready: ADMIN returns to NEW.
+
+## Артефакты этапа
+
+- Kitchen Mini App;
+- Courier Mini App;
+- polling;
+- reliable Telegram messages;
+- sound/Wake Lock best-effort;
+- one-button staff commands;
+- tests/UAT guide.
+
+## Acceptance criteria
+
+- Kitchen имеет ровно один основной list и одну основную action.
+- Orders появляются автоматически без accept.
+- Courier один, без claim/assignment/route engine.
+- Kitchen ready одновременно меняет status и ставит client/courier messages.
+- Courier sees correct address/phone/cash.
+- Telegram failure не скрывает order из polling.
+- Full end-to-end flow проходит за три business statuses.
+
+## Не входит
+
+- Kitchen menu/availability controls.
+- Courier GPS/route/assignment.
+- Delivery-failed state machine.
+- Several couriers.
+
+## Критерий выхода
+
+Сотрудники выполняют нормальный order двумя основными действиями: Kitchen
+`ЗАКАЗ ГОТОВ` и Courier `ДОСТАВЛЕНО`.
