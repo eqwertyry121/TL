@@ -237,6 +237,7 @@ function DishForm({ item, categories, token, onSave, onCancel }: { item: AdminMe
       <Text label="Description RU" value={form.description_ru} onChange={(description_ru) => setForm({ ...form, description_ru })} />
       <NumberInput label="Price RSD" value={form.price_minor} onChange={(price_minor) => setForm({ ...form, price_minor })} />
       <Text label="Weight text" value={form.weight_text} onChange={(weight_text) => setForm({ ...form, weight_text })} />
+      <NumberInput label="Min quantity" value={form.min_quantity || 1} onChange={(min_quantity) => setForm({ ...form, min_quantity: Math.max(1, min_quantity) })} />
       <Text label="Photo path" value={form.photo_path} onChange={(photo_path) => setForm({ ...form, photo_path })} />
       <label className="upload"><Upload size={16} /> Upload photo <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void upload(event.target.files?.[0])} /></label>
       <NumberInput label="Sort" value={form.sort_order} onChange={(sort_order) => setForm({ ...form, sort_order })} />
@@ -428,6 +429,7 @@ function emptyItem(categoryID: string): AdminMenuItem {
     currency: "RSD",
     photo_path: "",
     weight_text: "",
+    min_quantity: 1,
     allergen_text_ru: "",
     allergen_text_sr: "",
     allergen_text_en: "",

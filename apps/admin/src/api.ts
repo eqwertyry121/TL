@@ -52,6 +52,7 @@ export interface MenuItemInput {
   price_minor: number;
   photo_path: string;
   weight_text: string;
+  min_quantity: number;
   allergen_text_ru: string;
   allergen_text_sr: string;
   allergen_text_en: string;
@@ -512,6 +513,7 @@ declare global {
 
 function ensureDemoSeed(): void {
   if (!localStorage.getItem(demoMenuKey)) saveMenu(seedMenu());
+  else saveMenu(normalizeDemoMenu(loadMenu()));
   if (!localStorage.getItem(demoSettingsKey)) saveSettings(seedSettings());
   if (!localStorage.getItem(demoStaffKey)) saveStaff(seedStaff());
   if (!localStorage.getItem(demoAuditKey)) saveAudit([]);
@@ -526,14 +528,14 @@ function seedMenu(): AdminMenuResponse {
     categorySeed("11111111-1111-1111-1111-111111111004", "Напитки", "Pica", "Drinks", 40),
   ];
   const items: AdminMenuItem[] = [
-    itemSeed("22222222-2222-2222-2222-222222222001", categories[0].id, "Классические хинкали", "690", "5 шт", 10),
-    itemSeed("22222222-2222-2222-2222-222222222002", categories[0].id, "Хинкали с сыром", "640", "5 шт", 20),
-    itemSeed("22222222-2222-2222-2222-222222222003", categories[1].id, "Аджарский хачапури", "890", "1 шт", 30),
-    itemSeed("22222222-2222-2222-2222-222222222004", categories[1].id, "Имеретинский хачапури", "760", "1 шт", 40),
-    itemSeed("22222222-2222-2222-2222-222222222005", categories[2].id, "Чахохбили", "940", "350 г", 50),
-    itemSeed("22222222-2222-2222-2222-222222222006", categories[2].id, "Лобио", "620", "300 г", 60),
-    itemSeed("22222222-2222-2222-2222-222222222007", categories[3].id, "Лимонад тархун", "290", "500 мл", 70),
-    itemSeed("22222222-2222-2222-2222-222222222008", categories[3].id, "Морс ягодный", "260", "400 мл", 80),
+    itemSeed("22222222-2222-2222-2222-222222222001", categories[0].id, "Классические хинкали", "Замороженные хинкали с говядиной и зеленью. Минимум 5 шт", "690", "от 5 шт", 5, 10),
+    itemSeed("22222222-2222-2222-2222-222222222002", categories[0].id, "Хинкали без кинзы", "Замороженные хинкали с говядиной без кинзы. Минимум 5 шт", "640", "от 5 шт", 5, 20),
+    itemSeed("22222222-2222-2222-2222-222222222003", categories[1].id, "Аджарский хачапури", "Лодочка с сыром, яйцом и сливочным маслом", "890", "1 шт", 1, 30),
+    itemSeed("22222222-2222-2222-2222-222222222004", categories[1].id, "Имеретинский хачапури", "Круглый хачапури с сыром внутри", "760", "1 шт", 1, 40),
+    itemSeed("22222222-2222-2222-2222-222222222005", categories[2].id, "Чахохбили", "Курица в томатном соусе с травами", "940", "350 г", 1, 50),
+    itemSeed("22222222-2222-2222-2222-222222222006", categories[2].id, "Лобио", "Фасоль с орехами, зеленью и специями", "620", "300 г", 1, 60),
+    itemSeed("22222222-2222-2222-2222-222222222007", categories[3].id, "Лимонад тархун", "Холодный газированный лимонад", "290", "500 мл", 1, 70),
+    itemSeed("22222222-2222-2222-2222-222222222008", categories[3].id, "Морс ягодный", "Домашний ягодный напиток", "260", "400 мл", 1, 80),
   ].map((item) => ({ ...item, created_at: now, updated_at: now }));
   refreshCategoryCounts({ categories, items });
   return { categories, items };
@@ -544,20 +546,21 @@ function categorySeed(id: string, ru: string, sr: string, en: string, sort: numb
   return { id, title_ru: ru, title_sr: sr, title_en: en, sort_order: sort, visible: true, archived: false, item_count: 0, version: 1, created_at: now, updated_at: now };
 }
 
-function itemSeed(id: string, categoryID: string, title: string, price: string, weight: string, sort: number): AdminMenuItem {
+function itemSeed(id: string, categoryID: string, title: string, description: string, price: string, weight: string, minQuantity: number, sort: number): AdminMenuItem {
   return {
     id,
     category_id: categoryID,
     title_ru: title,
     title_sr: title,
     title_en: title,
-    description_ru: "Описание-заглушка",
+    description_ru: description,
     description_sr: "Opis",
     description_en: "Description",
     price_minor: Number(price),
     currency: "RSD",
     photo_path: "",
     weight_text: weight,
+    min_quantity: minQuantity,
     allergen_text_ru: "",
     allergen_text_sr: "",
     allergen_text_en: "",
@@ -772,6 +775,7 @@ function categoryFromInput(input: CategoryInput, id: string): AdminCategory {
 function itemFromInput(input: MenuItemInput, id: string): AdminMenuItem {
   return {
     ...input,
+    min_quantity: Math.max(1, input.min_quantity || 1),
     id,
     currency: "RSD",
     archived: false,
@@ -800,13 +804,43 @@ function mustFind<T extends { id: string }>(items: T[], id: string): T {
 }
 
 function loadMenu(): AdminMenuResponse {
-  return loadJSON(demoMenuKey, seedMenu());
+  return normalizeDemoMenu(loadJSON(demoMenuKey, seedMenu()));
 }
 
 function saveMenu(menu: AdminMenuResponse): void {
   refreshCategoryCounts(menu);
   saveJSON(demoMenuKey, menu);
   window.dispatchEvent(new StorageEvent("storage", { key: demoMenuKey }));
+}
+
+function normalizeDemoMenu(menu: AdminMenuResponse): AdminMenuResponse {
+  return {
+    ...menu,
+    items: menu.items.map((item) => {
+      if (item.id === "22222222-2222-2222-2222-222222222001") {
+        return {
+          ...item,
+          description_ru: "Замороженные хинкали с говядиной и зеленью. Минимум 5 шт",
+          weight_text: "от 5 шт",
+          min_quantity: 5,
+        };
+      }
+      if (item.id === "22222222-2222-2222-2222-222222222002") {
+        return {
+          ...item,
+          title_ru: "Хинкали без кинзы",
+          title_sr: "Hinkali bez korijandera",
+          title_en: "Khinkali without cilantro",
+          description_ru: "Замороженные хинкали с говядиной без кинзы. Минимум 5 шт",
+          description_sr: "Zamrznuti hinkali sa govedinom bez korijandera. Minimum 5 kom",
+          description_en: "Frozen beef khinkali without cilantro. Minimum 5 pcs",
+          weight_text: "от 5 шт",
+          min_quantity: 5,
+        };
+      }
+      return { ...item, min_quantity: Math.max(1, item.min_quantity || 1) };
+    }),
+  };
 }
 
 function loadSettings(): Settings {

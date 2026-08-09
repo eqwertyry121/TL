@@ -60,7 +60,8 @@ function demoApi(): Api {
       const lookup = menuLookup(categories);
       const calculationItems = items.map(({ item_id, quantity }) => {
         const item = lookup.get(item_id);
-        if (!item || quantity <= 0 || quantity > 10) {
+        const minQuantity = item?.min_quantity || 1;
+        if (!item || quantity < minQuantity || quantity > 99) {
           throw apiError("INVALID_QUANTITY");
         }
       return {
@@ -244,6 +245,7 @@ function timeToSeconds(value: string): number {
 function loadDemoCategories(): Category[] {
   const menu = loadJSON<{ categories: AdminCategory[]; items: AdminMenuItem[] } | null>(demoMenuKey, null);
   if (!menu) return demoCategories;
+  const items = menu.items.map(normalizeDemoMenuItem);
   return menu.categories
     .filter((category) => category.visible && !category.archived)
     .sort((a, b) => a.sort_order - b.sort_order)
@@ -263,11 +265,37 @@ function loadDemoCategories(): Category[] {
           currency: item.currency,
           photo_path: item.photo_path,
           weight_text: item.weight_text,
+          min_quantity: item.min_quantity,
           allergen_text: item.allergen_text_ru,
           sort_order: item.sort_order,
           version: item.version,
         })),
     }));
+}
+
+function normalizeDemoMenuItem(item: AdminMenuItem): AdminMenuItem {
+  if (item.id === "22222222-2222-2222-2222-222222222001") {
+    return {
+      ...item,
+      description_ru: "Замороженные хинкали с говядиной и зеленью. Минимум 5 шт",
+      weight_text: "от 5 шт",
+      min_quantity: 5,
+    };
+  }
+  if (item.id === "22222222-2222-2222-2222-222222222002") {
+    return {
+      ...item,
+      title_ru: "Хинкали без кинзы",
+      title_sr: "Hinkali bez korijandera",
+      title_en: "Khinkali without cilantro",
+      description_ru: "Замороженные хинкали с говядиной без кинзы. Минимум 5 шт",
+      description_sr: "Zamrznuti hinkali sa govedinom bez korijandera. Minimum 5 kom",
+      description_en: "Frozen beef khinkali without cilantro. Minimum 5 pcs",
+      weight_text: "от 5 шт",
+      min_quantity: 5,
+    };
+  }
+  return { ...item, min_quantity: Math.max(1, item.min_quantity || 1) };
 }
 
 function loadJSON<T>(key: string, fallback: T): T {

@@ -115,7 +115,8 @@ export function App() {
   }
 
   function setLine(item: MenuItem, quantity: number) {
-    const nextQuantity = Math.max(0, Math.min(99, quantity));
+    const minQuantity = itemMinQuantity(item);
+    const nextQuantity = quantity <= 0 ? 0 : Math.max(minQuantity, Math.min(99, quantity));
     const line: CartLine = {
       itemId: item.id,
       title: item.title,
@@ -130,6 +131,26 @@ export function App() {
     setCalculation(null);
     haptic();
   }
+
+  useEffect(() => {
+    if (itemLookup.size === 0) return;
+    let changed = false;
+    const nextLines = { ...cart.lines };
+    for (const line of Object.values(nextLines)) {
+      const item = itemLookup.get(line.itemId);
+      if (!item) continue;
+      const minQuantity = itemMinQuantity(item);
+      if (line.quantity > 0 && line.quantity < minQuantity) {
+        nextLines[line.itemId] = { ...line, quantity: minQuantity, updatedAt: new Date().toISOString() };
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    const next = { version: 1, lines: nextLines } satisfies CartState;
+    setCart(next);
+    saveCart(next);
+    setCalculation(null);
+  }, [cart.lines, itemLookup]);
 
   function updateDraft(patch: Partial<CheckoutDraft>) {
     const next = { ...draft, ...patch };
@@ -192,7 +213,7 @@ export function App() {
   }
 
   if (loading && !data.runtime) {
-    return <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={0} header="Tako Lako"><div className="state">Загрузка...</div></Shell>;
+    return <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={0} header="Tako Lako - Грузинская кухня"><div className="state">Загрузка...</div></Shell>;
   }
 
   const content =
@@ -227,7 +248,7 @@ export function App() {
     );
 
   return (
-    <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header="Tako Lako" runtime={data.runtime}>
+    <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header="Tako Lako - Грузинская кухня" runtime={data.runtime}>
       {error && (
         <div className="notice error">
           <AlertCircle size={18} />
@@ -268,22 +289,26 @@ function Shell({
     <div className="app-shell">
       <header className="app-header">
         <div className="top-row">
-          {!isRoot && (
-            <button className="icon-button" onClick={() => window.history.back()} aria-label="Назад">
-              <ArrowLeft size={20} />
-            </button>
-          )}
-          <div className="brand">
-            <strong>{header}</strong>
-            <span className="worktime">Рабочее время 13:00–21:00</span>
-          </div>
-          <div className="locale">
-            {(["ru", "sr", "en"] as Locale[]).map((entry) => (
-              <button key={entry} className={entry === locale ? "active" : ""} onClick={() => onLocale(entry)}>
-                {entry.toUpperCase()}
+          <div className="header-main">
+            {!isRoot && (
+              <button className="icon-button" onClick={() => window.history.back()} aria-label="Назад">
+                <ArrowLeft size={20} />
               </button>
-            ))}
+            )}
+            <div className="brand">
+              <strong>{header}</strong>
+              <span className="worktime">Рабочее время 13:00–21:00</span>
+            </div>
           </div>
+          {isRoot && (
+            <div className="locale">
+              {(["ru", "sr", "en"] as Locale[]).map((entry) => (
+                <button key={entry} className={entry === locale ? "active" : ""} onClick={() => onLocale(entry)}>
+                  {entry.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {runtime && !runtime.accepting_orders && <div className="closed-banner">{runtime.reason === "manual_day_off" ? t(locale, "closed") : t(locale, "checkoutClosed")}</div>}
         <nav className="nav">
@@ -291,7 +316,7 @@ function Shell({
             {t(locale, "menu")}
           </a>
           <a className={route.name === "cart" ? "active" : ""} href="#/cart">
-            {t(locale, "cart")} {cartQuantity ? <span className="nav-badge">{cartQuantity}</span> : ""}
+            {t(locale, "cart")}{cartQuantity ? ` · ${cartQuantity}` : ""}
           </a>
           <a className={route.name === "orders" ? "active" : ""} href="#/orders">
             {t(locale, "orders")}
@@ -307,64 +332,50 @@ function Shell({
 }
 
 function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
+  const flatItems = categories.flatMap((category, categoryIndex) => category.items.map((item, index) => ({ item, visualIndex: categoryIndex + index })));
   return (
     <div className="page">
-      <section className="menu-hero">
-        <span>TAKO LAKO</span>
-        <h1>Грузинская еда без лишних шагов</h1>
-        <p>Выберите блюда, поделитесь телефоном и оформите заказ в Telegram.</p>
-      </section>
-      <div className="category-strip">
-        {categories.map((category, index) => (
-          <a href={`#cat-${category.id}`} key={category.id}>
-            <span>{categoryIcon(index)}</span>
-            {category.title}
-          </a>
-        ))}
-      </div>
-      {categories.map((category, categoryIndex) => (
-        <section id={`cat-${category.id}`} key={category.id} className="menu-section">
-          <div className="section-title">
-            <h2>{category.title}</h2>
-            <span>{category.items.length}</span>
-          </div>
-          <div className="menu-grid">
-            {category.items.map((item, index) => {
-              const qty = cart.lines[item.id]?.quantity || 0;
-              return (
-                <article className="dish-card" key={item.id}>
-                  <button className={`dish-art art-${(categoryIndex + index) % 6}`} onClick={() => navigate({ name: "dish", id: item.id })}>
-                    <span>{foodVisual(item.title)}</span>
+      <section className="menu-section">
+        <div className="menu-grid">
+          {flatItems.map(({ item, visualIndex }) => {
+            const qty = cart.lines[item.id]?.quantity || 0;
+            const minQuantity = itemMinQuantity(item);
+            return (
+              <article className="dish-card" key={item.id}>
+                <button className={`dish-art art-${visualIndex % 6}`} onClick={() => navigate({ name: "dish", id: item.id })}>
+                  <span>{foodVisual(item.title)}</span>
+                </button>
+                <div className="dish-body">
+                  <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
+                    {item.title}
                   </button>
-                  <div className="dish-body">
-                    <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
-                      {item.title}
-                    </button>
-                    <p>{item.description}</p>
-                    <div className="meta-row">
-                      <span>{item.weight_text}</span>
-                      <strong>{money(item.price_minor)}</strong>
-                    </div>
-                    <div className="row-actions">
-                      {qty > 0 && <Qty value={qty} onMinus={() => onSetLine(item, qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />}
-                      <button className={qty > 0 ? "primary small" : "primary add-only"} onClick={() => onSetLine(item, qty + 1)}>
-                        {qty > 0 ? t(locale, "add") : `+ ${t(locale, "add")}`}
-                      </button>
-                    </div>
+                  <p>{item.description}</p>
+                  <div className="meta-row">
+                    <span>{item.weight_text}</span>
+                    <strong>{money(item.price_minor)}</strong>
                   </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-      ))}
+                  <div className="row-actions">
+                    {qty > 0 ? (
+                      <Qty value={qty} onMinus={() => onSetLine(item, qty <= minQuantity ? 0 : qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />
+                    ) : (
+                      <button className="primary add-only" onClick={() => onSetLine(item, minQuantity)}>
+                        В корзину{minQuantity > 1 ? ` · ${minQuantity} шт` : ""}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }
-
 function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartLine; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
-  const [qty, setQty] = useState(line?.quantity || 1);
+  const [qty, setQty] = useState(line?.quantity || (item ? itemMinQuantity(item) : 1));
   if (!item) return <div className="state">Блюдо не найдено</div>;
+  const minQuantity = itemMinQuantity(item);
   return (
     <div className="page narrow">
       <div className="hero-art art-2">{foodVisual(item.title)}</div>
@@ -377,7 +388,7 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
         </div>
       </div>
       <div className="bottom-action">
-        <Qty value={qty} onMinus={() => setQty(Math.max(1, qty - 1))} onPlus={() => setQty(Math.min(99, qty + 1))} />
+        <Qty value={qty} onMinus={() => setQty(Math.max(minQuantity, qty - 1))} onPlus={() => setQty(Math.min(99, qty + 1))} />
         <button className="primary" onClick={() => {
           onSetLine(item, qty);
           navigate({ name: "cart" });
@@ -417,10 +428,10 @@ function Cart({
             <div className="line" key={line.itemId}>
               <div>
                 <strong>{line.title}</strong>
-                <span>{money(line.unitPriceMinor)} · {money(line.unitPriceMinor * line.quantity)}</span>
+                <span>{line.quantity} × {money(line.unitPriceMinor)}</span>
                 {!item && <span className="danger-text">Блюдо недоступно</span>}
               </div>
-              {item ? <Qty value={line.quantity} onMinus={() => onSetLine(item, line.quantity - 1)} onPlus={() => onSetLine(item, line.quantity + 1)} /> : <Trash2 size={20} />}
+              {item ? <Qty value={line.quantity} onMinus={() => onSetLine(item, line.quantity <= itemMinQuantity(item) ? 0 : line.quantity - 1)} onPlus={() => onSetLine(item, line.quantity + 1)} /> : <Trash2 size={20} />}
             </div>
           );
         })}
@@ -579,6 +590,13 @@ function Qty({ value, onMinus, onPlus }: { value: number; onMinus: () => void; o
 }
 
 function Totals({ subtotal, total, locale }: { subtotal: number; total: number; locale: Locale }) {
+  if (subtotal === total) {
+    return (
+      <div className="totals single-total">
+        <div><span>{t(locale, "total")}</span><strong>{money(total)}</strong></div>
+      </div>
+    );
+  }
   return (
     <div className="totals">
       <div><span>{t(locale, "subtotal")}</span><strong>{money(subtotal)}</strong></div>
@@ -595,10 +613,6 @@ function localizedStatus(order: Order, locale: Locale): string {
   return t(locale, "cancelled");
 }
 
-function categoryIcon(index: number): string {
-  return ["🥟", "🧀", "🍲", "🥤", "🔥", "⭐"][index % 6];
-}
-
 function foodVisual(title: string): string {
   const lower = title.toLowerCase();
   if (lower.includes("хинкали")) return "🥟";
@@ -608,6 +622,10 @@ function foodVisual(title: string): string {
   if (lower.includes("лимонад")) return "🥤";
   if (lower.includes("морс")) return "🍓";
   return "🍽️";
+}
+
+function itemMinQuantity(item: MenuItem): number {
+  return Math.max(1, item.min_quantity || 1);
 }
 
 function errorText(err: unknown): string {

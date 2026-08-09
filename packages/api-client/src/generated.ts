@@ -35,6 +35,7 @@ export interface MenuItem {
   currency: "RSD";
   photo_path: string;
   weight_text: string;
+  min_quantity: number;
   allergen_text: string;
   sort_order: number;
   version: number;
@@ -74,6 +75,7 @@ export interface AdminMenuItem {
   currency: "RSD";
   photo_path: string;
   weight_text: string;
+  min_quantity: number;
   allergen_text_ru: string;
   allergen_text_sr: string;
   allergen_text_en: string;

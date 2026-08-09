@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS menu_items (
   currency text NOT NULL DEFAULT 'RSD',
   photo_path text NOT NULL DEFAULT '',
   weight_text text NOT NULL DEFAULT '',
+  min_quantity integer NOT NULL DEFAULT 1 CHECK (min_quantity > 0),
   allergen_text_ru text NOT NULL DEFAULT '',
   allergen_text_sr text NOT NULL DEFAULT '',
   allergen_text_en text NOT NULL DEFAULT '',

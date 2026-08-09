@@ -158,6 +158,7 @@ type AdminMenuItem struct {
 	Currency       string    `json:"currency"`
 	PhotoPath      string    `json:"photo_path"`
 	WeightText     string    `json:"weight_text"`
+	MinQuantity    int       `json:"min_quantity"`
 	AllergenTextRU string    `json:"allergen_text_ru"`
 	AllergenTextSR string    `json:"allergen_text_sr"`
 	AllergenTextEN string    `json:"allergen_text_en"`
@@ -179,6 +180,7 @@ type MenuItem struct {
 	Currency     string    `json:"currency"`
 	PhotoPath    string    `json:"photo_path"`
 	WeightText   string    `json:"weight_text"`
+	MinQuantity  int       `json:"min_quantity"`
 	AllergenText string    `json:"allergen_text"`
 	SortOrder    int       `json:"sort_order"`
 	Version      int       `json:"version"`
