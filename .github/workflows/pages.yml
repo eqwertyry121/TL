@@ -25,13 +25,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.16.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build client Mini App
+        run: pnpm --filter @tk-delivery/client build
+        env:
+          VITE_APP_ENV: staging
+          VITE_DEMO_MODE: "true"
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload static site
+      - name: Upload client app
         uses: actions/upload-pages-artifact@v3
         with:
-          path: public
+          path: apps/client/dist
 
       - name: Deploy
         id: deployment

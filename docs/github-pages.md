@@ -14,11 +14,12 @@ https://eqwertyry121.github.io/TL/
 
 ## Как устроено
 
-- Source: `public/`
+- Source app: `apps/client`
+- Build output: `apps/client/dist`
 - Workflow: `.github/workflows/pages.yml`
 - В workflow используется официальный GitHub Pages deploy через Actions.
-- Сейчас это static demo prototype на fixture-данных. Backend API, Telegram
-  webhooks и база позже будут жить на VPS.
+- Сейчас это Client Mini App в staging demo mode на fixture-данных. Backend API,
+  Telegram webhooks и база позже будут жить на VPS.
 
 ## Что нужно включить в GitHub
 

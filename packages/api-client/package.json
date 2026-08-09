@@ -3,8 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./generated": "./src/generated.ts"
+  },
   "scripts": {
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "build": "tsc --noEmit"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

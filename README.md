@@ -12,15 +12,20 @@ Telegram Mini Apps.
 Временный GitHub Pages URL для Telegram Mini App preview:
 `https://eqwertyry121.github.io/TL/`.
 
-Локальный preview уже работает без сборки:
+Client Mini App локально:
 
 ```text
-D:\TK_miniapp\public\index.html
+http://127.0.0.1:5173/
 ```
 
-Это статический demo prototype на fixture-данных. В нём можно переключаться
-между Client/Kitchen/Courier/Admin, оформить тестовый cash-заказ, нажать
-`ЗАКАЗ ГОТОВ`, затем `ДОСТАВЛЕНО`, и проверить ручной режим `ВЫХОДНОЙ`.
+Команда запуска:
+
+```powershell
+pnpm client:dev
+```
+
+GitHub Pages собирает `apps/client` в staging demo mode, пока production backend
+не перенесён на сервер.
 
 `PLAN_v1.md` сохранён как исходный черновик. При противоречии приоритет имеют
 мастер-ТЗ, файл текущего этапа и `AGENTS.md`.

@@ -507,6 +507,23 @@ func (s *Store) ClientOrders(ctx context.Context, sess core.Session) ([]core.Ord
 	return s.ordersFromIDRows(ctx, rows, true)
 }
 
+func (s *Store) ClientOrderByID(ctx context.Context, sess core.Session, orderID uuid.UUID) (core.Order, error) {
+	if sess.ActiveRole != core.RoleClient {
+		return core.Order{}, core.ErrForbidden
+	}
+	var exists bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM orders WHERE id=$1 AND client_user_id=$2)
+	`, orderID, sess.UserID).Scan(&exists)
+	if err != nil {
+		return core.Order{}, err
+	}
+	if !exists {
+		return core.Order{}, core.ErrForbidden
+	}
+	return s.OrderByID(ctx, orderID, true)
+}
+
 func (s *Store) AdminOrders(ctx context.Context, sess core.Session) ([]core.Order, error) {
 	if sess.ActiveRole != core.RoleAdmin {
 		return nil, core.ErrForbidden

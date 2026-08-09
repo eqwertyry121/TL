@@ -2,6 +2,23 @@
 
 ## Static Mini App preview
 
+The current Client Mini App lives in `apps/client`.
+
+```powershell
+pnpm client:dev
+```
+
+Open:
+
+```text
+http://127.0.0.1:5173/
+```
+
+GitHub Pages builds the same app in staging demo mode, because production
+backend is not deployed yet.
+
+## Legacy static preview
+
 ```powershell
 python -m http.server 4173 -d public
 ```

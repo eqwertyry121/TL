@@ -53,6 +53,7 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/orders/calculate", s.calculate)
 			r.Post("/orders", s.createOrder)
 			r.Get("/orders", s.clientOrders)
+			r.Get("/orders/{id}", s.clientOrder)
 
 			r.Get("/kitchen/orders", s.kitchenOrders)
 			r.Post("/kitchen/orders/{id}/ready", s.markReady)
@@ -243,6 +244,20 @@ func (s *Server) clientOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"orders": orders})
+}
+
+func (s *Server) clientOrder(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	order, err := s.store.ClientOrderByID(r.Context(), mustSession(r), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
 }
 
 func (s *Server) kitchenOrders(w http.ResponseWriter, r *http.Request) {

@@ -57,6 +57,13 @@ paths:
       responses:
         "201":
           description: Created cash order
+  /orders/{id}:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+      responses:
+        "200":
+          description: Client-owned order detail
   /kitchen/orders:
     get:
       responses:
