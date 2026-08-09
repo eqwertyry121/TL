@@ -140,8 +140,16 @@ export function App() {
       const item = itemLookup.get(line.itemId);
       if (!item) continue;
       const minQuantity = itemMinQuantity(item);
-      if (line.quantity > 0 && line.quantity < minQuantity) {
-        nextLines[line.itemId] = { ...line, quantity: minQuantity, updatedAt: new Date().toISOString() };
+      const quantity = line.quantity > 0 && line.quantity < minQuantity ? minQuantity : line.quantity;
+      if (quantity !== line.quantity || line.title !== item.title || line.unitPriceMinor !== item.price_minor || line.menuVersion !== item.version) {
+        nextLines[line.itemId] = {
+          ...line,
+          title: item.title,
+          unitPriceMinor: item.price_minor,
+          quantity,
+          menuVersion: item.version,
+          updatedAt: new Date().toISOString(),
+        };
         changed = true;
       }
     }
