@@ -282,6 +282,54 @@ h1 {
   letter-spacing: -0.02em;
 }
 
+.customer-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.customer-badge b {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: clamp(1.22rem, 3.2vw, 1.5rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customer-avatar {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  margin: 0;
+  width: clamp(2.15rem, 6.2vw, 2.65rem);
+  height: clamp(2.15rem, 6.2vw, 2.65rem);
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, #211712, var(--copper-dark));
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.customer-avatar span {
+  display: block;
+  margin: 0;
+  color: inherit;
+}
+
+.customer-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .address,
 .phone {
   font-size: clamp(1.08rem, 3vw, 1.28rem);

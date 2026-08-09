@@ -70,6 +70,7 @@ type User struct {
 	TelegramUserID int64     `json:"telegram_user_id"`
 	Username       string    `json:"username"`
 	FirstName      string    `json:"first_name"`
+	PhotoURL       string    `json:"photo_url"`
 	LanguageCode   string    `json:"language_code"`
 }
 
@@ -78,6 +79,9 @@ type Session struct {
 	TokenHash      string    `json:"-"`
 	UserID         uuid.UUID `json:"user_id"`
 	TelegramUserID int64     `json:"telegram_user_id"`
+	Username       string    `json:"username,omitempty"`
+	FirstName      string    `json:"first_name,omitempty"`
+	PhotoURL       string    `json:"photo_url,omitempty"`
 	Audience       Audience  `json:"audience"`
 	ActiveRole     Role      `json:"active_role"`
 	ExpiresAt      time.Time `json:"expires_at"`
@@ -216,6 +220,7 @@ type Order struct {
 	ClientUserID      uuid.UUID         `json:"client_user_id,omitempty"`
 	ClientUsername    string            `json:"client_username,omitempty"`
 	ClientFirstName   string            `json:"client_first_name,omitempty"`
+	ClientPhotoURL    string            `json:"client_photo_url,omitempty"`
 	FulfillmentStatus FulfillmentStatus `json:"fulfillment_status"`
 	PaymentMethod     PaymentMethod     `json:"payment_method"`
 	PaymentStatus     PaymentStatus     `json:"payment_status"`

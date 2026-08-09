@@ -101,6 +101,7 @@ export interface Order {
   public_number: number;
   client_username?: string;
   client_first_name?: string;
+  client_photo_url?: string;
   fulfillment_status: FulfillmentStatus;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;

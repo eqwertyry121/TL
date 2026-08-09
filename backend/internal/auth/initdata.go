@@ -17,6 +17,7 @@ type TelegramUser struct {
 	ID           int64  `json:"id"`
 	FirstName    string `json:"first_name"`
 	Username     string `json:"username"`
+	PhotoURL     string `json:"photo_url"`
 	LanguageCode string `json:"language_code"`
 }
 

@@ -24,6 +24,9 @@ export type AnalyticsRange = "today" | "7d" | "month";
 export interface AdminSession {
   token: string;
   telegram_user_id?: number;
+  username?: string;
+  first_name?: string;
+  photo_url?: string;
   active_role: "ADMIN";
   expires_at: string;
 }

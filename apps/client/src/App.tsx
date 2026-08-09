@@ -32,7 +32,7 @@ import {
   upsertCartLine,
 } from "./storage";
 import { haptic, initialLocale, requestTelegramContact, syncBackButton } from "./telegram";
-import type { Api, AppData, Calculation, CartLine, CartState, CheckoutDraft, Locale, Route } from "./types";
+import type { Api, AppData, Calculation, CartLine, CartState, CheckoutDraft, Locale, Route, Session } from "./types";
 
 const api = createApi();
 
@@ -257,7 +257,7 @@ export function App() {
     );
 
   return (
-    <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header="Tako Lako - Грузинская кухня" runtime={data.runtime} telegramUserId={data.session?.telegram_user_id}>
+    <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header="Tako Lako - Грузинская кухня" runtime={data.runtime} session={data.session}>
       {error && (
         <div className="notice error">
           <AlertCircle size={18} />
@@ -283,7 +283,7 @@ function Shell({
   header,
   cartQuantity,
   runtime,
-  telegramUserId,
+  session,
   onLocale,
 }: {
   children: React.ReactNode;
@@ -292,7 +292,7 @@ function Shell({
   header: string;
   cartQuantity: number;
   runtime?: AppData["runtime"];
-  telegramUserId?: number;
+  session?: Session | null;
   onLocale: (locale: Locale) => void;
 }) {
   const isRoot = route.name === "menu";
@@ -311,15 +311,18 @@ function Shell({
               <span className="worktime">Рабочее время 13:00–21:00</span>
             </div>
           </div>
-          {isRoot && (
-            <div className="locale">
-              {(["ru", "sr", "en"] as Locale[]).map((entry) => (
-                <button key={entry} className={entry === locale ? "active" : ""} onClick={() => onLocale(entry)}>
-                  {entry.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="header-actions">
+            <ProfileBadge session={session} />
+            {isRoot && (
+              <div className="locale">
+                {(["ru", "sr", "en"] as Locale[]).map((entry) => (
+                  <button key={entry} className={entry === locale ? "active" : ""} onClick={() => onLocale(entry)}>
+                    {entry.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         {runtime && !runtime.accepting_orders && <div className="closed-banner">{runtime.reason === "manual_day_off" ? t(locale, "closed") : t(locale, "checkoutClosed")}</div>}
         <nav className="nav">
@@ -336,9 +339,24 @@ function Shell({
             {t(locale, "support")}
           </a>
         </nav>
-        {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="CLIENT" />}
+        {isOwnerTelegramId(session?.telegram_user_id) && <OwnerRoleSwitch activeRole="CLIENT" />}
       </header>
       <main>{children}</main>
+    </div>
+  );
+}
+
+function ProfileBadge({ session }: { session?: Session | null }) {
+  if (!session?.telegram_user_id) return null;
+  const label = profileLabel(session);
+  const initials = profileInitials(session);
+  return (
+    <div className="profile-badge" title={label}>
+      <span className="profile-avatar">
+        <span>{initials}</span>
+        {session.photo_url && <img src={session.photo_url} alt="" loading="lazy" referrerPolicy="no-referrer" />}
+      </span>
+      <span>{label}</span>
     </div>
   );
 }
@@ -650,6 +668,19 @@ function foodVisual(title: string): string {
 
 function itemMinQuantity(item: MenuItem): number {
   return Math.max(1, item.min_quantity || 1);
+}
+
+function profileLabel(profile: Pick<Session, "telegram_user_id" | "username" | "first_name">): string {
+  const username = (profile.username || "").trim();
+  if (username) return username.startsWith("@") ? username : `@${username}`;
+  const firstName = (profile.first_name || "").trim();
+  if (firstName) return firstName;
+  return `TG ${profile.telegram_user_id}`;
+}
+
+function profileInitials(profile: Pick<Session, "username" | "first_name">): string {
+  const source = (profile.first_name || profile.username || "TG").trim();
+  return source.slice(0, 2).toUpperCase();
 }
 
 function errorText(err: unknown): string {

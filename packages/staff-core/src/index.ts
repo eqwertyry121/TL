@@ -7,6 +7,9 @@ export type StaffRole = "KITCHEN" | "COURIER";
 export interface StaffSession {
   token: string;
   telegram_user_id?: number;
+  username?: string;
+  first_name?: string;
+  photo_url?: string;
   active_role: StaffRole;
   expires_at: string;
 }

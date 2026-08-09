@@ -110,6 +110,7 @@ func (s *Store) BootstrapOwner(ctx context.Context, telegramUserID int64) error 
 		TelegramUserID: telegramUserID,
 		Username:       "owner",
 		FirstName:      "Owner",
+		PhotoURL:       "",
 		LanguageCode:   "ru",
 	})
 	if err != nil {
@@ -134,14 +135,14 @@ func (s *Store) UpsertTelegramUser(ctx context.Context, user core.User) (core.Us
 		user.LanguageCode = "ru"
 	}
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO users (telegram_user_id, username, first_name, language_code)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO users (telegram_user_id, username, first_name, photo_url, language_code)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (telegram_user_id)
-		DO UPDATE SET username=EXCLUDED.username, first_name=EXCLUDED.first_name,
+		DO UPDATE SET username=EXCLUDED.username, first_name=EXCLUDED.first_name, photo_url=EXCLUDED.photo_url,
 			language_code=EXCLUDED.language_code, updated_at=now()
-		RETURNING id, telegram_user_id, username, first_name, language_code
-	`, user.TelegramUserID, safe(user.Username), safe(user.FirstName), safe(user.LanguageCode)).
-		Scan(&user.ID, &user.TelegramUserID, &user.Username, &user.FirstName, &user.LanguageCode)
+		RETURNING id, telegram_user_id, username, first_name, photo_url, language_code
+	`, user.TelegramUserID, safe(user.Username), safe(user.FirstName), safe(user.PhotoURL), safe(user.LanguageCode)).
+		Scan(&user.ID, &user.TelegramUserID, &user.Username, &user.FirstName, &user.PhotoURL, &user.LanguageCode)
 	return user, err
 }
 
@@ -194,6 +195,9 @@ func (s *Store) CreateSession(ctx context.Context, user core.User, role core.Rol
 		TokenHash:      tokenHash,
 		UserID:         user.ID,
 		TelegramUserID: user.TelegramUserID,
+		Username:       user.Username,
+		FirstName:      user.FirstName,
+		PhotoURL:       user.PhotoURL,
 		Audience:       audience,
 		ActiveRole:     role,
 		ExpiresAt:      expiresAt,
@@ -204,10 +208,22 @@ func (s *Store) SessionByToken(ctx context.Context, token string) (core.Session,
 	hash := hashString(token)
 	var sess core.Session
 	err := s.pool.QueryRow(ctx, `
-		SELECT token_hash, user_id, telegram_user_id, audience, active_role, expires_at
-		FROM sessions
-		WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at > now()
-	`, hash).Scan(&sess.TokenHash, &sess.UserID, &sess.TelegramUserID, &sess.Audience, &sess.ActiveRole, &sess.ExpiresAt)
+		SELECT s.token_hash, s.user_id, s.telegram_user_id, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
+			COALESCE(u.photo_url, ''), s.audience, s.active_role, s.expires_at
+		FROM sessions s
+		JOIN users u ON u.id=s.user_id
+		WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at > now()
+	`, hash).Scan(
+		&sess.TokenHash,
+		&sess.UserID,
+		&sess.TelegramUserID,
+		&sess.Username,
+		&sess.FirstName,
+		&sess.PhotoURL,
+		&sess.Audience,
+		&sess.ActiveRole,
+		&sess.ExpiresAt,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.Session{}, core.ErrForbidden
 	}
@@ -972,6 +988,9 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		ID:                orderID,
 		PublicNumber:      publicNumber,
 		ClientUserID:      sess.UserID,
+		ClientUsername:    sess.Username,
+		ClientFirstName:   sess.FirstName,
+		ClientPhotoURL:    sess.PhotoURL,
 		FulfillmentStatus: core.StatusNew,
 		PaymentMethod:     core.PaymentCash,
 		PaymentStatus:     core.PaymentCashPending,
@@ -1761,6 +1780,7 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 	var ready, delivered, cancelled sql.NullTime
 	err := s.pool.QueryRow(ctx, `
 		SELECT o.id, o.public_number, o.client_user_id, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
+			COALESCE(u.photo_url, ''),
 			o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency, o.phone_ciphertext, o.address_ciphertext,
 			o.customer_comment, o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at
@@ -1768,7 +1788,7 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 		JOIN users u ON u.id=o.client_user_id
 		WHERE o.id=$1
 	`, orderID).Scan(
-		&order.ID, &order.PublicNumber, &order.ClientUserID, &order.ClientUsername, &order.ClientFirstName,
+		&order.ID, &order.PublicNumber, &order.ClientUserID, &order.ClientUsername, &order.ClientFirstName, &order.ClientPhotoURL,
 		&order.FulfillmentStatus, &order.PaymentMethod,
 		&order.PaymentStatus, &order.SubtotalMinor, &order.DeliveryFeeMinor, &order.TotalMinor, &order.Currency,
 		&phoneCipher, &addressCipher, &order.CustomerComment, &order.Locale, &order.Version, &order.CreatedAt,

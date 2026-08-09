@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
   telegram_user_id bigint NOT NULL UNIQUE,
   username text NOT NULL DEFAULT '',
   first_name text NOT NULL DEFAULT '',
+  photo_url text NOT NULL DEFAULT '',
   language_code text NOT NULL DEFAULT 'ru',
   phone_ciphertext text NOT NULL DEFAULT '',
   phone_hash text NOT NULL DEFAULT '',

@@ -171,6 +171,7 @@ func (s *Server) devSession(w http.ResponseWriter, r *http.Request) {
 		Role           core.Role `json:"role"`
 		Username       string    `json:"username"`
 		FirstName      string    `json:"first_name"`
+		PhotoURL       string    `json:"photo_url"`
 		LanguageCode   string    `json:"language_code"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
@@ -187,6 +188,7 @@ func (s *Server) devSession(w http.ResponseWriter, r *http.Request) {
 		TelegramUserID: req.TelegramUserID,
 		Username:       req.Username,
 		FirstName:      req.FirstName,
+		PhotoURL:       req.PhotoURL,
 		LanguageCode:   req.LanguageCode,
 	})
 	if err != nil {
@@ -224,6 +226,7 @@ func (s *Server) telegramAuth(w http.ResponseWriter, r *http.Request) {
 		TelegramUserID: tgUser.ID,
 		Username:       tgUser.Username,
 		FirstName:      tgUser.FirstName,
+		PhotoURL:       tgUser.PhotoURL,
 		LanguageCode:   tgUser.LanguageCode,
 	})
 	if err != nil {

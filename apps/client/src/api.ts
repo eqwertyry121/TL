@@ -1,6 +1,6 @@
 import type { AdminCategory, AdminMenuItem, Category, Order, Runtime, Settings } from "@tk-delivery/api-client/generated";
 import { demoCategories, demoRuntime } from "./fixtures";
-import { rawInitData } from "./telegram";
+import { rawInitData, telegramUser } from "./telegram";
 import type { Api, Calculation, CreateOrderInput, Locale, Session } from "./types";
 
 const demoOrdersKey = "tk-client-demo-orders-v1";
@@ -43,9 +43,13 @@ function demoApi(): Api {
   return {
     mode: "demo",
     async authenticate() {
+      const profile = demoTelegramProfile();
       return {
         token: "demo-client-token",
-        telegram_user_id: 1048084234,
+        telegram_user_id: profile.telegram_user_id,
+        username: profile.username,
+        first_name: profile.first_name,
+        photo_url: profile.photo_url,
         active_role: "CLIENT",
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       };
@@ -99,9 +103,13 @@ function demoApi(): Api {
       const existing = orders.find((order) => (order as DemoOrder).__key === idempotencyKey);
       if (existing) return stripDemo(existing);
       const decoded = loadDemoCalculation(input.calculation_token);
+      const profile = demoTelegramProfile();
       const order: DemoOrder = {
         id: crypto.randomUUID(),
         public_number: 100 + orders.length + 1,
+        client_username: profile.username,
+        client_first_name: profile.first_name,
+        client_photo_url: profile.photo_url,
         fulfillment_status: "NEW",
         payment_method: "cash",
         payment_status: "CASH_PENDING",
@@ -135,6 +143,16 @@ function demoApi(): Api {
     async listOrders() {
       return { orders: loadDemoOrders().map(stripDemo) };
     },
+  };
+}
+
+function demoTelegramProfile(): { telegram_user_id: number; username: string; first_name: string; photo_url: string } {
+  const user = telegramUser();
+  return {
+    telegram_user_id: user?.id || 1048084234,
+    username: (user?.username || "owner").replace(/^@/, ""),
+    first_name: user?.first_name || "Owner",
+    photo_url: user?.photo_url || "",
   };
 }
 

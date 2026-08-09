@@ -232,6 +232,61 @@ h2 {
   -webkit-text-fill-color: inherit;
 }
 
+.header-actions {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: end;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.profile-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: min(42vw, 13rem);
+  min-height: clamp(2rem, 6.5vw, 2.35rem);
+  border-radius: 999px;
+  padding: 0.22rem 0.58rem 0.22rem 0.22rem;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(241, 209, 154, 0.2);
+  font-size: clamp(0.74rem, 2.25vw, 0.9rem);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.profile-badge > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-avatar {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: clamp(1.55rem, 5.2vw, 1.9rem);
+  height: clamp(1.55rem, 5.2vw, 1.9rem);
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, #fffaf3, #f1d19a);
+  color: var(--copper-dark);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.profile-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .locale {
   display: flex;
   flex: 0 0 auto;
@@ -996,9 +1051,12 @@ textarea {
   }
 
   .locale {
-    position: relative;
-    z-index: 1;
     align-self: start;
     justify-self: end;
+  }
+
+  .profile-badge {
+    max-width: min(38vw, 8.2rem);
+    padding-right: 0.48rem;
   }
 }

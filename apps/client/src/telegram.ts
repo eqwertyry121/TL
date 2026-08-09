@@ -11,10 +11,7 @@ interface TelegramBackButton {
 interface TelegramWebApp {
   initData: string;
   initDataUnsafe?: {
-    user?: {
-      id: number;
-      language_code?: string;
-    };
+    user?: TelegramUserProfile;
   };
   BackButton?: TelegramBackButton;
   ready(): void;
@@ -23,6 +20,15 @@ interface TelegramWebApp {
   HapticFeedback?: {
     impactOccurred(style: "light" | "medium" | "heavy"): void;
   };
+}
+
+export interface TelegramUserProfile {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  photo_url?: string;
+  language_code?: string;
 }
 
 declare global {
@@ -42,6 +48,10 @@ export function telegram() {
 
 export function initialLocale(): Locale {
   return telegramLocale(telegram()?.initDataUnsafe?.user?.language_code);
+}
+
+export function telegramUser(): TelegramUserProfile | null {
+  return telegram()?.initDataUnsafe?.user || null;
 }
 
 export function syncBackButton(route: Route, onBack: () => void): () => void {

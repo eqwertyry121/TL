@@ -108,7 +108,7 @@ export function App() {
               <Menu order={order} />
             </div>
             <div className="meta-grid">
-              <div><span>Клиент</span><strong>{clientLabel(order)}</strong></div>
+              <div><span>Клиент</span><CustomerBadge order={order} /></div>
               <div><span>Оплата</span><strong>{paymentText(order)}</strong></div>
             </div>
             <ul>
@@ -121,6 +121,18 @@ export function App() {
           </article>
         ))}
       </main>
+    </div>
+  );
+}
+
+function CustomerBadge({ order }: { order: Order }) {
+  return (
+    <div className="customer-badge" title={clientLabel(order)}>
+      <span className="customer-avatar">
+        <span>{clientInitials(order)}</span>
+        {order.client_photo_url && <img src={order.client_photo_url} alt="" loading="lazy" referrerPolicy="no-referrer" />}
+      </span>
+      <b>{clientLabel(order)}</b>
     </div>
   );
 }
@@ -154,6 +166,11 @@ function Menu({ order }: { order: Order }) {
 
 function secondsAgo(value: Date) {
   return Math.max(0, Math.floor((Date.now() - value.getTime()) / 1000));
+}
+
+function clientInitials(order: Order): string {
+  const source = (order.client_first_name || order.client_username || "TG").trim();
+  return source.slice(0, 2).toUpperCase();
 }
 
 function playBeep() {
