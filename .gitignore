@@ -8,6 +8,8 @@ node_modules/
 dist/
 build/
 .vite/
+*.exe
+*.test
 
 # Logs
 *.log

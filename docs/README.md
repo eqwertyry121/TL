@@ -4,6 +4,8 @@
 
 1. [Мастер-ТЗ](00_MASTER_SPEC.md)
 2. [Что было упрощено](SIMPLIFICATION_NOTES.md)
+3. [Локальная разработка](local-development.md)
+4. [OpenAPI](openapi.yaml)
 
 ## Артефакты этапа 0
 

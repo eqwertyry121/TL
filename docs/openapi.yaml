@@ -1,0 +1,109 @@
+openapi: 3.1.0
+info:
+  title: TK Delivery API
+  version: 0.1.0
+servers:
+  - url: http://127.0.0.1:8080/api/v1
+security:
+  - bearerAuth: []
+paths:
+  /runtime:
+    get:
+      security: []
+      responses:
+        "200":
+          description: Runtime settings and schedule state
+  /menu:
+    get:
+      security: []
+      parameters:
+        - name: locale
+          in: query
+          schema:
+            type: string
+            enum: [ru, sr, en]
+      responses:
+        "200":
+          description: Visible non-archived menu
+  /dev/session:
+    post:
+      security: []
+      responses:
+        "200":
+          description: Development-only session
+  /auth/telegram:
+    post:
+      security: []
+      responses:
+        "200":
+          description: Telegram initData session
+  /orders/calculate:
+    post:
+      responses:
+        "200":
+          description: Server-side cart calculation
+  /orders:
+    get:
+      responses:
+        "200":
+          description: Client order history
+    post:
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Created cash order
+  /kitchen/orders:
+    get:
+      responses:
+        "200":
+          description: NEW orders without phone/address
+  /kitchen/orders/{id}/ready:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      responses:
+        "200":
+          description: Order moved to OUT_FOR_DELIVERY
+  /courier/orders:
+    get:
+      responses:
+        "200":
+          description: OUT_FOR_DELIVERY orders with phone/address
+  /courier/orders/{id}/delivered:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      responses:
+        "200":
+          description: Order moved to DELIVERED
+  /admin/settings/manual-day-off:
+    put:
+      responses:
+        "200":
+          description: Manual day-off switch updated
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    orderId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string

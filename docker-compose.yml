@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: tk_delivery
+      POSTGRES_USER: tk_delivery
+      POSTGRES_PASSWORD: tk_delivery
+    ports:
+      - "5432:5432"
+    volumes:
+      - tk_delivery_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tk_delivery -d tk_delivery"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: development
+      HTTP_ADDR: :8080
+      POSTGRES_DSN: postgres://tk_delivery:tk_delivery@postgres:5432/tk_delivery?sslmode=disable
+      APP_TIMEZONE: Europe/Belgrade
+      APP_CURRENCY: RSD
+      TELEGRAM_CLIENT_BOT_USERNAME: TakoLako_main_bot
+      BOOTSTRAP_OWNER_TELEGRAM_ID: "1048084234"
+      LOCAL_ROLE_SWITCHER_ENABLED: "true"
+      NOTIFICATION_DRY_RUN: "true"
+    ports:
+      - "8080:8080"
+
+volumes:
+  tk_delivery_pg:
