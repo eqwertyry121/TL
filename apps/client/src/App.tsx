@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   Check,
   ChevronRight,
-  Clock,
   Minus,
   Phone,
   Plus,
@@ -253,7 +252,7 @@ export function App() {
     ) : route.name === "terms" ? (
       <Terms />
     ) : (
-      <Menu categories={data.categories} cart={cart} locale={locale} onSetLine={setLine} />
+      <Menu categories={data.categories} cart={cart} onSetLine={setLine} />
     );
 
   return (
@@ -340,6 +339,11 @@ function Shell({
             {t(locale, "support")}
           </a>
         </nav>
+        <div className="cube-scene" aria-hidden="true">
+          <span className="cube cube-one" />
+          <span className="cube cube-two" />
+          <span className="cube cube-three" />
+        </div>
         {isOwnerTelegramId(session?.telegram_user_id) && <OwnerRoleSwitch activeRole="CLIENT" />}
       </header>
       <main>{children}</main>
@@ -374,38 +378,10 @@ function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
   );
 }
 
-function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
+function Menu({ categories, cart, onSetLine }: { categories: AppData["categories"]; cart: CartState; onSetLine: (item: MenuItem, quantity: number) => void }) {
   const flatItems = categories.flatMap((category, categoryIndex) => category.items.map((item, index) => ({ item, visualIndex: categoryIndex + index })));
-  const cartQuantity = Object.values(cart.lines).reduce((sum, line) => sum + line.quantity, 0);
   return (
     <div className="page">
-      <section className="menu-hero" aria-label="Tako Lako меню">
-        <div className="hero-copy">
-          <span className="eyebrow">Доставка по Нови Саду бесплатно · закажи в 2 клика</span>
-          <h1>Меню на сегодня</h1>
-          <p>Выбирай блюда без лишнего шума: количество, телефон из Telegram, адрес — и заказ сразу уходит в работу.</p>
-          <div className="trust-strip">
-            <span><Clock size={16} />13:00—21:00</span>
-            <span><Phone size={16} />контакт из Telegram</span>
-            <span><ShoppingCart size={16} />наличными курьеру</span>
-          </div>
-        </div>
-        <div className="hero-showcase" aria-hidden="true">
-          <div className="hero-plate">
-            <span>🥟</span>
-            <span>🧀</span>
-            <span>🌿</span>
-          </div>
-          <div className="hero-stat">
-            <strong>{flatItems.length}</strong>
-            <span>позиций</span>
-          </div>
-          <div className="hero-stat muted-card">
-            <strong>{cartQuantity}</strong>
-            <span>в корзине</span>
-          </div>
-        </div>
-      </section>
       <section className="menu-section">
         <div className="menu-grid">
           {flatItems.map(({ item, visualIndex }) => {
