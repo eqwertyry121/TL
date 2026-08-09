@@ -736,6 +736,62 @@ main {
   }
 }
 
+@supports (content-visibility: auto) {
+  .panel,
+  .metric,
+  .order,
+  .schedule-card,
+  .row,
+  .menu-row,
+  .staff-row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 12rem;
+  }
+}
+
+@media (hover: none), (pointer: coarse), (max-width: 56rem) {
+  body::before {
+    display: none;
+  }
+
+  button:hover {
+    filter: none;
+  }
+
+  .topbar,
+  .panel,
+  .metric,
+  .order,
+  .schedule-card {
+    backdrop-filter: none;
+  }
+
+  .topbar {
+    box-shadow: 0 0.45rem 1.05rem rgba(39, 89, 58, 0.08);
+  }
+
+  .panel,
+  .metric,
+  .order,
+  .schedule-card {
+    animation: none;
+    box-shadow: 0 0.45rem 1.05rem rgba(39, 89, 58, 0.08);
+    transition: border-color 140ms ease, background 140ms ease;
+  }
+
+  .panel:hover,
+  .metric:hover,
+  .order:hover,
+  .schedule-card:hover {
+    box-shadow: 0 0.45rem 1.05rem rgba(39, 89, 58, 0.08);
+    transform: none;
+  }
+
+  .primary::after {
+    display: none;
+  }
+}
+
 @media (min-width: 80rem) {
   main {
     max-width: 98rem;

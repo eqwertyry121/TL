@@ -354,7 +354,7 @@ h1 {
 
 .phone {
   align-items: center;
-  color: #16735c;
+  color: var(--copper-dark);
 }
 
 ul {
@@ -545,6 +545,56 @@ li {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@supports (content-visibility: auto) {
+  .card,
+  .status,
+  .empty {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 18rem;
+  }
+}
+
+@media (hover: none), (pointer: coarse), (max-width: 48rem) {
+  body::before {
+    display: none;
+  }
+
+  .header {
+    box-shadow: 0 0.45rem 1.05rem rgba(23, 53, 35, 0.18);
+  }
+
+  .header::after {
+    opacity: 0.18;
+  }
+
+  .status,
+  .empty,
+  .card,
+  .popover {
+    backdrop-filter: none;
+  }
+
+  .card {
+    animation: none;
+    box-shadow: 0 0.45rem 1.05rem rgba(39, 89, 58, 0.08);
+    transition: border-color 140ms ease, background 140ms ease;
+  }
+
+  .card:hover {
+    box-shadow: 0 0.45rem 1.05rem rgba(39, 89, 58, 0.08);
+    transform: none;
+  }
+
+  .eta button:hover {
+    box-shadow: none;
+    transform: none;
+  }
+
+  .primary::after {
+    display: none;
   }
 }
 

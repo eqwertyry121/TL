@@ -499,6 +499,51 @@ li {
   }
 }
 
+@supports (content-visibility: auto) {
+  .card,
+  .status,
+  .empty {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 16rem;
+  }
+}
+
+@media (hover: none), (pointer: coarse), (max-width: 48rem) {
+  body::before {
+    display: none;
+  }
+
+  .header {
+    box-shadow: 0 0.45rem 1.05rem rgba(23, 53, 35, 0.18);
+  }
+
+  .header::after {
+    opacity: 0.18;
+  }
+
+  .status,
+  .empty,
+  .card,
+  .popover {
+    backdrop-filter: none;
+  }
+
+  .card {
+    animation: none;
+    box-shadow: 0 0.45rem 1.05rem rgba(39, 89, 58, 0.08);
+    transition: border-color 140ms ease, background 140ms ease;
+  }
+
+  .card:hover {
+    box-shadow: 0 0.45rem 1.05rem rgba(39, 89, 58, 0.08);
+    transform: none;
+  }
+
+  .primary::after {
+    display: none;
+  }
+}
+
 @media (orientation: landscape) and (max-height: 36rem) {
   .app {
     padding-bottom: var(--page-pad);
