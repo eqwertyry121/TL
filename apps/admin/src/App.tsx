@@ -1,5 +1,7 @@
 import type { AdminAnalytics, AdminCategory, AdminDashboard, AdminMenuItem, AuditEntry, Order, ScheduleDay, Settings, StaffMember } from "@tk-delivery/api-client/generated";
-import { createAdminApi, money, statusText, type AdminMenuResponse, type AdminTab, type AnalyticsRange, type CategoryInput, type MenuItemInput, type SettingsInput, type StaffInput } from "./api";
+import type { Role } from "@tk-delivery/api-client/generated";
+import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
+import { createAdminApi, money, statusText, type AdminMenuResponse, type AdminSession, type AdminTab, type AnalyticsRange, type CategoryInput, type MenuItemInput, type SettingsInput, type StaffInput } from "./api";
 import { AlertTriangle, Archive, BarChart3, CalendarDays, Check, ClipboardList, Eye, EyeOff, Home, Menu as MenuIcon, RefreshCw, Save, Settings as SettingsIcon, Shield, Trash2, Upload, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -17,6 +19,7 @@ const tabs: Array<{ id: AdminTab; label: string; icon: typeof Home }> = [
 
 export function App() {
   const [token, setToken] = useState("");
+  const [session, setSession] = useState<AdminSession | null>(null);
   const [tab, setTab] = useState<AdminTab>("home");
   const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
   const [menu, setMenu] = useState<AdminMenuResponse>({ categories: [], items: [] });
@@ -64,6 +67,7 @@ export function App() {
     let stopped = false;
     api.authenticate().then((session) => {
       if (stopped) return;
+      setSession(session);
       setToken(session.token);
       void load(session.token);
     }).catch((err) => {
@@ -113,6 +117,7 @@ export function App() {
           <div>
             <h1>{tabs.find((entry) => entry.id === tab)?.label}</h1>
             <p>ADMIN Telegram ID owner/tester: 1048084234</p>
+            {isOwnerTelegramId(session?.telegram_user_id) && <OwnerRoleSwitch activeRole="ADMIN" />}
           </div>
           <button className="secondary" onClick={() => void load()} disabled={!token || loading}><RefreshCw size={18} /> Обновить</button>
         </header>
@@ -127,6 +132,18 @@ export function App() {
         {tab === "settings" && settings && <SettingsTab settings={settings} onSave={(input) => run(() => api.updateSettings(token, input))} />}
         {tab === "audit" && <AuditTab entries={audit} />}
       </main>
+    </div>
+  );
+}
+
+function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
+  return (
+    <div className="role-switch" aria-label="Переключение роли owner">
+      {roleLinks(activeRole).map((link) => (
+        <a key={link.role} className={link.active ? "active" : ""} href={link.href}>
+          {link.label}
+        </a>
+      ))}
     </div>
   );
 }

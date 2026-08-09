@@ -161,6 +161,36 @@ h1 {
     var(--panel-solid);
 }
 
+.role-switch {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: var(--gap);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.role-switch::-webkit-scrollbar {
+  display: none;
+}
+
+.role-switch a {
+  display: grid;
+  flex: 1 0 max-content;
+  place-items: center;
+  min-height: 2.7rem;
+  border-radius: var(--radius-sm);
+  padding: 0 0.9rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-weight: 950;
+  text-decoration: none;
+}
+
+.role-switch a.active {
+  background: var(--accent);
+  color: #052e16;
+}
+
 .list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 23rem), 1fr));

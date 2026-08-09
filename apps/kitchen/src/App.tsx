@@ -1,4 +1,5 @@
-import type { Order } from "@tk-delivery/api-client/generated";
+import type { Order, Role } from "@tk-delivery/api-client/generated";
+import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
 import { createStaffApi, money, orderAge, paymentText, problemLink } from "@tk-delivery/staff-core";
 import { AlertTriangle, Bell, Check, Clock, MoreVertical, RefreshCw, Volume2, WifiOff } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -7,6 +8,7 @@ const api = createStaffApi("KITCHEN");
 
 export function App() {
   const [token, setToken] = useState("");
+  const [telegramUserId, setTelegramUserId] = useState<number | undefined>();
   const [orders, setOrders] = useState<Order[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [offline, setOffline] = useState(false);
@@ -37,6 +39,7 @@ export function App() {
     api.authenticate("KITCHEN").then((session) => {
       if (stopped) return;
       setToken(session.token);
+      setTelegramUserId(session.telegram_user_id);
       void refresh(session.token);
     }).catch(() => setOffline(true));
     return () => {
@@ -93,6 +96,7 @@ export function App() {
         {offline ? <WifiOff size={18} /> : <Clock size={18} />}
         <span>{offline ? "Нет связи" : wakeStatus}</span>
       </div>
+      {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="KITCHEN" />}
       {!soundEnabled && (
         <button className="secondary full" onClick={enableSoundAndWake}>
           <Volume2 size={18} /> Включить звук
@@ -118,6 +122,18 @@ export function App() {
           </article>
         ))}
       </main>
+    </div>
+  );
+}
+
+function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
+  return (
+    <div className="role-switch" aria-label="Переключение роли owner">
+      {roleLinks(activeRole).map((link) => (
+        <a key={link.role} className={link.active ? "active" : ""} href={link.href}>
+          {link.label}
+        </a>
+      ))}
     </div>
   );
 }

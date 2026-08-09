@@ -1,4 +1,5 @@
-import type { MenuItem, Order } from "@tk-delivery/api-client/generated";
+import type { MenuItem, Order, Role } from "@tk-delivery/api-client/generated";
+import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
 import {
   AlertCircle,
   ArrowLeft,
@@ -256,7 +257,7 @@ export function App() {
     );
 
   return (
-    <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header="Tako Lako - Грузинская кухня" runtime={data.runtime}>
+    <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header="Tako Lako - Грузинская кухня" runtime={data.runtime} telegramUserId={data.session?.telegram_user_id}>
       {error && (
         <div className="notice error">
           <AlertCircle size={18} />
@@ -282,6 +283,7 @@ function Shell({
   header,
   cartQuantity,
   runtime,
+  telegramUserId,
   onLocale,
 }: {
   children: React.ReactNode;
@@ -290,6 +292,7 @@ function Shell({
   header: string;
   cartQuantity: number;
   runtime?: AppData["runtime"];
+  telegramUserId?: number;
   onLocale: (locale: Locale) => void;
 }) {
   const isRoot = route.name === "menu";
@@ -333,8 +336,21 @@ function Shell({
             {t(locale, "support")}
           </a>
         </nav>
+        {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="CLIENT" />}
       </header>
       <main>{children}</main>
+    </div>
+  );
+}
+
+function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
+  return (
+    <div className="role-switch" aria-label="Переключение роли owner">
+      {roleLinks(activeRole).map((link) => (
+        <a key={link.role} className={link.active ? "active" : ""} href={link.href}>
+          {link.label}
+        </a>
+      ))}
     </div>
   );
 }

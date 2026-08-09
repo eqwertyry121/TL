@@ -13,6 +13,7 @@ export type Route =
 
 export interface Session {
   token: string;
+  telegram_user_id?: number;
   active_role: "CLIENT";
   expires_at: string;
 }

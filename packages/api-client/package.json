@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./generated": "./src/generated.ts"
+    "./generated": "./src/generated.ts",
+    "./role-switch": "./src/role-switch.ts"
   },
   "scripts": {
     "check": "tsc --noEmit",

@@ -1,4 +1,5 @@
-import type { Order } from "@tk-delivery/api-client/generated";
+import type { Order, Role } from "@tk-delivery/api-client/generated";
+import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
 import { createStaffApi, mapLink, money, orderAge, paymentText, problemLink } from "@tk-delivery/staff-core";
 import { Check, Copy, MapPin, MoreVertical, Phone, RefreshCw, WifiOff } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -7,6 +8,7 @@ const api = createStaffApi("COURIER");
 
 export function App() {
   const [token, setToken] = useState("");
+  const [telegramUserId, setTelegramUserId] = useState<number | undefined>();
   const [orders, setOrders] = useState<Order[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [offline, setOffline] = useState(false);
@@ -31,6 +33,7 @@ export function App() {
     api.authenticate("COURIER").then((session) => {
       if (stopped) return;
       setToken(session.token);
+      setTelegramUserId(session.telegram_user_id);
       void refresh(session.token);
     }).catch(() => setOffline(true));
     return () => {
@@ -76,6 +79,7 @@ export function App() {
         {offline ? <WifiOff size={18} /> : <MapPin size={18} />}
         <span>{offline ? "Нет связи" : "Заказы обновляются каждые 5 секунд"}</span>
       </div>
+      {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="COURIER" />}
       <main className="list">
         {sortedOrders.length === 0 ? <div className="empty">Готовых доставок нет</div> : sortedOrders.map((order) => (
           <article className="card" key={order.id}>
@@ -104,6 +108,18 @@ export function App() {
           </article>
         ))}
       </main>
+    </div>
+  );
+}
+
+function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
+  return (
+    <div className="role-switch" aria-label="Переключение роли owner">
+      {roleLinks(activeRole).map((link) => (
+        <a key={link.role} className={link.active ? "active" : ""} href={link.href}>
+          {link.label}
+        </a>
+      ))}
     </div>
   );
 }

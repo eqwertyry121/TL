@@ -6,6 +6,7 @@ export type StaffRole = "KITCHEN" | "COURIER";
 
 export interface StaffSession {
   token: string;
+  telegram_user_id?: number;
   active_role: StaffRole;
   expires_at: string;
 }
@@ -86,6 +87,7 @@ function demoApi(role: StaffRole): StaffApi {
     async authenticate() {
       return {
         token: `demo-${role.toLowerCase()}-token`,
+        telegram_user_id: 1048084234,
         active_role: role,
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       };

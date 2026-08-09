@@ -45,6 +45,7 @@ function demoApi(): Api {
     async authenticate() {
       return {
         token: "demo-client-token",
+        telegram_user_id: 1048084234,
         active_role: "CLIENT",
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       };

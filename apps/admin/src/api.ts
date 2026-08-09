@@ -23,6 +23,7 @@ export type AnalyticsRange = "today" | "7d" | "month";
 
 export interface AdminSession {
   token: string;
+  telegram_user_id?: number;
   active_role: "ADMIN";
   expires_at: string;
 }
@@ -200,6 +201,7 @@ function demoApi(): AdminApi {
     async authenticate() {
       return {
         token: "demo-admin-token",
+        telegram_user_id: 1048084234,
         active_role: "ADMIN",
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       };
