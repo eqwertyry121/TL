@@ -17,6 +17,37 @@ http://127.0.0.1:5173/
 GitHub Pages builds the same app in staging demo mode, because production
 backend is not deployed yet.
 
+## Staff Mini Apps
+
+Kitchen:
+
+```powershell
+pnpm kitchen:dev
+```
+
+Open:
+
+```text
+http://127.0.0.1:5174/
+```
+
+Courier:
+
+```powershell
+pnpm courier:dev
+```
+
+Open:
+
+```text
+http://127.0.0.1:5175/
+```
+
+In staging demo mode, Client/Kitchen/Courier share browser `localStorage`.
+Create a cash order in Client, open Kitchen, press `ЗАКАЗ ГОТОВ`, then open
+Courier and press `ДОСТАВЛЕНО`. Real cross-device sync requires PostgreSQL and
+backend deployment.
+
 ## Legacy static preview
 
 ```powershell

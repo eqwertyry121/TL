@@ -27,5 +27,19 @@ pnpm client:dev
 GitHub Pages собирает `apps/client` в staging demo mode, пока production backend
 не перенесён на сервер.
 
+Staff Mini Apps для этапа 3:
+
+```text
+https://eqwertyry121.github.io/TL/kitchen/
+https://eqwertyry121.github.io/TL/courier/
+```
+
+Локально:
+
+```powershell
+pnpm kitchen:dev
+pnpm courier:dev
+```
+
 `PLAN_v1.md` сохранён как исходный черновик. При противоречии приоритет имеют
 мастер-ТЗ, файл текущего этапа и `AGENTS.md`.

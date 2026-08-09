@@ -45,13 +45,32 @@ jobs:
           VITE_APP_ENV: staging
           VITE_DEMO_MODE: "true"
 
+      - name: Build kitchen Mini App
+        run: pnpm --filter @tk-delivery/kitchen build
+        env:
+          VITE_APP_ENV: staging
+          VITE_DEMO_MODE: "true"
+
+      - name: Build courier Mini App
+        run: pnpm --filter @tk-delivery/courier build
+        env:
+          VITE_APP_ENV: staging
+          VITE_DEMO_MODE: "true"
+
+      - name: Prepare Pages artifact
+        run: |
+          mkdir -p pages/kitchen pages/courier
+          cp -R apps/client/dist/. pages/
+          cp -R apps/kitchen/dist/. pages/kitchen/
+          cp -R apps/courier/dist/. pages/courier/
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload client app
+      - name: Upload Mini Apps
         uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/client/dist
+          path: pages
 
       - name: Deploy
         id: deployment

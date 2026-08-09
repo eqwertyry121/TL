@@ -6,6 +6,8 @@
     "check": "pnpm -r check",
     "build": "pnpm -r build",
     "client:dev": "pnpm --filter @tk-delivery/client dev",
-    "client:build": "pnpm --filter @tk-delivery/client build"
+    "client:build": "pnpm --filter @tk-delivery/client build",
+    "kitchen:dev": "pnpm --filter @tk-delivery/kitchen dev",
+    "courier:dev": "pnpm --filter @tk-delivery/courier dev"
   }
 }
