@@ -635,6 +635,18 @@ h2 {
   gap: clamp(0.75rem, 2vw, 1rem);
 }
 
+.line > .qty {
+  flex: 0 0 auto;
+  grid-template-columns: 1.45rem minmax(1.35rem, 1fr) 1.45rem;
+  width: clamp(4.85rem, 20vw, 5.45rem);
+  min-width: 4.85rem;
+  border-radius: 0.82rem;
+}
+
+.line > .qty button {
+  min-height: clamp(1.8rem, 5dvh, 2.1rem);
+}
+
 .line > div {
   display: grid;
   gap: 0.25rem;
