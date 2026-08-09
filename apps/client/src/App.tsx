@@ -381,7 +381,7 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
     <div className="page">
       <section className="menu-hero" aria-label="Tako Lako меню">
         <div className="hero-copy">
-          <span className="eyebrow">Tako Lako · small batch kitchen</span>
+          <span className="eyebrow">Доставка по Нови Саду бесплатно · закажи в 2 клика</span>
           <h1>Меню на сегодня</h1>
           <p>Выбирай блюда без лишнего шума: количество, телефон из Telegram, адрес — и заказ сразу уходит в работу.</p>
           <div className="trust-strip">
