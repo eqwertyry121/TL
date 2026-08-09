@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;600;700;800&display=swap");
+
 :root {
   --content-max: 72rem;
   --narrow-max: 48rem;
@@ -20,8 +22,10 @@
   --gold-soft: #f1d19a;
   --shadow-soft: 0 1rem 2.4rem rgba(65, 42, 27, 0.1);
   --shadow-strong: 0 1.5rem 5rem rgba(18, 13, 11, 0.42);
+  --font-body: "Manrope", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Unbounded", "Manrope", ui-sans-serif, system-ui, sans-serif;
   color-scheme: light;
-  font-family: Inter, Manrope, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-body);
   background: var(--bg-dark);
   color: var(--text);
 }
@@ -88,15 +92,19 @@ p {
 }
 
 h1 {
-  font-size: clamp(1.75rem, 7vw, 3.4rem);
-  line-height: 0.98;
-  letter-spacing: -0.055em;
+  font-family: var(--font-display);
+  font-size: clamp(1.9rem, 7.4vw, 3.65rem);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.045em;
 }
 
 h2 {
-  font-size: clamp(1.25rem, 4vw, 2rem);
-  line-height: 1.05;
-  letter-spacing: -0.04em;
+  font-family: var(--font-display);
+  font-size: clamp(1.38rem, 4.3vw, 2.15rem);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
 }
 
 .app-shell {
@@ -177,10 +185,13 @@ h2 {
 
 .brand strong {
   max-width: min(100%, 26rem);
-  font-size: clamp(1.25rem, 5.3vw, 2rem);
-  line-height: 1;
-  letter-spacing: -0.04em;
+  font-family: var(--font-body);
+  font-size: clamp(1.38rem, 5.2vw, 2.08rem);
+  font-weight: 800;
+  line-height: 1.06;
+  letter-spacing: -0.035em;
   text-wrap: balance;
+  white-space: nowrap;
 }
 
 .brand span,
@@ -202,12 +213,16 @@ h2 {
   background: rgba(255, 255, 255, 0.22);
   color: #fff;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
-  font-size: clamp(0.62rem, 1.9vw, 0.75rem);
-  font-weight: 950;
-  letter-spacing: 0.055em;
+  font-size: clamp(0.68rem, 2vw, 0.82rem);
+  font-weight: 800;
+  letter-spacing: 0.035em;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.brand .worktime {
+  color: #fff;
 }
 
 .locale {
@@ -226,8 +241,8 @@ h2 {
   border-radius: 0.75rem;
   background: transparent;
   color: #fff;
-  font-size: clamp(0.68rem, 2.2vw, 0.8rem);
-  font-weight: 950;
+  font-size: clamp(0.74rem, 2.25vw, 0.88rem);
+  font-weight: 800;
   transition: transform 160ms ease, background 160ms ease, color 160ms ease;
 }
 
@@ -262,8 +277,8 @@ h2 {
   overflow: hidden;
   background: rgba(255, 255, 255, 0.13);
   color: rgba(255, 255, 255, 0.88);
-  font-size: clamp(0.62rem, 2.15vw, 0.82rem);
-  font-weight: 950;
+  font-size: clamp(0.69rem, 2.25vw, 0.9rem);
+  font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
   transition: transform 170ms ease, background 170ms ease, color 170ms ease;
@@ -301,8 +316,8 @@ h2 {
   padding: 0 0.75rem;
   background: rgba(255, 255, 255, 0.12);
   color: rgba(255, 255, 255, 0.86);
-  font-size: 0.72rem;
-  font-weight: 950;
+  font-size: 0.8rem;
+  font-weight: 800;
 }
 
 .role-switch a.active {
@@ -316,7 +331,8 @@ h2 {
   padding: clamp(0.7rem, 2vw, 0.95rem);
   background: var(--text);
   color: #fff;
-  font-weight: 950;
+  font-size: clamp(0.95rem, 2.4vw, 1.08rem);
+  font-weight: 800;
   text-align: center;
 }
 
@@ -333,8 +349,8 @@ h2 {
 }
 
 .lead {
-  font-size: clamp(0.92rem, 2.3vw, 1.05rem);
-  line-height: 1.55;
+  font-size: clamp(1rem, 2.5vw, 1.15rem);
+  line-height: 1.58;
 }
 
 .menu-section {
@@ -398,7 +414,7 @@ h2 {
   padding: clamp(0.6rem, 1.8vw, 0.9rem);
   color: #fff;
   font-size: clamp(1.75rem, 7vw, 3.2rem);
-  font-weight: 950;
+  font-weight: 800;
 }
 
 .dish-art {
@@ -437,9 +453,9 @@ h2 {
   background: transparent;
   color: var(--text);
   text-align: left;
-  font-size: clamp(0.86rem, 2.3vw, 1rem);
-  font-weight: 950;
-  line-height: 1.22;
+  font-size: clamp(0.98rem, 2.6vw, 1.14rem);
+  font-weight: 800;
+  line-height: 1.25;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -448,8 +464,8 @@ h2 {
   display: -webkit-box;
   min-height: 2.25rem;
   overflow: hidden;
-  font-size: clamp(0.72rem, 2vw, 0.88rem);
-  line-height: 1.45;
+  font-size: clamp(0.82rem, 2.15vw, 0.98rem);
+  line-height: 1.5;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -460,13 +476,14 @@ h2 {
 
 .meta-row span {
   color: #8a817c;
-  font-size: clamp(0.72rem, 1.9vw, 0.85rem);
-  font-weight: 800;
+  font-size: clamp(0.78rem, 2vw, 0.92rem);
+  font-weight: 700;
 }
 
 .meta-row strong {
   color: var(--orange);
-  font-size: clamp(0.86rem, 2.3vw, 1.05rem);
+  font-size: clamp(0.98rem, 2.5vw, 1.16rem);
+  font-weight: 800;
   white-space: nowrap;
 }
 
@@ -501,8 +518,8 @@ h2 {
 .qty span {
   color: var(--text);
   text-align: center;
-  font-size: clamp(0.78rem, 2vw, 0.92rem);
-  font-weight: 950;
+  font-size: clamp(0.88rem, 2.2vw, 1.02rem);
+  font-weight: 800;
 }
 
 .primary,
@@ -513,7 +530,8 @@ h2 {
   min-height: clamp(2.9rem, 7.2dvh, 3.45rem);
   border-radius: var(--radius-sm);
   padding: 0 clamp(0.95rem, 2.4vw, 1.25rem);
-  font-weight: 950;
+  font-size: clamp(0.94rem, 2.35vw, 1.05rem);
+  font-weight: 800;
   transition: transform 190ms ease, box-shadow 190ms ease, background 190ms ease, border-color 190ms ease;
 }
 
@@ -542,7 +560,7 @@ h2 {
   width: 100%;
   min-height: clamp(2.25rem, 5.8dvh, 2.65rem);
   border-radius: 0.95rem;
-  font-size: clamp(0.76rem, 2vw, 0.9rem);
+  font-size: clamp(0.86rem, 2.2vw, 0.98rem);
 }
 
 .full {
@@ -600,6 +618,7 @@ h2 {
 .order-status,
 .state {
   padding: clamp(0.85rem, 2.4vw, 1.1rem);
+  font-size: clamp(0.98rem, 2.4vw, 1.1rem);
 }
 
 .line {
@@ -617,6 +636,8 @@ h2 {
 
 .line strong {
   overflow-wrap: anywhere;
+  font-size: clamp(1rem, 2.55vw, 1.16rem);
+  font-weight: 800;
 }
 
 .danger-text {
@@ -636,7 +657,8 @@ h2 {
 .totals div:last-child {
   border-top: 1px solid #f2e8e0;
   padding-top: clamp(0.65rem, 1.8vw, 0.85rem);
-  font-size: clamp(1.1rem, 3.3vw, 1.35rem);
+  font-size: clamp(1.2rem, 3.5vw, 1.48rem);
+  font-weight: 800;
 }
 
 .single-total div:last-child {
@@ -648,8 +670,8 @@ h2 {
   display: grid;
   gap: 0.45rem;
   color: #615b57;
-  font-size: clamp(0.8rem, 2.2vw, 0.92rem);
-  font-weight: 900;
+  font-size: clamp(0.88rem, 2.35vw, 1rem);
+  font-weight: 700;
 }
 
 input,
@@ -660,6 +682,7 @@ textarea {
   padding: clamp(0.8rem, 2.3vw, 1rem);
   background: var(--surface);
   color: var(--text);
+  font-size: clamp(1rem, 2.5vw, 1.12rem);
   outline: none;
   transition: border 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
@@ -685,8 +708,9 @@ textarea {
   border-radius: var(--radius-md);
   background: linear-gradient(180deg, #fffaf3, #f8efe4);
   color: var(--text);
-  font-weight: 950;
-  letter-spacing: 0.01em;
+  font-size: clamp(0.98rem, 2.5vw, 1.12rem);
+  font-weight: 800;
+  letter-spacing: 0;
   box-shadow: 0 0.75rem 1.75rem rgba(45, 31, 24, 0.07);
   transition: transform 170ms ease, border 170ms ease, box-shadow 170ms ease;
 }
@@ -703,6 +727,7 @@ textarea {
   gap: 0.65rem;
   padding: clamp(0.8rem, 2.3vw, 1rem);
   color: #5d5550;
+  font-size: clamp(0.94rem, 2.35vw, 1.06rem);
 }
 
 .notice.error {
@@ -896,7 +921,7 @@ textarea {
   }
 
   .brand strong {
-    font-size: 1.08rem;
+    font-size: 1.18rem;
   }
 
   .worktime {
@@ -912,7 +937,7 @@ textarea {
   }
 
   .nav a {
-    font-size: 0.58rem;
+    font-size: 0.64rem;
   }
 
   .menu-grid {

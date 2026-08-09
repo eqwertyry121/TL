@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;600;700;800&display=swap");
+
 :root {
   --page-max: 92rem;
   --page-pad: clamp(0.85rem, 2.5vw, 1.7rem);
@@ -17,7 +19,9 @@
   --copper-dark: #6e351f;
   --gold-soft: #f1d19a;
   --danger: #ef4444;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body: "Manrope", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Unbounded", "Manrope", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-body);
   background: var(--bg);
   color: var(--text);
 }
@@ -120,16 +124,18 @@ p {
 }
 
 h1 {
-  font-size: clamp(2rem, 6.5vw, 4rem);
+  font-family: var(--font-display);
+  font-size: clamp(2.1rem, 6.8vw, 4.35rem);
+  font-weight: 700;
   line-height: 0.95;
-  letter-spacing: -0.06em;
+  letter-spacing: -0.045em;
 }
 
 .header p {
   margin-top: 0.35rem;
   color: rgba(255, 255, 255, 0.82);
-  font-size: clamp(0.86rem, 2vw, 1rem);
-  font-weight: 850;
+  font-size: clamp(0.96rem, 2.25vw, 1.12rem);
+  font-weight: 700;
 }
 
 .icon {
@@ -194,7 +200,8 @@ h1 {
   padding: 0 0.9rem;
   background: var(--panel);
   color: var(--text);
-  font-weight: 950;
+  font-size: clamp(0.9rem, 2.2vw, 1.02rem);
+  font-weight: 800;
   text-decoration: none;
   box-shadow: inset 0 0 0 1px var(--line);
 }
@@ -237,16 +244,18 @@ h1 {
 
 .card strong {
   display: block;
-  font-size: clamp(2rem, 7vw, 3.75rem);
-  line-height: 0.9;
-  letter-spacing: -0.06em;
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 7.2vw, 4.05rem);
+  font-weight: 700;
+  line-height: 0.95;
+  letter-spacing: -0.045em;
 }
 
 .card span {
   display: block;
   margin-top: 0.35rem;
   color: var(--muted);
-  font-size: clamp(0.84rem, 2vw, 1rem);
+  font-size: clamp(0.94rem, 2.25vw, 1.08rem);
 }
 
 .client,
@@ -268,14 +277,15 @@ h1 {
 }
 
 .client strong {
-  font-size: clamp(1.15rem, 3vw, 1.4rem);
+  font-size: clamp(1.22rem, 3.2vw, 1.5rem);
+  font-weight: 800;
   letter-spacing: -0.02em;
 }
 
 .address,
 .phone {
-  font-size: clamp(1rem, 2.8vw, 1.18rem);
-  font-weight: 900;
+  font-size: clamp(1.08rem, 3vw, 1.28rem);
+  font-weight: 800;
   line-height: 1.35;
 }
 
@@ -290,8 +300,8 @@ ul {
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: clamp(1rem, 3vw, 1.35rem);
-  font-weight: 850;
+  font-size: clamp(1.08rem, 3.2vw, 1.48rem);
+  font-weight: 800;
   line-height: 1.2;
 }
 
@@ -308,8 +318,9 @@ li {
     radial-gradient(circle at 20% 0%, rgba(241, 209, 154, 0.22), transparent 34%),
     linear-gradient(135deg, #211712, #3a2419 62%, var(--copper-dark));
   color: #fff;
-  font-size: clamp(1.7rem, 5.5vw, 3rem);
-  font-weight: 950;
+  font-family: var(--font-display);
+  font-size: clamp(1.85rem, 5.8vw, 3.25rem);
+  font-weight: 700;
   letter-spacing: -0.04em;
   text-align: center;
 }
@@ -326,7 +337,8 @@ li {
 .eta > span {
   margin: 0;
   color: var(--muted);
-  font-weight: 850;
+  font-size: clamp(0.96rem, 2.4vw, 1.08rem);
+  font-weight: 700;
 }
 
 .eta > div {
@@ -340,7 +352,8 @@ li {
   border-radius: var(--radius-sm);
   background: #fbf0e5;
   color: var(--copper-dark);
-  font-weight: 950;
+  font-size: clamp(0.95rem, 2.5vw, 1.08rem);
+  font-weight: 800;
   transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
@@ -364,8 +377,9 @@ li {
     linear-gradient(135deg, var(--accent-2), var(--accent) 58%, var(--copper-dark));
   color: #fff;
   box-shadow: 0 1rem 2.2rem rgba(110, 53, 31, 0.24);
-  font-weight: 950;
-  letter-spacing: 0.02em;
+  font-size: clamp(1.02rem, 3vw, 1.18rem);
+  font-weight: 800;
+  letter-spacing: 0.01em;
   text-transform: uppercase;
   transition: transform 140ms ease, filter 140ms ease;
 }
@@ -381,7 +395,7 @@ li {
   padding: clamp(1.5rem, 5vw, 2.5rem);
   color: var(--muted);
   text-align: center;
-  font-size: clamp(1rem, 2.8vw, 1.2rem);
+  font-size: clamp(1.05rem, 3vw, 1.25rem);
 }
 
 .menu {
@@ -413,7 +427,8 @@ li {
   padding: 0.75rem;
   background: var(--panel-soft);
   color: var(--text);
-  font-weight: 900;
+  font-size: clamp(0.96rem, 2.5vw, 1.08rem);
+  font-weight: 800;
   text-align: left;
 }
 

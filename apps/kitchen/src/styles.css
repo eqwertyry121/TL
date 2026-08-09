@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;600;700;800&display=swap");
+
 :root {
   --page-max: 92rem;
   --page-pad: clamp(0.85rem, 2.5vw, 1.7rem);
@@ -17,7 +19,9 @@
   --copper-dark: #6e351f;
   --gold-soft: #f1d19a;
   --danger: #ef4444;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body: "Manrope", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Unbounded", "Manrope", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-body);
   background: var(--bg);
   color: var(--text);
 }
@@ -120,16 +124,18 @@ p {
 }
 
 h1 {
-  font-size: clamp(2rem, 6.5vw, 4rem);
+  font-family: var(--font-display);
+  font-size: clamp(2.1rem, 6.8vw, 4.35rem);
+  font-weight: 700;
   line-height: 0.95;
-  letter-spacing: -0.06em;
+  letter-spacing: -0.045em;
 }
 
 .header p {
   margin-top: 0.35rem;
   color: rgba(255, 255, 255, 0.82);
-  font-size: clamp(0.86rem, 2vw, 1rem);
-  font-weight: 850;
+  font-size: clamp(0.96rem, 2.25vw, 1.12rem);
+  font-weight: 700;
 }
 
 .icon {
@@ -193,7 +199,8 @@ h1 {
   padding: 0 0.9rem;
   background: var(--panel);
   color: var(--text);
-  font-weight: 950;
+  font-size: clamp(0.9rem, 2.2vw, 1.02rem);
+  font-weight: 800;
   text-decoration: none;
   box-shadow: inset 0 0 0 1px var(--line);
 }
@@ -236,16 +243,18 @@ h1 {
 
 .card strong {
   display: block;
-  font-size: clamp(2rem, 7vw, 3.75rem);
-  line-height: 0.9;
-  letter-spacing: -0.06em;
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 7.2vw, 4.05rem);
+  font-weight: 700;
+  line-height: 0.95;
+  letter-spacing: -0.045em;
 }
 
 .card span {
   display: block;
   margin-top: 0.35rem;
   color: var(--muted);
-  font-size: clamp(0.84rem, 2vw, 1rem);
+  font-size: clamp(0.94rem, 2.25vw, 1.08rem);
 }
 
 .meta-grid {
@@ -264,7 +273,8 @@ h1 {
 
 .meta-grid strong {
   overflow-wrap: anywhere;
-  font-size: clamp(1rem, 2.8vw, 1.2rem);
+  font-size: clamp(1.08rem, 3vw, 1.28rem);
+  font-weight: 800;
   letter-spacing: -0.02em;
 }
 
@@ -274,8 +284,8 @@ ul {
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: clamp(1.08rem, 3.4vw, 1.55rem);
-  font-weight: 900;
+  font-size: clamp(1.18rem, 3.7vw, 1.7rem);
+  font-weight: 800;
   line-height: 1.18;
 }
 
@@ -293,7 +303,8 @@ li {
   border-radius: var(--radius-sm);
   background: #fffbeb;
   color: #92400e;
-  font-weight: 850;
+  font-size: clamp(1rem, 2.7vw, 1.18rem);
+  font-weight: 700;
   line-height: 1.35;
 }
 
@@ -306,8 +317,9 @@ li {
   min-height: clamp(3.45rem, 9dvh, 4.4rem);
   border-radius: var(--radius-md);
   padding: 0 clamp(1rem, 2.6vw, 1.35rem);
-  font-weight: 950;
-  letter-spacing: 0.02em;
+  font-size: clamp(1.02rem, 3vw, 1.18rem);
+  font-weight: 800;
+  letter-spacing: 0.01em;
   text-transform: uppercase;
   transition: transform 140ms ease, filter 140ms ease;
 }
@@ -339,7 +351,7 @@ li {
   padding: clamp(1.5rem, 5vw, 2.5rem);
   color: var(--muted);
   text-align: center;
-  font-size: clamp(1rem, 2.8vw, 1.2rem);
+  font-size: clamp(1.05rem, 3vw, 1.25rem);
 }
 
 .menu {
@@ -368,7 +380,8 @@ li {
   padding: 0.75rem;
   background: var(--panel-soft);
   color: var(--text);
-  font-weight: 900;
+  font-size: clamp(0.96rem, 2.5vw, 1.08rem);
+  font-weight: 800;
 }
 
 @keyframes cardIn {
