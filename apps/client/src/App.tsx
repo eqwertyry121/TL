@@ -54,6 +54,7 @@ export function App() {
   const subtotal = cartLines.reduce((sum, line) => sum + line.quantity * line.unitPriceMinor, 0);
   const total = subtotal;
   const checkoutOpen = Boolean(data.runtime?.accepting_orders);
+  const dayOffBlocked = isDayOffRuntime(data.runtime);
 
   const refresh = useCallback(async () => {
     setError("");
@@ -85,6 +86,11 @@ export function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [route]);
+
+  useEffect(() => {
+    document.body.classList.toggle("has-day-off-overlay", dayOffBlocked);
+    return () => document.body.classList.remove("has-day-off-overlay");
+  }, [dayOffBlocked]);
 
   useEffect(() => {
     if (route.name !== "order" || !token) return;
@@ -295,8 +301,11 @@ function Shell({
   onLocale: (locale: Locale) => void;
 }) {
   const isRoot = route.name === "menu";
+  const dayOffBlocked = isDayOffRuntime(runtime);
+  const showClosedBanner = runtime && !runtime.accepting_orders && !dayOffBlocked;
+
   return (
-    <div className="app-shell">
+    <div className={dayOffBlocked ? "app-shell is-day-off-blocked" : "app-shell"}>
       <header className="app-header">
         <div className="top-row">
           <div className="header-main">
@@ -324,7 +333,7 @@ function Shell({
             )}
           </div>
         </div>
-        {runtime && !runtime.accepting_orders && <div className="closed-banner">{runtime.reason === "manual_day_off" ? t(locale, "closed") : t(locale, "checkoutClosed")}</div>}
+        {showClosedBanner && <div className="closed-banner">{t(locale, "checkoutClosed")}</div>}
         <nav className="nav">
           <a className={route.name === "menu" ? "active" : ""} href="#/">
             {t(locale, "menu")}
@@ -341,7 +350,28 @@ function Shell({
         </nav>
         {isOwnerTelegramId(session?.telegram_user_id) && <OwnerRoleSwitch activeRole="CLIENT" />}
       </header>
-      <main>{children}</main>
+      <main className="app-content" aria-hidden={dayOffBlocked ? "true" : undefined}>{children}</main>
+      {dayOffBlocked && <DayOffOverlay locale={locale} runtime={runtime} />}
+    </div>
+  );
+}
+
+function DayOffOverlay({ locale, runtime }: { locale: Locale; runtime?: AppData["runtime"] }) {
+  const nextOpening = formatNextOpening(runtime?.next_opening, locale);
+  const title = dayOffTitle(runtime, locale);
+
+  return (
+    <div className="day-off-overlay" role="dialog" aria-modal="true" aria-labelledby="day-off-title">
+      <section className="day-off-card">
+        <span className="day-off-kicker">Tako Lako</span>
+        <h1 id="day-off-title">{title}</h1>
+        <p>{t(locale, "dayOffMessage")}</p>
+        {nextOpening && (
+          <small>
+            {t(locale, "nextOpening")}: <strong>{nextOpening}</strong>
+          </small>
+        )}
+      </section>
     </div>
   );
 }
@@ -673,6 +703,30 @@ function foodVisual(title: string): string {
 
 function itemMinQuantity(item: MenuItem): number {
   return Math.max(1, item.min_quantity || 1);
+}
+
+function isDayOffRuntime(runtime?: AppData["runtime"]): boolean {
+  return Boolean(runtime && !runtime.accepting_orders && (runtime.reason === "manual_day_off" || runtime.reason === "weekly_day_off"));
+}
+
+function formatNextOpening(value: string | undefined, locale: Locale): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const localeCode = locale === "sr" ? "sr-Latn-RS" : locale === "en" ? "en-US" : "ru-RU";
+  return new Intl.DateTimeFormat(localeCode, {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function dayOffTitle(runtime: AppData["runtime"] | undefined, locale: Locale): string {
+  const title = (runtime?.day_off_banner || "").trim();
+  if (!title || /^\?+$/.test(title)) return t(locale, "closed");
+  return title;
 }
 
 function profileLabel(profile: Pick<Session, "telegram_user_id" | "username" | "first_name">): string {
