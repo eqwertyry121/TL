@@ -76,6 +76,8 @@ function elapsedSince(value: string): string {
 
 export function paymentText(order: Order): string {
   if (order.payment_method === "cash") return `Наличными ${money(order.total_minor)}`;
+  if (order.payment_method === "crypto") return "Crypto TEST · оплачено";
+  if (order.payment_method === "card") return "Карта · оплачено";
   return "Оплачен";
 }
 

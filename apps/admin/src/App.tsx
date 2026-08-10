@@ -151,7 +151,7 @@ export function App() {
         {tab === "staff" && <StaffTab staff={staff} onAction={run} token={token} />}
         {tab === "schedule" && <ScheduleTab schedule={schedule} onSave={(next) => run(() => api.updateSchedule(token, next))} />}
         {tab === "analytics" && analytics && <AnalyticsTab analytics={analytics} range={range} onRange={(next) => { setRange(next); void load(token, next); }} />}
-        {tab === "settings" && settings && <SettingsTab settings={settings} onSave={(input) => run(() => api.updateSettings(token, input))} />}
+        {tab === "settings" && settings && <SettingsTab settings={settings} demoMode={api.mode === "demo"} onSave={(input) => run(() => api.updateSettings(token, input))} />}
         {tab === "audit" && <AuditTab entries={audit} />}
       </main>
     </div>
@@ -402,6 +402,10 @@ function OrdersTab({ orders, token, onAction }: { orders: Order[]; token: string
             <strong>{order.phone || "не указан"}</strong>
           </div>
           <div className="order-info">
+            <span>Оплата</span>
+            <strong>{adminPaymentText(order)}</strong>
+          </div>
+          <div className="order-info">
             <span>Адрес</span>
             <strong>{order.address || "не указан"}</strong>
           </div>
@@ -511,7 +515,7 @@ function ScheduleTab({ schedule, onSave }: { schedule: ScheduleDay[]; onSave(sch
   );
 }
 
-function SettingsTab({ settings, onSave }: { settings: Settings; onSave(input: SettingsInput): Promise<void> }) {
+function SettingsTab({ settings, demoMode, onSave }: { settings: Settings; demoMode: boolean; onSave(input: SettingsInput): Promise<void> }) {
   const [form, setForm] = useState(settings);
   useEffect(() => setForm(settings), [settings]);
   return (
@@ -525,8 +529,17 @@ function SettingsTab({ settings, onSave }: { settings: Settings; onSave(input: S
         <Text label="Ссылка на условия" value={form.terms_url} onChange={(terms_url) => setForm({ ...form, terms_url })} />
       </div>
       <label className="check"><input type="checkbox" checked={form.cash_enabled} onChange={(event) => setForm({ ...form, cash_enabled: event.target.checked })} /> Принимать оплату наличными</label>
-      <div className="warn">Карта и crypto остаются выключены до этапа 5 и подключения реального provider.</div>
-      <button className="primary" onClick={() => void onSave({ ...form, flat_delivery_fee_minor: 0 })}><Save size={16} /> Сохранить настройки</button>
+      <label className={demoMode ? "check" : "check disabled-check"}>
+        <input
+          type="checkbox"
+          checked={Boolean(form.crypto_enabled)}
+          disabled={!demoMode}
+          onChange={(event) => setForm({ ...form, crypto_enabled: event.target.checked })}
+        />
+        Тестовая crypto-оплата в demo
+      </label>
+      <div className="warn">{demoMode ? "Crypto сейчас работает только как sandbox: реальных денег, кошельков и provider webhook нет." : "Карта и crypto остаются выключены до этапа 5 и подключения реального provider."}</div>
+      <button className="primary" onClick={() => void onSave({ ...form, flat_delivery_fee_minor: 0, card_enabled: false, crypto_enabled: demoMode ? form.crypto_enabled : false })}><Save size={16} /> Сохранить настройки</button>
     </section>
   );
 }
@@ -683,6 +696,12 @@ function orderClientLabel(order: Order): string {
   const username = telegramUsername(order);
   if (username) return `@${username}`;
   return order.client_first_name || "Клиент Telegram";
+}
+
+function adminPaymentText(order: Order): string {
+  if (order.payment_method === "crypto") return order.payment_status === "PAID" ? "Crypto TEST · PAID" : "Crypto TEST";
+  if (order.payment_method === "card") return order.payment_status === "PAID" ? "Карта · PAID" : "Карта";
+  return order.payment_status === "PAID" ? "Наличные · PAID" : "Наличные";
 }
 
 function telegramUsername(order: Order): string {

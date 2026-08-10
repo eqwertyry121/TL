@@ -1,4 +1,4 @@
-import type { MenuItem, Order, Role } from "@tk-delivery/api-client/generated";
+import type { MenuItem, Order, PaymentMethod, Role } from "@tk-delivery/api-client/generated";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
 import {
   AlertCircle,
@@ -42,6 +42,7 @@ export function App() {
   const [draft, setDraft] = useState<CheckoutDraft>(loadCheckoutDraft);
   const [data, setData] = useState<AppData>({ session: null, runtime: null, categories: [], orders: [] });
   const [calculation, setCalculation] = useState<Calculation | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<Extract<PaymentMethod, "cash" | "crypto">>("cash");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -56,6 +57,7 @@ export function App() {
   const total = subtotal;
   const checkoutOpen = Boolean(data.runtime?.accepting_orders);
   const dayOffBlocked = isDayOffRuntime(data.runtime) && !isOwnerTelegramId(data.session?.telegram_user_id);
+  const paymentMethods = useMemo(() => checkoutPaymentMethods(data.runtime?.enabled_payments || []), [data.runtime?.enabled_payments]);
 
   const refresh = useCallback(async () => {
     setError("");
@@ -92,6 +94,10 @@ export function App() {
     document.body.classList.toggle("has-day-off-overlay", dayOffBlocked);
     return () => document.body.classList.remove("has-day-off-overlay");
   }, [dayOffBlocked]);
+
+  useEffect(() => {
+    if (!paymentMethods.includes(paymentMethod)) setPaymentMethod(paymentMethods[0] || "cash");
+  }, [paymentMethod, paymentMethods]);
 
   useEffect(() => {
     if (route.name !== "order" || !token) return;
@@ -209,6 +215,7 @@ export function App() {
     try {
       const calc = calculation || (await calculate());
       if (!calc) throw new Error("EMPTY_CART");
+      if (paymentMethod === "crypto" && !window.confirm(`Тестовая crypto-оплата ${money(calc.total_minor)} будет сразу отмечена как PAID. Реальные деньги не списываются.`)) return;
       const order = await api.createOrder(
         token,
         {
@@ -216,7 +223,7 @@ export function App() {
           phone: draft.phone.trim(),
           address: [draft.street, draft.details].filter(Boolean).join(", "),
           comment: draft.comment.trim(),
-          payment_method: "cash",
+          payment_method: paymentMethod,
           terms_accepted: true,
           locale,
         },
@@ -260,8 +267,11 @@ export function App() {
         total={total}
         checkoutOpen={checkoutOpen}
         locale={locale}
+        paymentMethod={paymentMethod}
+        paymentMethods={paymentMethods}
         submitting={submitting}
         onDraft={updateDraft}
+        onPaymentMethod={setPaymentMethod}
         onCalculate={calculate}
         onSubmit={submitOrder}
       />
@@ -558,8 +568,11 @@ function Checkout({
   total,
   checkoutOpen,
   locale,
+  paymentMethod,
+  paymentMethods,
   submitting,
   onDraft,
+  onPaymentMethod,
   onCalculate,
   onSubmit,
 }: {
@@ -570,8 +583,11 @@ function Checkout({
   total: number;
   checkoutOpen: boolean;
   locale: Locale;
+  paymentMethod: Extract<PaymentMethod, "cash" | "crypto">;
+  paymentMethods: Array<Extract<PaymentMethod, "cash" | "crypto">>;
   submitting: boolean;
   onDraft: (patch: Partial<CheckoutDraft>) => void;
+  onPaymentMethod: (method: Extract<PaymentMethod, "cash" | "crypto">) => void;
   onCalculate: () => Promise<Calculation | null>;
   onSubmit: () => Promise<void>;
 }) {
@@ -607,9 +623,26 @@ function Checkout({
         <AlertCircle size={18} />
         <span>{t(locale, "addressWarning")}</span>
       </div>
+      <div className="payment-selector">
+        <span>Способ оплаты</span>
+        <div>
+          {paymentMethods.map((method) => (
+            <button key={method} className={paymentMethod === method ? "active" : ""} type="button" onClick={() => onPaymentMethod(method)}>
+              <strong>{paymentMethodTitle(method)}</strong>
+              <small>{paymentMethodDescription(method)}</small>
+            </button>
+          ))}
+        </div>
+        {paymentMethod === "crypto" && (
+          <p>
+            Тестовый режим: реальная крипта не списывается. Заказ создаётся как оплаченный,
+            чтобы проверить flow кухни, курьера и админки.
+          </p>
+        )}
+      </div>
       <Totals subtotal={calculation?.subtotal_minor || subtotal} total={calculation?.subtotal_minor || total} locale={locale} />
       <button className="primary full" disabled={!checkoutOpen || submitting} onClick={onSubmit}>
-        {submitting ? "..." : `${t(locale, "placeOrder")} · ${money(calculation?.subtotal_minor || total)}`}
+        {submitting ? "..." : `${paymentMethod === "crypto" ? "ОПЛАТИТЬ TEST CRYPTO" : t(locale, "placeOrder")} · ${money(calculation?.subtotal_minor || total)}`}
       </button>
     </div>
   );
@@ -639,7 +672,7 @@ function OrderScreen({ order, locale }: { order?: Order; locale: Locale }) {
       <Totals subtotal={order.subtotal_minor} total={order.subtotal_minor} locale={locale} />
       <div className="panel-list">
         <div className="split"><span>{t(locale, "phone")}</span><strong>{maskPhone(order.phone)}</strong></div>
-        <div className="split"><span>{t(locale, "cash")}</span><strong>{order.payment_status === "PAID" ? "PAID" : "CASH"}</strong></div>
+        <div className="split"><span>Оплата</span><strong>{paymentStatusLabel(order)}</strong></div>
       </div>
       <button className="secondary full" onClick={() => navigate({ name: "support" })}>{t(locale, "support")}</button>
     </div>
@@ -680,7 +713,7 @@ function Terms() {
   return (
     <div className="page narrow">
       <h1>Условия доставки</h1>
-      <p className="lead">Доставка оформляется по текстовому адресу клиента. Проверьте телефон и адрес перед отправкой заказа. Оплата в MVP производится наличными курьеру.</p>
+      <p className="lead">Доставка оформляется по текстовому адресу клиента. Проверьте телефон и адрес перед отправкой заказа. Реальная оплата сейчас производится наличными; crypto доступна только как тестовый sandbox-flow.</p>
     </div>
   );
 }
@@ -709,6 +742,27 @@ function Totals({ subtotal, total, locale }: { subtotal: number; total: number; 
       <div><span>{t(locale, "total")}</span><strong>{money(total)}</strong></div>
     </div>
   );
+}
+
+function checkoutPaymentMethods(methods: PaymentMethod[]): Array<Extract<PaymentMethod, "cash" | "crypto">> {
+  const supported = methods.filter((method): method is Extract<PaymentMethod, "cash" | "crypto"> => method === "cash" || method === "crypto");
+  return supported.length ? supported : ["cash"];
+}
+
+function paymentMethodTitle(method: Extract<PaymentMethod, "cash" | "crypto">): string {
+  if (method === "crypto") return "Crypto TEST";
+  return "Наличными";
+}
+
+function paymentMethodDescription(method: Extract<PaymentMethod, "cash" | "crypto">): string {
+  if (method === "crypto") return "sandbox · без реальных денег";
+  return "курьеру при получении";
+}
+
+function paymentStatusLabel(order: Order): string {
+  if (order.payment_method === "crypto") return order.payment_status === "PAID" ? "Crypto TEST · PAID" : "Crypto TEST";
+  if (order.payment_method === "card") return order.payment_status === "PAID" ? "Карта · PAID" : "Карта";
+  return order.payment_status === "PAID" ? "Наличные · PAID" : "Наличные";
 }
 
 function localizedStatus(order: Order, locale: Locale): string {

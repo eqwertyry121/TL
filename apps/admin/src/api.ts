@@ -16,6 +16,7 @@ const demoMenuKey = "tk-admin-demo-menu-v1";
 const demoSettingsKey = "tk-admin-demo-settings-v1";
 const demoStaffKey = "tk-admin-demo-staff-v1";
 const demoAuditKey = "tk-admin-demo-audit-v1";
+const demoCryptoTestMigrationKey = "tk-demo-crypto-test-enabled-v1";
 
 export type AdminTab = "home" | "menu" | "orders" | "staff" | "schedule" | "analytics" | "settings" | "audit";
 export type StaffRole = Exclude<Role, "CLIENT">;
@@ -360,10 +361,10 @@ function demoApi(): AdminApi {
       return loadSettings();
     },
     async updateSettings(_token, input) {
-      if (input.card_enabled || input.crypto_enabled || !input.cash_enabled) throw apiError("INVALID_INPUT");
+      if (input.card_enabled || !input.cash_enabled) throw apiError("INVALID_INPUT");
       const before = loadSettings();
       if (before.version !== input.version) throw apiError("ORDER_STATUS_CONFLICT");
-      const after: Settings = { ...before, ...input, card_enabled: false, crypto_enabled: false, version: before.version + 1 };
+      const after: Settings = { ...before, ...input, card_enabled: false, version: before.version + 1 };
       saveSettings(after);
       pushAudit("settings.update", "app_settings", undefined, "", before, after);
       return after;
@@ -625,7 +626,7 @@ function seedSettings(): Settings {
     max_comment_length: 300,
     cash_enabled: true,
     card_enabled: false,
-    crypto_enabled: false,
+    crypto_enabled: true,
     version: 1,
     schedule: defaultSchedule(),
   };
@@ -662,7 +663,10 @@ function runtimeFromSettings(settings: Settings) {
     day_off_banner: settings.day_off_banner,
     flat_delivery_fee_minor: 0,
     currency: settings.currency,
-    enabled_payments: settings.cash_enabled ? ["cash" as const] : [],
+    enabled_payments: [
+      ...(settings.cash_enabled ? ["cash" as const] : []),
+      ...(settings.crypto_enabled ? ["crypto" as const] : []),
+    ],
     supported_locales: ["ru" as const, "sr" as const, "en" as const],
     support_text: settings.support_text,
   };
@@ -882,19 +886,23 @@ function normalizeDemoMenu(menu: AdminMenuResponse): AdminMenuResponse {
 
 function loadSettings(): Settings {
   const settings = loadJSON(demoSettingsKey, seedSettings());
+  const shouldEnableCryptoTest = !localStorage.getItem(demoCryptoTestMigrationKey);
   const normalized = {
     ...settings,
     flat_delivery_fee_minor: 0,
     support_text: "@Tako_Lako",
     max_item_quantity: Math.max(settings.max_item_quantity || 0, 99),
+    crypto_enabled: shouldEnableCryptoTest ? true : settings.crypto_enabled,
   };
   if (
     normalized.flat_delivery_fee_minor !== settings.flat_delivery_fee_minor ||
     normalized.support_text !== settings.support_text ||
-    normalized.max_item_quantity !== settings.max_item_quantity
+    normalized.max_item_quantity !== settings.max_item_quantity ||
+    normalized.crypto_enabled !== settings.crypto_enabled
   ) {
     saveSettings(normalized);
   }
+  if (shouldEnableCryptoTest) localStorage.setItem(demoCryptoTestMigrationKey, "1");
   return normalized;
 }
 

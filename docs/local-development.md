@@ -62,6 +62,10 @@ demo dishes, change delivery fee and toggle manual `ВЫХОДНОЙ`; Client wi
 those demo changes in the same browser. Real cross-device sync requires
 PostgreSQL and backend deployment.
 
+Demo mode also has `Crypto TEST`: it marks a demo order as paid without real
+money, provider, wallet or webhook. It is only for UI/staff-flow testing and is
+not a production payment integration.
+
 ## Legacy static preview
 
 ```powershell

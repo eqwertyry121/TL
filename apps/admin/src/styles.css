@@ -599,6 +599,10 @@ main {
   min-height: 1.1rem;
 }
 
+.disabled-check {
+  opacity: 0.55;
+}
+
 .archive-toggle {
   min-height: clamp(2.55rem, 5.6dvh, 2.95rem);
   border-radius: var(--radius-sm);

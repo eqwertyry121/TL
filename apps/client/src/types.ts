@@ -1,4 +1,4 @@
-import type { Category, MenuItem, Order, Runtime } from "@tk-delivery/api-client/generated";
+import type { Category, MenuItem, Order, PaymentMethod, Runtime } from "@tk-delivery/api-client/generated";
 
 export type Locale = "ru" | "sr" | "en";
 export type Route =
@@ -77,7 +77,7 @@ export interface CreateOrderInput {
   phone: string;
   address: string;
   comment: string;
-  payment_method: "cash";
+  payment_method: Extract<PaymentMethod, "cash" | "crypto">;
   terms_accepted: boolean;
   locale: Locale;
 }

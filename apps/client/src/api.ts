@@ -7,6 +7,7 @@ const demoOrdersKey = "tk-client-demo-orders-v1";
 const demoCalculationsKey = "tk-client-demo-calculations-v1";
 const demoMenuKey = "tk-admin-demo-menu-v1";
 const demoSettingsKey = "tk-admin-demo-settings-v1";
+const demoCryptoTestMigrationKey = "tk-demo-crypto-test-enabled-v1";
 
 export function createApi(): Api {
   const appEnv = import.meta.env.VITE_APP_ENV || (import.meta.env.PROD ? "production" : "development");
@@ -111,8 +112,8 @@ function demoApi(): Api {
         client_first_name: profile.first_name,
         client_photo_url: profile.photo_url,
         fulfillment_status: "NEW",
-        payment_method: "cash",
-        payment_status: "CASH_PENDING",
+        payment_method: input.payment_method,
+        payment_status: input.payment_method === "crypto" ? "PAID" : "CASH_PENDING",
         subtotal_minor: decoded.subtotal_minor,
         delivery_fee_minor: decoded.delivery_fee_minor,
         total_minor: decoded.total_minor,
@@ -203,7 +204,7 @@ function menuLookup(categories: Category[]) {
 }
 
 function loadDemoRuntime(): Runtime {
-  const settings = loadJSON<Settings>(demoSettingsKey, seedDemoSettings());
+  const settings = loadDemoSettings();
   const accepting = demoAcceptingState(settings);
   return {
     ...demoRuntime,
@@ -213,8 +214,22 @@ function loadDemoRuntime(): Runtime {
     day_off_banner: settings.day_off_banner,
     flat_delivery_fee_minor: 0,
     support_text: "@Tako_Lako",
-    enabled_payments: settings.cash_enabled ? ["cash"] : [],
+    enabled_payments: [
+      ...(settings.cash_enabled ? ["cash" as const] : []),
+      ...(settings.crypto_enabled ? ["crypto" as const] : []),
+    ],
   };
+}
+
+function loadDemoSettings(): Settings {
+  const settings = loadJSON<Settings>(demoSettingsKey, seedDemoSettings());
+  if (!localStorage.getItem(demoCryptoTestMigrationKey)) {
+    const next = { ...settings, crypto_enabled: true };
+    localStorage.setItem(demoSettingsKey, JSON.stringify(next));
+    localStorage.setItem(demoCryptoTestMigrationKey, "1");
+    return next;
+  }
+  return settings;
 }
 
 function demoAcceptingState(settings: Settings): { ok: boolean; reason: string; nextOpening?: string } {
@@ -284,7 +299,7 @@ function seedDemoSettings(): Settings {
     max_comment_length: 300,
     cash_enabled: true,
     card_enabled: false,
-    crypto_enabled: false,
+    crypto_enabled: true,
     version: 1,
     schedule: defaultSchedule(),
   };

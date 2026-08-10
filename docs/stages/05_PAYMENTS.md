@@ -121,6 +121,20 @@ Partial refunds не входят.
 
 Crypto — опционально и не блокирует запуск.
 
+### Temporary demo crypto
+
+Для локального/demo тестирования можно показать `Crypto TEST`, но это не
+реальный payment method:
+
+- доступно только в demo mode;
+- реальных кошельков, private keys, provider credentials и webhook нет;
+- на Client явно написано, что деньги не списываются;
+- после confirm demo order создаётся как `payment_method=crypto`,
+  `payment_status=PAID`, `fulfillment=NEW`, чтобы проверить Kitchen/Courier/Admin
+  flow;
+- production backend не должен позволять включить `crypto_enabled` без
+  provider/legal/fiscal gate ниже.
+
 Требования:
 
 - готовый provider, без private keys/nodes на нашем VPS;
