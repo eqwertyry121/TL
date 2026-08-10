@@ -54,7 +54,7 @@ export function App() {
   const subtotal = cartLines.reduce((sum, line) => sum + line.quantity * line.unitPriceMinor, 0);
   const total = subtotal;
   const checkoutOpen = Boolean(data.runtime?.accepting_orders);
-  const dayOffBlocked = isDayOffRuntime(data.runtime);
+  const dayOffBlocked = isDayOffRuntime(data.runtime) && !isOwnerTelegramId(data.session?.telegram_user_id);
 
   const refresh = useCallback(async () => {
     setError("");
@@ -301,7 +301,7 @@ function Shell({
   onLocale: (locale: Locale) => void;
 }) {
   const isRoot = route.name === "menu";
-  const dayOffBlocked = isDayOffRuntime(runtime);
+  const dayOffBlocked = isDayOffRuntime(runtime) && !isOwnerTelegramId(session?.telegram_user_id);
   const showClosedBanner = runtime && !runtime.accepting_orders && !dayOffBlocked;
 
   return (
