@@ -384,6 +384,7 @@ function demoApi(): AdminApi {
       const after = { ...before, schedule: schedule.map((day) => ({ ...day, version: (day.version || 1) + 1 })), version: before.version + 1 };
       saveSettings(after);
       pushAudit("schedule.update", "restaurant_schedule", undefined, "", { schedule: before.schedule }, { schedule: after.schedule });
+      window.dispatchEvent(new StorageEvent("storage", { key: demoSettingsKey }));
       return { schedule: after.schedule || defaultSchedule() };
     },
     async orders(_token, filter = {}) {

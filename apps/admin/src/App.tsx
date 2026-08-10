@@ -447,10 +447,31 @@ function StaffTab({ staff, token, onAction }: { staff: StaffMember[]; token: str
 
 function ScheduleTab({ schedule, onSave }: { schedule: ScheduleDay[]; onSave(schedule: ScheduleDay[]): Promise<void> }) {
   const [draft, setDraft] = useState(schedule);
+  const [saving, setSaving] = useState(false);
   useEffect(() => setDraft(schedule), [schedule]);
 
   function patchDay(index: number, patch: Partial<ScheduleDay>) {
     setDraft(replace(draft, index, { ...draft[index], ...patch }));
+  }
+
+  async function patchDayAndSave(index: number, patch: Partial<ScheduleDay>) {
+    const next = replace(draft, index, { ...draft[index], ...patch });
+    setDraft(next);
+    setSaving(true);
+    try {
+      await onSave(next);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveDraft() {
+    setSaving(true);
+    try {
+      await onSave(draft);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -458,6 +479,7 @@ function ScheduleTab({ schedule, onSave }: { schedule: ScheduleDay[]; onSave(sch
       <div className="panel">
         <h2>Рабочее время</h2>
         <p className="muted">Базовое правило: понедельник — выходной. Вторник–воскресенье: работаем 13:00–22:00, заказы принимаем до 21:00. Таймзона Europe/Belgrade.</p>
+        <p className="muted">Кнопки “Сделать рабочим”, “Выходной” и быстрый шаблон сохраняются сразу. Ручное изменение времени сохраняется нижней кнопкой.</p>
       </div>
       <div className="schedule-grid">
         {draft.map((day, index) => (
@@ -467,8 +489,12 @@ function ScheduleTab({ schedule, onSave }: { schedule: ScheduleDay[]; onSave(sch
                 <strong>{weekday(day.day_of_week)}</strong>
                 <span>{day.closed ? "Выходной" : `${day.open_time}–${day.close_time}, заказы до ${day.order_cutoff_time}`}</span>
               </div>
-              <button className={day.closed ? "primary" : "danger-button"} onClick={() => patchDay(index, { closed: !day.closed, ...(!day.closed ? {} : quickSchedule) })}>
-                {day.closed ? "Сделать рабочим" : "Выходной"}
+              <button
+                className={day.closed ? "primary" : "danger-button"}
+                disabled={saving}
+                onClick={() => void patchDayAndSave(index, { closed: !day.closed, ...(!day.closed ? {} : quickSchedule) })}
+              >
+                {saving ? "Сохраняю…" : day.closed ? "Сделать рабочим" : "Выходной"}
               </button>
             </div>
             <div className="form-grid three">
@@ -476,11 +502,11 @@ function ScheduleTab({ schedule, onSave }: { schedule: ScheduleDay[]; onSave(sch
               <label><span>Заказы до</span><input disabled={day.closed} type="time" value={day.order_cutoff_time} onChange={(event) => patchDay(index, { order_cutoff_time: event.target.value })} /></label>
               <label><span>Закрытие</span><input disabled={day.closed} type="time" value={day.close_time} onChange={(event) => patchDay(index, { close_time: event.target.value })} /></label>
             </div>
-            {!day.closed && <button onClick={() => patchDay(index, quickSchedule)}>Поставить 13:00 / 21:00 / 22:00</button>}
+            {!day.closed && <button disabled={saving} onClick={() => void patchDayAndSave(index, quickSchedule)}>{saving ? "Сохраняю…" : "Поставить 13:00 / 21:00 / 22:00"}</button>}
           </article>
         ))}
       </div>
-      <button className="primary sticky-save" onClick={() => void onSave(draft)}><Save size={16} /> Сохранить график</button>
+      <button className="primary sticky-save" disabled={saving} onClick={() => void saveDraft()}><Save size={16} /> {saving ? "Сохраняю…" : "Сохранить график"}</button>
     </section>
   );
 }
