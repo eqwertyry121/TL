@@ -5,6 +5,7 @@ import { AlertTriangle, Check, MoreVertical, RefreshCw, WifiOff } from "lucide-r
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const api = createStaffApi("KITCHEN");
+const kitchenSeenOrdersKey = "tk-kitchen-seen-orders-v1";
 let notificationAudioContext: AudioContext | null = null;
 let pendingNotificationSound = false;
 
@@ -15,16 +16,27 @@ export function App() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [offline, setOffline] = useState(false);
   const [busy, setBusy] = useState("");
-  const seen = useRef(new Set<string>());
+  const seenIdsRef = useRef(loadSeenOrderIds(kitchenSeenOrdersKey));
+  const notifiedIds = useRef(new Set<string>());
+  const [seenIds, setSeenIds] = useState<Set<string>>(() => new Set(seenIdsRef.current));
 
   const sortedOrders = useMemo(() => [...orders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [orders]);
+
+  function markSeen(orderId: string) {
+    if (seenIdsRef.current.has(orderId)) return;
+    const next = new Set(seenIdsRef.current);
+    next.add(orderId);
+    seenIdsRef.current = next;
+    setSeenIds(next);
+    saveSeenOrderIds(kitchenSeenOrdersKey, next);
+  }
 
   async function refresh(authToken = token) {
     if (!authToken) return;
     try {
       const response = await api.listKitchenOrders(authToken);
-      const incoming = response.orders.filter((order) => !seen.current.has(order.id));
-      response.orders.forEach((order) => seen.current.add(order.id));
+      const incoming = response.orders.filter((order) => !seenIdsRef.current.has(order.id) && !notifiedIds.current.has(order.id));
+      response.orders.forEach((order) => notifiedIds.current.add(order.id));
       if (incoming.length) playBeep();
       setOrders(response.orders);
       setLastUpdated(new Date());
@@ -88,6 +100,7 @@ export function App() {
 
   async function markReady(order: Order) {
     if (!window.confirm(`Заказ #${order.public_number} готов и передаётся курьеру?`)) return;
+    markSeen(order.id);
     setBusy(order.id);
     try {
       await api.markReady(token, order.id, `ready-${order.id}-${order.version}`);
@@ -111,30 +124,61 @@ export function App() {
       {offline && <div className="status bad"><WifiOff size={18} /><span>Нет связи с сервером</span></div>}
       {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="KITCHEN" />}
       <main className="list">
-        {sortedOrders.length === 0 ? <div className="empty">Новых заказов нет</div> : sortedOrders.map((order) => (
-          <article className="card" key={order.id}>
-            <div className="card-head">
-              <div>
-                <strong>Заказ #{order.public_number}</strong>
-                <span>{kitchenTimeText(order)}</span>
+        {sortedOrders.length === 0 ? <div className="empty">Новых заказов нет</div> : sortedOrders.map((order) => {
+          const unread = !seenIds.has(order.id);
+          return (
+            <article className={`order-row${unread ? " is-new" : ""}`} key={order.id} onClick={() => markSeen(order.id)}>
+              <OrderAvatar order={order} unread={unread} />
+              <div className="order-main">
+                <div className="order-top">
+                  <div className="order-title">
+                    <strong>Заказ #{order.public_number}</strong>
+                    <span>{kitchenTimeText(order)}</span>
+                  </div>
+                  <div className="order-side">
+                    <span className={unread ? "new-badge" : "read-badge"}>{unread ? "Новый" : "Прочитано"}</span>
+                    <Menu order={order} />
+                  </div>
+                </div>
+                <div className="order-meta-line">
+                  <CustomerBadge order={order} />
+                  <span className="payment-chip">{paymentText(order)}</span>
+                </div>
+                <ul className="items-compact" aria-label={`Блюда заказа #${order.public_number}`}>
+                  {order.items.map((item, index) => (
+                    <li key={`${item.menu_item_id}-${index}`}>
+                      <b>{item.quantity}×</b>
+                      <span>{item.snapshot_title}</span>
+                    </li>
+                  ))}
+                </ul>
+                {order.customer_comment && <p className="comment compact-comment"><AlertTriangle size={16} /> {order.customer_comment}</p>}
+                <button
+                  className="primary compact-action"
+                  disabled={busy === order.id}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void markReady(order);
+                  }}
+                >
+                  <Check size={20} /> ЗАКАЗ ГОТОВ
+                </button>
               </div>
-              <Menu order={order} />
-            </div>
-            <div className="meta-grid">
-              <div><span>Клиент</span><CustomerBadge order={order} /></div>
-              <div><span>Оплата</span><strong>{paymentText(order)}</strong></div>
-            </div>
-            <ul>
-              {order.items.map((item) => <li key={item.menu_item_id}>{item.quantity} × {item.snapshot_title}</li>)}
-            </ul>
-            {order.customer_comment && <p className="comment"><AlertTriangle size={16} /> {order.customer_comment}</p>}
-            <button className="primary full" disabled={busy === order.id} onClick={() => void markReady(order)}>
-              <Check size={20} /> ЗАКАЗ ГОТОВ
-            </button>
-          </article>
-        ))}
+            </article>
+          );
+        })}
       </main>
     </div>
+  );
+}
+
+function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {
+  return (
+    <span className="order-avatar" aria-hidden="true">
+      {order.client_photo_url ? <img src={order.client_photo_url} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span>{clientInitials(order)}</span>}
+      <small>#{order.public_number}</small>
+      {unread && <i />}
+    </span>
   );
 }
 
@@ -166,9 +210,18 @@ function Menu({ order }: { order: Order }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="menu">
-      <button className="icon" onClick={() => setOpen(!open)} aria-label="Ещё"><MoreVertical size={20} /></button>
+      <button
+        className="icon row-icon"
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen(!open);
+        }}
+        aria-label="Ещё"
+      >
+        <MoreVertical size={20} />
+      </button>
       {open && (
-        <div className="popover">
+        <div className="popover" onClick={(event) => event.stopPropagation()}>
           <a href={problemLink(order)} target="_blank">Сообщить о проблеме</a>
           <span>Сумма: {money(order.total_minor)}</span>
         </div>
@@ -179,6 +232,24 @@ function Menu({ order }: { order: Order }) {
 
 function secondsAgo(value: Date) {
   return Math.max(0, Math.floor((Date.now() - value.getTime()) / 1000));
+}
+
+function loadSeenOrderIds(key: string): Set<string> {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(key) || "[]");
+    if (Array.isArray(value)) return new Set(value.filter((item): item is string => typeof item === "string"));
+  } catch {
+    // Local read markers are nice-to-have only.
+  }
+  return new Set();
+}
+
+function saveSeenOrderIds(key: string, value: Set<string>) {
+  try {
+    localStorage.setItem(key, JSON.stringify([...value].slice(-200)));
+  } catch {
+    // Local read markers are nice-to-have only.
+  }
 }
 
 function clientInitials(order: Order): string {
