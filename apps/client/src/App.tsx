@@ -333,7 +333,10 @@ function Shell({
             {isRoot && <span className="brand-mark" aria-hidden="true">TL</span>}
             <div className="brand">
               <strong>{header}</strong>
-              <span className="worktime">Рабочее время 13:00–21:00</span>
+              <span className="worktime" aria-label="Приём заказов с 13:00 до 21:00">
+                <span>Заказы</span>
+                <strong>13:00–21:00</strong>
+              </span>
             </div>
           </div>
           <div className="header-actions">

@@ -1,4 +1,4 @@
-import type { AdminCategory, AdminMenuItem, Category, Order, Runtime, Settings } from "@tk-delivery/api-client/generated";
+import type { AdminCategory, AdminMenuItem, Category, Order, Runtime, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
 import { demoCategories, demoRuntime } from "./fixtures";
 import { rawInitData, telegramUser } from "./telegram";
 import type { Api, Calculation, CreateOrderInput, Locale, Session } from "./types";
@@ -149,9 +149,9 @@ function demoApi(): Api {
 function demoTelegramProfile(): { telegram_user_id: number; username: string; first_name: string; photo_url: string } {
   const user = telegramUser();
   return {
-    telegram_user_id: user?.id || 1048084234,
-    username: (user?.username || "owner").replace(/^@/, ""),
-    first_name: user?.first_name || "Owner",
+    telegram_user_id: user?.id || 0,
+    username: (user?.username || "").replace(/^@/, ""),
+    first_name: user?.first_name || "Telegram user",
     photo_url: user?.photo_url || "",
   };
 }
@@ -203,8 +203,7 @@ function menuLookup(categories: Category[]) {
 }
 
 function loadDemoRuntime(): Runtime {
-  const settings = loadJSON<Settings | null>(demoSettingsKey, null);
-  if (!settings) return demoRuntime;
+  const settings = loadJSON<Settings>(demoSettingsKey, seedDemoSettings());
   const accepting = demoAcceptingState(settings);
   return {
     ...demoRuntime,
@@ -219,41 +218,112 @@ function loadDemoRuntime(): Runtime {
 }
 
 function demoAcceptingState(settings: Settings): { ok: boolean; reason: string; nextOpening?: string } {
-  const schedule = settings.schedule?.length === 7 ? settings.schedule : undefined;
+  const timezone = settings.timezone || "Europe/Belgrade";
+  const schedule = settings.schedule?.length === 7 ? settings.schedule : defaultSchedule();
   if (settings.manual_day_off) {
-    return { ok: false, reason: "manual_day_off", nextOpening: demoNextOpening(schedule) };
+    return { ok: false, reason: "manual_day_off", nextOpening: demoNextOpening(schedule, timezone) };
   }
-  const now = new Date();
-  const today = schedule?.find((day) => day.day_of_week === now.getDay());
+  const now = zonedNowParts(timezone);
+  const today = schedule.find((day) => day.day_of_week === now.dayOfWeek);
   if (!today || today.closed) {
-    return { ok: false, reason: "weekly_day_off", nextOpening: demoNextOpening(schedule) };
+    return { ok: false, reason: "weekly_day_off", nextOpening: demoNextOpening(schedule, timezone) };
   }
-  const current = secondsSinceMidnight(now);
+  const current = now.hour * 3600 + now.minute * 60 + now.second;
   const open = timeToSeconds(today.open_time);
   const cutoff = timeToSeconds(today.order_cutoff_time);
   if (current < open || current >= cutoff) {
-    return { ok: false, reason: "schedule_closed", nextOpening: demoNextOpening(schedule) };
+    return { ok: false, reason: "schedule_closed", nextOpening: demoNextOpening(schedule, timezone) };
   }
   return { ok: true, reason: "open" };
 }
 
-function demoNextOpening(schedule?: Settings["schedule"]): string | undefined {
-  if (!schedule?.length) return demoRuntime.next_opening;
-  const now = new Date();
+function demoNextOpening(schedule: ScheduleDay[], timezone: string): string | undefined {
+  const now = zonedNowParts(timezone);
   for (let offset = 0; offset < 8; offset += 1) {
-    const candidate = new Date(now);
-    candidate.setDate(now.getDate() + offset);
-    const day = schedule.find((entry) => entry.day_of_week === candidate.getDay());
+    const candidateDate = new Date(Date.UTC(now.year, now.month - 1, now.day + offset));
+    const dayOfWeek = candidateDate.getUTCDay();
+    const day = schedule.find((entry) => entry.day_of_week === dayOfWeek);
     if (!day || day.closed) continue;
     const open = timeToSeconds(day.open_time);
-    candidate.setHours(Math.floor(open / 3600), Math.floor((open % 3600) / 60), 0, 0);
-    if (candidate.getTime() > now.getTime()) return candidate.toISOString();
+    const candidateLocal = {
+      year: candidateDate.getUTCFullYear(),
+      month: candidateDate.getUTCMonth() + 1,
+      day: candidateDate.getUTCDate(),
+      hour: Math.floor(open / 3600),
+      minute: Math.floor((open % 3600) / 60),
+      second: 0,
+    };
+    const candidateInstant = zonedLocalToInstant(candidateLocal, timezone);
+    if (candidateInstant.getTime() > Date.now()) return candidateInstant.toISOString();
   }
   return undefined;
 }
 
-function secondsSinceMidnight(value: Date): number {
-  return value.getHours() * 3600 + value.getMinutes() * 60 + value.getSeconds();
+function defaultSchedule(): ScheduleDay[] {
+  return [0, 1, 2, 3, 4, 5, 6].map((day) => ({
+    day_of_week: day,
+    closed: day === 1,
+    open_time: "13:00",
+    order_cutoff_time: "21:00",
+    close_time: "22:00",
+    version: 1,
+  }));
+}
+
+function seedDemoSettings(): Settings {
+  return {
+    timezone: "Europe/Belgrade",
+    currency: "RSD",
+    manual_day_off: false,
+    day_off_banner: "ВЫХОДНОЙ",
+    flat_delivery_fee_minor: 0,
+    support_text: "@Tako_Lako",
+    support_phone: "",
+    terms_url: "",
+    max_item_quantity: 99,
+    max_comment_length: 300,
+    cash_enabled: true,
+    card_enabled: false,
+    crypto_enabled: false,
+    version: 1,
+    schedule: defaultSchedule(),
+  };
+}
+
+function zonedNowParts(timezone: string): { year: number; month: number; day: number; dayOfWeek: number; hour: number; minute: number; second: number } {
+  const parts = zonedParts(new Date(), timezone);
+  const dayOfWeek = new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
+  return { ...parts, dayOfWeek };
+}
+
+function zonedParts(value: Date, timezone: string): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(value);
+  const pick = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value || 0);
+  return {
+    year: pick("year"),
+    month: pick("month"),
+    day: pick("day"),
+    hour: pick("hour"),
+    minute: pick("minute"),
+    second: pick("second"),
+  };
+}
+
+function zonedLocalToInstant(value: { year: number; month: number; day: number; hour: number; minute: number; second: number }, timezone: string): Date {
+  const utcGuess = new Date(Date.UTC(value.year, value.month - 1, value.day, value.hour, value.minute, value.second));
+  const actual = zonedParts(utcGuess, timezone);
+  const wantedAsUTC = Date.UTC(value.year, value.month - 1, value.day, value.hour, value.minute, value.second);
+  const actualAsUTC = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute, actual.second);
+  return new Date(utcGuess.getTime() + wantedAsUTC - actualAsUTC);
 }
 
 function timeToSeconds(value: string): number {
