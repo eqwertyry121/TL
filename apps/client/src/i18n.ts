@@ -33,8 +33,8 @@ const dict: Record<Locale, Record<Key, string>> = {
   ru: {
     closed: "ВЫХОДНОЙ",
     checkoutClosed: "Приём заказов временно закрыт",
-    dayOffMessage: "Сегодня заказы не принимаем. Экран заблокирован до следующего рабочего дня.",
-    nextOpening: "Следующий приём заказов",
+    dayOffMessage: "Сегодня заказы не принимаем.",
+    nextOpening: "Ждем вас",
     menu: "Меню",
     cart: "Корзина",
     checkout: "Оформление",
@@ -62,8 +62,8 @@ const dict: Record<Locale, Record<Key, string>> = {
   sr: {
     closed: "ZATVORENO",
     checkoutClosed: "Porudžbine trenutno nisu dostupne",
-    dayOffMessage: "Danas ne primamo porudžbine. Ekran je blokiran do sledećeg radnog dana.",
-    nextOpening: "Sledeće primanje porudžbina",
+    dayOffMessage: "Danas ne primamo porudžbine.",
+    nextOpening: "Čekamo vas",
     menu: "Meni",
     cart: "Korpa",
     checkout: "Plaćanje",
@@ -91,8 +91,8 @@ const dict: Record<Locale, Record<Key, string>> = {
   en: {
     closed: "CLOSED",
     checkoutClosed: "Orders are not accepted now",
-    dayOffMessage: "We are not taking orders today. The screen is locked until the next working day.",
-    nextOpening: "Next order opening",
+    dayOffMessage: "We are not taking orders today.",
+    nextOpening: "See you",
     menu: "Menu",
     cart: "Cart",
     checkout: "Checkout",
