@@ -50,8 +50,9 @@ export function App() {
   const items = useMemo(() => data.categories.flatMap((category) => category.items), [data.categories]);
   const itemLookup = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const cartLines = useMemo(() => Object.values(cart.lines), [cart.lines]);
-  const cartQuantity = cartLines.reduce((sum, line) => sum + line.quantity, 0);
-  const subtotal = cartLines.reduce((sum, line) => sum + line.quantity * line.unitPriceMinor, 0);
+  const availableCartLines = useMemo(() => cartLines.filter((line) => itemLookup.has(line.itemId)), [cartLines, itemLookup]);
+  const cartQuantity = availableCartLines.reduce((sum, line) => sum + line.quantity, 0);
+  const subtotal = availableCartLines.reduce((sum, line) => sum + line.quantity * line.unitPriceMinor, 0);
   const total = subtotal;
   const checkoutOpen = Boolean(data.runtime?.accepting_orders);
   const dayOffBlocked = isDayOffRuntime(data.runtime) && !isOwnerTelegramId(data.session?.telegram_user_id);
@@ -138,13 +139,27 @@ export function App() {
     haptic();
   }
 
+  function removeCartLine(itemId: string) {
+    const nextLines = { ...cart.lines };
+    delete nextLines[itemId];
+    const next = { version: 1, lines: nextLines } satisfies CartState;
+    setCart(next);
+    saveCart(next);
+    setCalculation(null);
+    haptic();
+  }
+
   useEffect(() => {
     if (itemLookup.size === 0) return;
     let changed = false;
+    let hasUnavailableLine = false;
     const nextLines = { ...cart.lines };
     for (const line of Object.values(nextLines)) {
       const item = itemLookup.get(line.itemId);
-      if (!item) continue;
+      if (!item) {
+        hasUnavailableLine = true;
+        continue;
+      }
       const minQuantity = itemMinQuantity(item);
       const quantity = line.quantity > 0 && line.quantity < minQuantity ? minQuantity : line.quantity;
       if (quantity !== line.quantity || line.title !== item.title || line.unitPriceMinor !== item.price_minor || line.menuVersion !== item.version) {
@@ -159,6 +174,7 @@ export function App() {
         changed = true;
       }
     }
+    if (hasUnavailableLine) setCalculation(null);
     if (!changed) return;
     const next = { version: 1, lines: nextLines } satisfies CartState;
     setCart(next);
@@ -173,10 +189,10 @@ export function App() {
   }
 
   async function calculate() {
-    if (!token || cartLines.length === 0) return null;
+    if (!token || availableCartLines.length === 0) return null;
     const result = await api.calculate(
       token,
-      cartLines.map((line) => ({ item_id: line.itemId, quantity: line.quantity })),
+      availableCartLines.map((line) => ({ item_id: line.itemId, quantity: line.quantity })),
     );
     setCalculation(result);
     return result;
@@ -234,10 +250,10 @@ export function App() {
     route.name === "dish" ? (
       <Dish item={itemLookup.get(route.id)} line={cart.lines[route.id]} onSetLine={setLine} locale={locale} />
     ) : route.name === "cart" ? (
-      <Cart lines={cartLines} itemLookup={itemLookup} subtotal={subtotal} total={total} checkoutOpen={checkoutOpen} locale={locale} onSetLine={setLine} />
+      <Cart lines={cartLines} itemLookup={itemLookup} subtotal={subtotal} total={total} checkoutOpen={checkoutOpen} locale={locale} onSetLine={setLine} onRemoveLine={removeCartLine} />
     ) : route.name === "checkout" ? (
       <Checkout
-        lines={cartLines}
+        lines={availableCartLines}
         draft={draft}
         calculation={calculation}
         subtotal={subtotal}
@@ -485,6 +501,7 @@ function Cart({
   checkoutOpen,
   locale,
   onSetLine,
+  onRemoveLine,
 }: {
   lines: CartLine[];
   itemLookup: Map<string, MenuItem>;
@@ -493,29 +510,38 @@ function Cart({
   checkoutOpen: boolean;
   locale: Locale;
   onSetLine: (item: MenuItem, quantity: number) => void;
+  onRemoveLine: (itemId: string) => void;
 }) {
   if (!lines.length) return <div className="state">{t(locale, "emptyCart")}</div>;
+  const hasAvailableLines = lines.some((line) => itemLookup.has(line.itemId));
   return (
     <div className="page narrow cart-page">
       <h1>{t(locale, "cart")}</h1>
       <div className="list">
         {lines.map((line) => {
           const item = itemLookup.get(line.itemId);
+          const isUnavailable = !item;
           return (
-            <div className="line" key={line.itemId}>
+            <div className={isUnavailable ? "line unavailable-line" : "line"} key={line.itemId}>
               <div>
                 <strong>{line.title}</strong>
-                <span>{line.quantity} × {money(line.unitPriceMinor)}</span>
-                {!item && <span className="danger-text">Блюдо недоступно</span>}
+                <span>{isUnavailable ? `0 × ${money(0)}` : `${line.quantity} × ${money(line.unitPriceMinor)}`}</span>
+                {isUnavailable && <span className="danger-text">Блюдо недоступно</span>}
               </div>
-              {item ? <Qty value={line.quantity} onMinus={() => onSetLine(item, line.quantity <= itemMinQuantity(item) ? 0 : line.quantity - 1)} onPlus={() => onSetLine(item, line.quantity + 1)} /> : <Trash2 size={20} />}
+              {item ? (
+                <Qty value={line.quantity} onMinus={() => onSetLine(item, line.quantity <= itemMinQuantity(item) ? 0 : line.quantity - 1)} onPlus={() => onSetLine(item, line.quantity + 1)} />
+              ) : (
+                <button className="trash-button" type="button" aria-label="Удалить недоступное блюдо" onClick={() => onRemoveLine(line.itemId)}>
+                  <Trash2 size={18} />
+                </button>
+              )}
             </div>
           );
         })}
       </div>
       <Totals subtotal={subtotal} total={total} locale={locale} />
-      <button className="primary full" disabled={!checkoutOpen} onClick={() => navigate({ name: "checkout" })}>
-        {checkoutOpen ? `${t(locale, "goCheckout")} · ${money(total)}` : t(locale, "checkoutClosed")}
+      <button className="primary full" disabled={!checkoutOpen || !hasAvailableLines} onClick={() => navigate({ name: "checkout" })}>
+        {!checkoutOpen ? t(locale, "checkoutClosed") : hasAvailableLines ? `${t(locale, "goCheckout")} · ${money(total)}` : t(locale, "noAvailableItems")}
       </button>
     </div>
   );
@@ -753,6 +779,8 @@ function errorText(err: unknown): string {
       return "Одно из блюд недоступно";
     case "INVALID_QUANTITY":
       return "Проверьте количество блюд";
+    case "EMPTY_CART":
+      return "В корзине нет доступных блюд";
     case "IDEMPOTENCY_CONFLICT":
       return "Заказ уже отправляется. Проверьте статус";
     case "AUTH_INVALID":

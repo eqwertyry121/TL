@@ -14,6 +14,7 @@ type Key =
   | "add"
   | "goCheckout"
   | "emptyCart"
+  | "noAvailableItems"
   | "phone"
   | "street"
   | "details"
@@ -44,6 +45,7 @@ const dict: Record<Locale, Record<Key, string>> = {
     add: "Добавить",
     goCheckout: "Оформить",
     emptyCart: "Корзина пуста",
+    noAvailableItems: "Нет доступных блюд",
     phone: "Телефон",
     street: "Улица и номер",
     details: "Подъезд, этаж, квартира",
@@ -73,6 +75,7 @@ const dict: Record<Locale, Record<Key, string>> = {
     add: "Dodaj",
     goCheckout: "Naruči",
     emptyCart: "Korpa je prazna",
+    noAvailableItems: "Nema dostupnih jela",
     phone: "Telefon",
     street: "Ulica i broj",
     details: "Ulaz, sprat, stan",
@@ -102,6 +105,7 @@ const dict: Record<Locale, Record<Key, string>> = {
     add: "Add",
     goCheckout: "Checkout",
     emptyCart: "Cart is empty",
+    noAvailableItems: "No available items",
     phone: "Phone",
     street: "Street and number",
     details: "Entrance, floor, apartment",
