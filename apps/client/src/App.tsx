@@ -376,7 +376,7 @@ function Shell({
 }
 
 function DayOffOverlay({ locale, runtime }: { locale: Locale; runtime?: AppData["runtime"] }) {
-  const nextOpening = formatNextOpening(runtime?.next_opening, locale);
+  const nextOpening = formatNextOpening(runtime?.next_opening, locale, runtime?.timezone);
   const title = dayOffTitle(runtime, locale);
 
   return (
@@ -386,8 +386,8 @@ function DayOffOverlay({ locale, runtime }: { locale: Locale; runtime?: AppData[
         <h1 id="day-off-title">{title}</h1>
         <p>{t(locale, "dayOffMessage")}</p>
         {nextOpening && (
-          <small>
-            {t(locale, "nextOpening")}: <strong>{nextOpening}</strong>
+          <small className="next-opening">
+            <span>{t(locale, "nextOpening")}</span> <strong>{nextOpening}</strong>
           </small>
         )}
       </section>
@@ -738,18 +738,59 @@ function isDayOffRuntime(runtime?: AppData["runtime"]): boolean {
   return Boolean(runtime && !runtime.accepting_orders && (runtime.reason === "manual_day_off" || runtime.reason === "weekly_day_off"));
 }
 
-function formatNextOpening(value: string | undefined, locale: Locale): string {
+function formatNextOpening(value: string | undefined, locale: Locale, timezone = "Europe/Belgrade"): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  const localeCode = locale === "sr" ? "sr-Latn-RS" : locale === "en" ? "en-US" : "ru-RU";
-  return new Intl.DateTimeFormat(localeCode, {
-    weekday: "short",
+  const parts = displayDateParts(date, timezone);
+  const weekday = fullWeekdayText(parts.dayOfWeek, locale);
+  const month = fullMonthText(parts.month - 1, locale);
+  const day = parts.day;
+  const time = `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
+  if (locale === "en") return `${weekday} ${day} ${month} at ${time}`;
+  if (locale === "sr") return `${weekday} ${day} ${month} u ${time}`;
+  return `${weekday} ${day} ${month} в ${time}`;
+}
+
+function displayDateParts(value: Date, timezone: string): { month: number; day: number; dayOfWeek: number; hour: number; minute: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
     day: "2-digit",
-    month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(date);
+    hourCycle: "h23",
+  }).formatToParts(value);
+  const pick = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value || 0);
+  const year = pick("year");
+  const month = pick("month");
+  const day = pick("day");
+  return {
+    month,
+    day,
+    dayOfWeek: new Date(Date.UTC(year, month - 1, day)).getUTCDay(),
+    hour: pick("hour"),
+    minute: pick("minute"),
+  };
+}
+
+function fullWeekdayText(day: number, locale: Locale): string {
+  const ru = ["в воскресенье", "в понедельник", "во вторник", "в среду", "в четверг", "в пятницу", "в субботу"];
+  const sr = ["u nedelju", "u ponedeljak", "u utorak", "u sredu", "u četvrtak", "u petak", "u subotu"];
+  const en = ["on Sunday", "on Monday", "on Tuesday", "on Wednesday", "on Thursday", "on Friday", "on Saturday"];
+  if (locale === "en") return en[day] || en[0];
+  if (locale === "sr") return sr[day] || sr[0];
+  return ru[day] || ru[0];
+}
+
+function fullMonthText(month: number, locale: Locale): string {
+  const ru = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+  const sr = ["januara", "februara", "marta", "aprila", "maja", "juna", "jula", "avgusta", "septembra", "oktobra", "novembra", "decembra"];
+  const en = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  if (locale === "en") return en[month] || en[0];
+  if (locale === "sr") return sr[month] || sr[0];
+  return ru[month] || ru[0];
 }
 
 function dayOffTitle(runtime: AppData["runtime"] | undefined, locale: Locale): string {
