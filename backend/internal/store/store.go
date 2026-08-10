@@ -1897,41 +1897,36 @@ func (s *Store) ordersFromIDRows(ctx context.Context, rows pgx.Rows, includePII 
 }
 
 func (s *Store) beginIdempotency(ctx context.Context, tx pgx.Tx, userID uuid.UUID, operation, key, requestHash string) (uuid.UUID, bool, error) {
-	_, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO idempotency_keys (actor_user_id, operation, key, request_hash, expires_at)
 		VALUES ($1, $2, $3, $4, now() + interval '24 hours')
+		ON CONFLICT (actor_user_id, operation, key) DO NOTHING
 	`, userID, operation, key, requestHash)
-	if err == nil {
-		return uuid.Nil, false, nil
-	}
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+	if err != nil {
 		return uuid.Nil, false, err
 	}
-	var existingHash string
-	var result struct {
-		OrderID uuid.UUID `json:"order_id"`
+	if tag.RowsAffected() == 1 {
+		return uuid.Nil, false, nil
 	}
-	var raw []byte
+	var existingHash string
+	var orderIDText string
 	err = tx.QueryRow(ctx, `
-		SELECT request_hash, COALESCE(result_json, '{}'::jsonb)
+		SELECT request_hash, COALESCE(result_json->>'order_id', '')
 		FROM idempotency_keys
 		WHERE actor_user_id=$1 AND operation=$2 AND key=$3
 		FOR UPDATE
-	`, userID, operation, key).Scan(&existingHash, &raw)
+	`, userID, operation, key).Scan(&existingHash, &orderIDText)
 	if err != nil {
 		return uuid.Nil, false, err
 	}
 	if existingHash != requestHash {
 		return uuid.Nil, false, core.ErrIdempotencyConflict
 	}
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return uuid.Nil, false, err
-	}
-	if result.OrderID == uuid.Nil {
+	orderID, err := uuid.Parse(orderIDText)
+	if err != nil || orderID == uuid.Nil {
 		return uuid.Nil, false, core.ErrIdempotencyConflict
 	}
-	return result.OrderID, true, nil
+	return orderID, true, nil
 }
 
 func (s *Store) finishIdempotency(ctx context.Context, tx pgx.Tx, userID uuid.UUID, operation, key string, orderID uuid.UUID) error {

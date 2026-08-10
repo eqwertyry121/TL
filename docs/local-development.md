@@ -80,6 +80,7 @@ Start only PostgreSQL:
 
 ```powershell
 docker compose up -d postgres
+$env:POSTGRES_DSN = "postgres://tk_delivery:tk_delivery@localhost:15432/tk_delivery?sslmode=disable"
 go run ./backend/cmd/app
 ```
 
@@ -92,7 +93,20 @@ docker compose up --build
 Backend URL:
 
 ```text
-http://127.0.0.1:8080
+http://127.0.0.1:18080
+```
+
+Default local Docker ports avoid common conflicts with other local projects:
+
+- backend host port: `18080` → container `8080`;
+- PostgreSQL host port: `15432` → container `5432`.
+
+If these ports are busy too, override them before starting compose:
+
+```powershell
+$env:APP_HOST_PORT = "18081"
+$env:POSTGRES_HOST_PORT = "15433"
+docker compose up --build
 ```
 
 Uploaded menu photos are served from `/media/...` and stored in `MEDIA_DIR`

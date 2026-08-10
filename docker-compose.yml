@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: tk_delivery
       POSTGRES_PASSWORD: tk_delivery
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-15432}:5432"
     volumes:
       - tk_delivery_pg:/var/lib/postgresql/data
     healthcheck:
@@ -29,11 +29,16 @@ services:
       APP_TIMEZONE: Europe/Belgrade
       APP_CURRENCY: RSD
       TELEGRAM_CLIENT_BOT_USERNAME: TakoLako_main_bot
+      APP_PUBLIC_BASE_URL: http://127.0.0.1:${APP_HOST_PORT:-18080}
       BOOTSTRAP_OWNER_TELEGRAM_ID: "1048084234"
       LOCAL_ROLE_SWITCHER_ENABLED: "true"
       NOTIFICATION_DRY_RUN: "true"
+      MEDIA_DIR: /app/uploads
     ports:
-      - "8080:8080"
+      - "${APP_HOST_PORT:-18080}:8080"
+    volumes:
+      - tk_delivery_uploads:/app/uploads
 
 volumes:
   tk_delivery_pg:
+  tk_delivery_uploads:

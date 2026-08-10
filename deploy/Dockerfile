@@ -8,6 +8,8 @@ RUN go build -o /out/tk-delivery ./backend/cmd/app
 
 FROM alpine:3.22
 
+RUN apk add --no-cache ca-certificates tzdata
+
 WORKDIR /app
 COPY --from=build /out/tk-delivery /app/tk-delivery
 COPY backend/migrations /app/backend/migrations
