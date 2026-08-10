@@ -55,8 +55,8 @@ export function courierTimeText(order: Order): string {
 }
 
 export function clientLabel(order: Order): string {
-  const username = (order.client_username || "").trim();
-  if (username) return username.startsWith("@") ? username : `@${username}`;
+  const username = telegramUsername(order);
+  if (username) return `@${username}`;
   const firstName = (order.client_first_name || "").trim();
   if (firstName) return firstName;
   return "Клиент Telegram";
@@ -85,6 +85,35 @@ export function problemLink(order: Order): string {
 
 export function mapLink(address?: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address || "")}`;
+}
+
+export function telegramUsername(order: Order): string {
+  const username = (order.client_username || "").trim().replace(/^@+/, "");
+  return /^[A-Za-z0-9_]{5,32}$/.test(username) ? username : "";
+}
+
+export function telegramUserLink(order: Order, draftText = ""): string | undefined {
+  const username = telegramUsername(order);
+  if (!username) return undefined;
+  const query = draftText ? `?text=${encodeURIComponent(draftText)}` : "";
+  return `https://t.me/${username}${query}`;
+}
+
+export function courierEtaText(minutes: number): string {
+  return `курьер TakoLako: приеду к вам через ${minutes} минут`;
+}
+
+export function courierEtaLink(order: Order, minutes: number): string | undefined {
+  return telegramUserLink(order, courierEtaText(minutes));
+}
+
+export function openTelegramLink(url: string): void {
+  const webApp = window.Telegram?.WebApp;
+  if (webApp?.openTelegramLink) {
+    webApp.openTelegramLink(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function realApi(baseURL: string, appEnv: string): StaffApi {
@@ -170,6 +199,7 @@ declare global {
     Telegram?: {
       WebApp?: {
         initData?: string;
+        openTelegramLink?: (url: string) => void;
       };
     };
   }

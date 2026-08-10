@@ -395,7 +395,7 @@ function OrdersTab({ orders, token, onAction }: { orders: Order[]; token: string
           </div>
           <div className="order-info">
             <span>Клиент</span>
-            <strong>{orderClientLabel(order)}</strong>
+            <strong><OrderClientLink order={order} /></strong>
           </div>
           <div className="order-info">
             <span>Телефон</span>
@@ -659,10 +659,51 @@ function editContact(order: Order, next: (input: { phone: string; address: strin
   return next({ phone, address, reason });
 }
 
+function OrderClientLink({ order }: { order: Order }) {
+  const label = orderClientLabel(order);
+  const href = telegramUserLink(order);
+  if (!href) return <>{label}</>;
+  return (
+    <a
+      className="telegram-link"
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(event) => {
+        event.preventDefault();
+        openTelegramLink(href);
+      }}
+    >
+      {label}
+    </a>
+  );
+}
+
 function orderClientLabel(order: Order): string {
-  const username = (order.client_username || "").trim();
-  if (username) return username.startsWith("@") ? username : `@${username}`;
+  const username = telegramUsername(order);
+  if (username) return `@${username}`;
   return order.client_first_name || "Клиент Telegram";
+}
+
+function telegramUsername(order: Order): string {
+  const username = (order.client_username || "").trim().replace(/^@+/, "");
+  return /^[A-Za-z0-9_]{5,32}$/.test(username) ? username : "";
+}
+
+function telegramUserLink(order: Order, draftText = ""): string | undefined {
+  const username = telegramUsername(order);
+  if (!username) return undefined;
+  const query = draftText ? `?text=${encodeURIComponent(draftText)}` : "";
+  return `https://t.me/${username}${query}`;
+}
+
+function openTelegramLink(url: string): void {
+  const webApp = (window as Window & { Telegram?: { WebApp?: { openTelegramLink?: (value: string) => void } } }).Telegram?.WebApp;
+  if (webApp?.openTelegramLink) {
+    webApp.openTelegramLink(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function createdText(value: string): string {

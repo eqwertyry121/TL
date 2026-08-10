@@ -56,6 +56,7 @@ Order row/card должен быть компактным, как список �
 В строке кухни:
 
 - крупный `Заказ #N`;
+- `@username` клиента кликабелен и открывает Telegram ЛС, если username есть;
 - время и возраст заказа;
 - все items сразу видны: quantity × title, без сворачивания в “ещё N”;
 - комментарий, если есть;
@@ -145,6 +146,7 @@ Card:
 
 - number/ready time;
 - аватарка/инициалы клиента и `@username`, если Telegram отдал username;
+- `@username` кликабелен и открывает Telegram ЛС;
 - пометка `Новый`/`Прочитано`;
 - full text address;
 - phone tap-to-call;
@@ -186,6 +188,9 @@ Card исчезает из active list. Повтор request безопасен.
 - скопировать адрес;
 - открыть external map с URL-encoded text address;
 - проблема с доставкой → ADMIN/support chat.
+- быстрые кнопки `5/10/15/20 мин` открывают ЛС клиента с draft-сообщением
+  `курьер TakoLako: приеду к вам через X минут`, если у клиента есть
+  `@username`; если username нет, используется fallback-уведомление через bot.
 
 Map — только внешняя ссылка. Система не получает coordinates, не строит и не
 оптимизирует route.

@@ -1,6 +1,6 @@
 import type { Order, Role } from "@tk-delivery/api-client/generated";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
-import { clientLabel, createStaffApi, kitchenTimeText, money, paymentText, problemLink } from "@tk-delivery/staff-core";
+import { clientLabel, createStaffApi, kitchenTimeText, money, openTelegramLink, paymentText, problemLink, telegramUserLink } from "@tk-delivery/staff-core";
 import { AlertTriangle, Check, MoreVertical, RefreshCw, WifiOff } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -183,14 +183,32 @@ function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {
 }
 
 function CustomerBadge({ order }: { order: Order }) {
-  return (
-    <div className="customer-badge" title={clientLabel(order)}>
+  const href = telegramUserLink(order);
+  const content = (
+    <>
       <span className="customer-avatar">
         <span>{clientInitials(order)}</span>
         {order.client_photo_url && <img src={order.client_photo_url} alt="" loading="lazy" referrerPolicy="no-referrer" />}
       </span>
       <b>{clientLabel(order)}</b>
-    </div>
+    </>
+  );
+  if (!href) return <div className="customer-badge" title={clientLabel(order)}>{content}</div>;
+  return (
+    <a
+      className="customer-badge is-link"
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      title={`Открыть ЛС ${clientLabel(order)}`}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openTelegramLink(href);
+      }}
+    >
+      {content}
+    </a>
   );
 }
 

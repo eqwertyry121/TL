@@ -316,6 +316,10 @@ h1 {
   min-width: 0;
 }
 
+.customer-badge.is-link {
+  cursor: pointer;
+}
+
 .customer-badge b {
   min-width: 0;
   overflow: hidden;
@@ -325,6 +329,13 @@ h1 {
   letter-spacing: -0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.customer-badge.is-link b {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
 }
 
 .customer-avatar {

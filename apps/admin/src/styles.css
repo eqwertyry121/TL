@@ -521,6 +521,13 @@ main {
   font-size: 0.9rem;
 }
 
+.telegram-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+}
+
 .row-actions {
   display: flex;
   flex-wrap: wrap;

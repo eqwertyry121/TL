@@ -165,6 +165,7 @@ Detail:
 - composition snapshot;
 - totals/payment;
 - contact/address;
+- `@username` клиента кликабелен и открывает Telegram ЛС, если username есть;
 - timestamps/status history;
 - notification attempts.
 
