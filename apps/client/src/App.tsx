@@ -21,13 +21,17 @@ import { maskPhone, money } from "./money";
 import { currentRoute, navigate, replaceRoute, routeToHash } from "./route";
 import {
   clearCart,
+  clearCheckoutProgress,
+  checkoutCartSignature,
   loadCart,
   loadCheckoutDraft,
+  loadCheckoutProgress,
   loadLocale,
   pendingIdempotencyKey,
   resetPendingIdempotencyKey,
   saveCart,
   saveCheckoutDraft,
+  saveCheckoutProgress,
   saveLocale,
   upsertCartLine,
 } from "./storage";
@@ -57,6 +61,7 @@ function ClientMiniApp() {
   const [paymentMethod, setPaymentMethod] = useState<Extract<PaymentMethod, "cash" | "crypto">>("cash");
   const [contactLoading, setContactLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [restoredCheckoutSignature, setRestoredCheckoutSignature] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -66,6 +71,7 @@ function ClientMiniApp() {
   const itemLookup = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const cartLines = useMemo(() => Object.values(cart.lines), [cart.lines]);
   const availableCartLines = useMemo(() => cartLines.filter((line) => itemLookup.has(line.itemId)), [cartLines, itemLookup]);
+  const checkoutSignature = useMemo(() => checkoutCartSignature(availableCartLines), [availableCartLines]);
   const cartQuantity = availableCartLines.reduce((sum, line) => sum + line.quantity, 0);
   const subtotal = availableCartLines.reduce((sum, line) => sum + line.quantity * line.unitPriceMinor, 0);
   const total = subtotal;
@@ -155,6 +161,31 @@ function ClientMiniApp() {
   useEffect(() => {
     if (!paymentMethods.includes(paymentMethod)) setPaymentMethod(paymentMethods[0] || "cash");
   }, [paymentMethod, paymentMethods]);
+
+  useEffect(() => {
+    if (!token || !checkoutSignature || restoredCheckoutSignature === checkoutSignature) return;
+    const progress = loadCheckoutProgress(checkoutSignature);
+    setRestoredCheckoutSignature(checkoutSignature);
+    if (!progress) return;
+    setCalculation(progress.calculation);
+    if (!progress.cashLocation) return;
+    setCashLocation(progress.cashLocation);
+    api.getCashLocationChallenge(token, progress.cashLocation.id)
+      .then((next) => {
+        if (next.status === "EXPIRED" || next.status === "USED") {
+          setCashLocation(null);
+          saveCheckoutProgress(checkoutSignature, progress.calculation, null);
+          return;
+        }
+        setCashLocation(next);
+      })
+      .catch(() => undefined);
+  }, [token, checkoutSignature, restoredCheckoutSignature]);
+
+  useEffect(() => {
+    if (!checkoutSignature || restoredCheckoutSignature !== checkoutSignature) return;
+    saveCheckoutProgress(checkoutSignature, calculation, cashLocation);
+  }, [checkoutSignature, restoredCheckoutSignature, calculation, cashLocation]);
 
   useEffect(() => {
     if (route.name !== "order" || !token) return;
@@ -360,6 +391,7 @@ function ClientMiniApp() {
         pendingIdempotencyKey(),
       );
       clearCart();
+      clearCheckoutProgress();
       resetPendingIdempotencyKey();
       setCart(loadCart());
       setCalculation(null);
@@ -942,7 +974,7 @@ function cashLocationText(challenge: CashLocationChallenge | null, radiusMeters:
   if (challenge?.rejection_reason === "OUTSIDE_CASH_AREA") return `Оплата наличными доступна в радиусе ${formatDistance(radiusMeters)} от ресторана.`;
   if (challenge?.rejection_reason === "LOCATION_INACCURATE" || challenge?.rejection_reason === "LOCATION_ACCURACY_MISSING") return "GPS слишком неточный. Повторите рядом с окном или на улице.";
   if (challenge?.rejection_reason === "LOCATION_NOT_CONFIGURED") return "Оплата наличными временно недоступна: ресторан ещё не настроил точку.";
-  return "Для оплаты наличными Telegram подтвердит, что вы рядом с рестораном. Точные координаты не сохраняются.";
+  return "Для оплаты наличными Telegram подтвердит, что вы находитесь в Нови Саде, чтобы мы могли к вам приехать. Точные координаты не сохраняются.";
 }
 
 function formatDistance(meters: number): string {
@@ -1183,6 +1215,8 @@ function errorText(err: unknown): string {
       return "В корзине нет доступных блюд";
     case "IDEMPOTENCY_CONFLICT":
       return "Заказ уже отправляется. Проверьте статус";
+    case "ACTIVE_ORDER_EXISTS":
+      return "У вас уже есть активный заказ. Новый можно оформить после доставки текущего.";
     case "AUTH_INVALID":
       return "Telegram авторизация не прошла";
     case "CONTACT_NOT_VERIFIED":

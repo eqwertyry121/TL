@@ -145,6 +145,9 @@ backend отклоняет order.
 - UI polling'ом показывает `PENDING`, `VERIFIED`, `REJECTED` или `EXPIRED`;
 - submit cash-заказа disabled, пока challenge не `VERIFIED`;
 - при смене корзины/calculation старый challenge не используется.
+- при случайном закрытии Mini App frontend восстанавливает неистёкшие
+  calculation/challenge для той же корзины без хранения session token,
+  телефона, адреса, raw `initData` или точных координат.
 
 ### Адрес
 

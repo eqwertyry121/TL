@@ -1081,6 +1081,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code, messageKey = http.StatusBadRequest, "INVALID_QUANTITY", "invalid_quantity"
 	case errors.Is(err, core.ErrOrderStatusConflict):
 		status, code, messageKey = http.StatusConflict, "ORDER_STATUS_CONFLICT", "order_status_conflict"
+	case errors.Is(err, core.ErrActiveOrderExists):
+		status, code, messageKey = http.StatusConflict, "ACTIVE_ORDER_EXISTS", "active_order_exists"
 	case errors.Is(err, core.ErrIdempotencyConflict):
 		status, code, messageKey = http.StatusConflict, "IDEMPOTENCY_CONFLICT", "idempotency_conflict"
 	case errors.Is(err, core.ErrCalculationExpired):

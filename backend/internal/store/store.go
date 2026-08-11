@@ -1257,6 +1257,19 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		return s.OrderByID(ctx, orderID, true)
 	}
 
+	var hasActiveOrder bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM orders
+			WHERE client_user_id=$1 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY')
+		)
+	`, sess.UserID).Scan(&hasActiveOrder); err != nil {
+		return core.Order{}, err
+	}
+	if hasActiveOrder {
+		return core.Order{}, core.ErrActiveOrderExists
+	}
+
 	tokenHash := hashString(input.CalculationToken)
 	var rawItems []byte
 	var subtotal, delivery, total int
@@ -1309,6 +1322,9 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		uuidSQL(cashLocationChallengeID), timeSQL(cashLocationVerifiedAt), intSQL(cashLocationDistance)).
 		Scan(&orderID, &publicNumber, &createdAt)
 	if err != nil {
+		if isUniqueViolation(err, "idx_orders_one_active_per_client") {
+			return core.Order{}, core.ErrActiveOrderExists
+		}
 		return core.Order{}, err
 	}
 	for pos, item := range items {
@@ -2629,6 +2645,14 @@ func intSQL(value *int) any {
 		return nil
 	}
 	return *value
+}
+
+func isUniqueViolation(err error, constraintName string) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return false
+	}
+	return constraintName == "" || pgErr.ConstraintName == constraintName
 }
 
 func maskPhone(phone string) string {

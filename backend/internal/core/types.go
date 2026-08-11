@@ -58,6 +58,7 @@ var (
 	ErrItemUnavailable        = errors.New("item unavailable")
 	ErrInvalidQuantity        = errors.New("invalid quantity")
 	ErrOrderStatusConflict    = errors.New("order status conflict")
+	ErrActiveOrderExists      = errors.New("active order exists")
 	ErrIdempotencyConflict    = errors.New("idempotency conflict")
 	ErrCalculationExpired     = errors.New("calculation expired")
 	ErrPaymentNotConfirmed    = errors.New("payment not confirmed")
