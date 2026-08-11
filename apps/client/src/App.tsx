@@ -38,6 +38,14 @@ const api = createApi();
 const clientBotMiniAppURL = "https://t.me/TakoLako_main_bot?startapp";
 
 export function App() {
+  if (isPortalPath()) {
+    if (rawInitData()) return <TelegramMainRedirect />;
+    return <PortalLanding />;
+  }
+  return <ClientMiniApp />;
+}
+
+function ClientMiniApp() {
   const [route, setRoute] = useState<Route>(currentRoute);
   const [locale, setLocale] = useState<Locale>(() => loadLocale(initialLocale()));
   const [cart, setCart] = useState<CartState>(loadCart);
@@ -429,6 +437,62 @@ export function App() {
         </button>
       )}
     </Shell>
+  );
+}
+
+function isPortalPath(): boolean {
+  const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
+  return pathname === "/";
+}
+
+function TelegramMainRedirect() {
+  useEffect(() => {
+    window.location.replace(`/main${window.location.hash || "#/"}`);
+  }, []);
+
+  return (
+    <main className="portal-page">
+      <section className="portal-card">
+        <span className="eyebrow">Tako Lako</span>
+        <h1>Открываем меню</h1>
+        <p>Если переход не сработал автоматически, нажмите кнопку ниже.</p>
+        <a className="portal-button" href={`/main${window.location.hash || "#/"}`}>
+          Открыть меню
+          <ChevronRight size={18} />
+        </a>
+      </section>
+    </main>
+  );
+}
+
+function PortalLanding() {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      window.location.assign(clientBotMiniAppURL);
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  return (
+    <main className="portal-page">
+      <section className="portal-card">
+        <span className="eyebrow">Tako Lako</span>
+        <h1>Грузинская кухня в Telegram</h1>
+        <p>Открываем Mini App в Telegram. Там можно оформить заказ, поделиться телефоном и подтвердить геолокацию для оплаты наличными.</p>
+        <a
+          className="portal-button"
+          href={clientBotMiniAppURL}
+          onClick={(event) => {
+            event.preventDefault();
+            window.location.assign(clientBotMiniAppURL);
+          }}
+        >
+          Открыть Mini App
+          <ChevronRight size={18} />
+        </a>
+        <small>Если Telegram не открылся автоматически, найдите бота @TakoLako_main_bot.</small>
+      </section>
+    </main>
   );
 }
 

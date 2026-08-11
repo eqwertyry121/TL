@@ -73,8 +73,9 @@ jobs:
 
       - name: Prepare Pages artifact
         run: |
-          mkdir -p pages/kitchen pages/courier pages/admin
+          mkdir -p pages/main pages/kitchen pages/courier pages/admin
           cp -R apps/client/dist/. pages/
+          cp pages/index.html pages/main/index.html
           cp -R apps/kitchen/dist/. pages/kitchen/
           cp -R apps/courier/dist/. pages/courier/
           cp -R apps/admin/dist/. pages/admin/
