@@ -1003,10 +1003,10 @@ function cashLocationText(challenge: CashLocationChallenge | null, radiusMeters:
     const distance = typeof challenge.distance_meters === "number" ? ` · ${formatDistance(challenge.distance_meters)} от ресторана` : "";
     return `Для cash всё готово${distance}`;
   }
-  if (challenge?.status === "PENDING") return "Если открылся бот — нажмите там кнопку «Отправить моё местоположение». /share только показывает кнопку заново. На компьютере вернитесь в Mini App и нажмите «Подтвердить геолокацию» здесь.";
+  if (challenge?.status === "PENDING") return "Открылся бот? Нажмите там кнопку геолокации. Если кнопки нет — отправьте /share. С компьютера лучше открыть заказ на телефоне.";
   if (challenge?.status === "EXPIRED") return "Повторите проверку перед оформлением заказа.";
   if (challenge?.rejection_reason === "OUTSIDE_CASH_AREA") return `Оплата наличными доступна в радиусе ${formatDistance(radiusMeters)} от ресторана.`;
-  if (challenge?.rejection_reason === "LOCATION_INACCURATE" || challenge?.rejection_reason === "LOCATION_ACCURACY_MISSING") return "GPS слишком неточный. Повторите рядом с окном или на улице.";
+  if (challenge?.rejection_reason === "LOCATION_INACCURATE" || challenge?.rejection_reason === "LOCATION_ACCURACY_MISSING") return "Геолокация неточная. На компьютере так бывает часто — откройте заказ на телефоне или повторите у окна/на улице.";
   if (challenge?.rejection_reason === "LOCATION_NOT_CONFIGURED") return "Оплата наличными временно недоступна: ресторан ещё не настроил точку.";
   return "Для оплаты наличными Telegram подтвердит, что вы находитесь в Нови Саде, чтобы мы могли к вам приехать. Точные координаты не сохраняются.";
 }
@@ -1260,7 +1260,7 @@ function errorText(err: unknown): string {
     case "CASH_LOCATION_OUTSIDE":
       return "Вы вне зоны доставки для оплаты наличными";
     case "CASH_LOCATION_INACCURATE":
-      return "Геолокация слишком неточная. Повторите проверку";
+      return "Геолокация неточная. Откройте заказ на телефоне или повторите у окна/на улице.";
     case "INVALID_INPUT":
       return "Поделитесь телефоном через Telegram и заполните адрес";
     default:

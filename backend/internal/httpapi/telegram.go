@@ -234,7 +234,7 @@ func (s *Server) sendLocationPrompt(ctx context.Context, chatID int64) (int64, e
 		"is_persistent":           true,
 		"input_field_placeholder": "Нажмите кнопку геолокации",
 	}
-	return s.sendClientBotMessage(ctx, chatID, "Нажмите кнопку «Отправить моё местоположение» ниже. /share только показывает кнопку заново. Если с компьютера отправляется текст — вернитесь в Mini App и подтвердите геолокацию там либо откройте заказ на телефоне. Нужно отправить именно геолокацию-карту, не текст.", replyMarkup)
+	return s.sendClientBotMessage(ctx, chatID, "Нужно отправить геолокацию, не текст.\n\nНажмите кнопку ниже: «Отправить моё местоположение».\n\nЕсли кнопки нет — отправьте /share, я покажу её снова.\n\nС компьютера это часто не работает. Тогда откройте заказ на телефоне.", replyMarkup)
 }
 
 func isShareLocationCommand(text string) bool {
@@ -285,7 +285,7 @@ func cashLocationResultText(challenge core.CashLocationChallenge) string {
 		case "OUTSIDE_CASH_AREA":
 			return "Вы находитесь вне зоны доставки для оплаты наличными."
 		case "LOCATION_INACCURATE", "LOCATION_ACCURACY_MISSING":
-			return "Геолокация слишком неточная. Повторите рядом с окном или на улице."
+			return "Геолокация неточная. На компьютере так бывает часто — откройте заказ на телефоне или повторите у окна/на улице."
 		case "LOCATION_NOT_CONFIGURED":
 			return "Оплата наличными временно недоступна: геопроверка не настроена."
 		default:
