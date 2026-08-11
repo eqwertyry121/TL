@@ -70,6 +70,7 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/contact", s.contact)
 			r.Post("/cash-location/challenges", s.createCashLocationChallenge)
 			r.Get("/cash-location/challenges/{id}", s.cashLocationChallenge)
+			r.Post("/cash-location/challenges/{id}/telegram-webapp-location", s.verifyCashLocationChallenge)
 			r.Post("/orders/calculate", s.calculate)
 			r.Post("/orders", s.createOrder)
 			r.Get("/orders", s.clientOrders)

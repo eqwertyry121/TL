@@ -90,6 +90,7 @@ type UpdateSettingsInput struct {
 
 type CreateCashLocationChallengeInput struct {
 	CalculationToken string `json:"calculation_token"`
+	SendPrompt       *bool  `json:"send_prompt,omitempty"`
 }
 
 type AdminOrderFilter struct {
@@ -1112,10 +1113,64 @@ func (s *Store) VerifyCashLocationFromTelegram(ctx context.Context, telegramUser
 	if promptMessageID.Valid && replyToMessageID > 0 && promptMessageID.Int64 != replyToMessageID {
 		return s.rejectCashLocationChallengeTx(ctx, tx, id, userID, "PROMPT_MISMATCH")
 	}
-	if accuracyMeters == nil || *accuracyMeters < 0 {
-		return s.rejectCashLocationChallengeTx(ctx, tx, id, userID, "LOCATION_ACCURACY_MISSING")
+	return s.verifyCashLocationChallengeTx(ctx, tx, settings, id, userID, expiresAt, latitude, longitude, accuracyMeters, now)
+}
+
+func (s *Store) VerifyCashLocationForSession(ctx context.Context, sess core.Session, challengeID uuid.UUID, latitude, longitude float64, accuracyMeters *float64, now time.Time) (core.CashLocationChallenge, error) {
+	if sess.ActiveRole != core.RoleClient {
+		return core.CashLocationChallenge{}, core.ErrForbidden
 	}
-	accuracy := int(math.Ceil(*accuracyMeters))
+	if challengeID == uuid.Nil || !geo.ValidCoordinates(latitude, longitude) {
+		return core.CashLocationChallenge{}, core.ErrInvalidInput
+	}
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	defer rollback(ctx, tx)
+
+	var userID uuid.UUID
+	var expiresAt time.Time
+	err = tx.QueryRow(ctx, `
+		SELECT user_id, expires_at
+		FROM cash_location_challenges
+		WHERE id=$1 AND user_id=$2 AND telegram_user_id=$3 AND status='PENDING' AND used_at IS NULL
+		FOR UPDATE
+	`, challengeID, sess.UserID, sess.TelegramUserID).Scan(&userID, &expiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return core.CashLocationChallenge{}, core.ErrInvalidInput
+	}
+	if err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	return s.verifyCashLocationChallengeTx(ctx, tx, settings, challengeID, userID, expiresAt, latitude, longitude, accuracyMeters, now)
+}
+
+func (s *Store) verifyCashLocationChallengeTx(ctx context.Context, tx pgx.Tx, settings core.Settings, id, userID uuid.UUID, expiresAt time.Time, latitude, longitude float64, accuracyMeters *float64, now time.Time) (core.CashLocationChallenge, error) {
+	if !now.UTC().Before(expiresAt) {
+		if _, err := tx.Exec(ctx, `
+			UPDATE cash_location_challenges
+			SET status='EXPIRED', updated_at=now()
+			WHERE id=$1
+		`, id); err != nil {
+			return core.CashLocationChallenge{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return core.CashLocationChallenge{}, err
+		}
+		return s.cashLocationChallengeByID(ctx, id, userID)
+	}
+	accuracy := settings.CashLocationMaxAccuracyMeters
+	if accuracyMeters != nil {
+		if *accuracyMeters < 0 {
+			return s.rejectCashLocationChallengeTx(ctx, tx, id, userID, "LOCATION_INACCURATE")
+		}
+		accuracy = int(math.Ceil(*accuracyMeters))
+	}
 	if accuracy > settings.CashLocationMaxAccuracyMeters {
 		return s.rejectCashLocationChallengeTx(ctx, tx, id, userID, "LOCATION_INACCURATE")
 	}

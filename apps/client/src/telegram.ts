@@ -14,13 +14,34 @@ interface TelegramWebApp {
     user?: TelegramUserProfile;
   };
   BackButton?: TelegramBackButton;
+  LocationManager?: TelegramLocationManager;
   ready(): void;
   expand(): void;
+  isVersionAtLeast?(version: string): boolean;
   requestContact?(callback: (ok: boolean, contact?: { phone_number?: string; user_id?: number }) => void): void;
   openTelegramLink?(url: string): void;
   HapticFeedback?: {
     impactOccurred(style: "light" | "medium" | "heavy"): void;
   };
+}
+
+interface TelegramLocationManager {
+  isInited?: boolean;
+  isLocationAvailable?: boolean;
+  isAccessRequested?: boolean;
+  isAccessGranted?: boolean;
+  init(callback?: () => void): void;
+  getLocation(callback: (location: TelegramLocationData | null) => void): void;
+  openSettings?(): void;
+}
+
+export interface TelegramLocationData {
+  latitude: number;
+  longitude: number;
+  horizontal_accuracy?: number | null;
+  altitude?: number | null;
+  course?: number | null;
+  speed?: number | null;
 }
 
 export interface TelegramUserProfile {
@@ -77,6 +98,57 @@ export function requestTelegramContact(): Promise<boolean> {
       resolve(Boolean(ok));
     });
   });
+}
+
+export function canRequestTelegramLocation(): boolean {
+  const app = telegram();
+  if (!app?.LocationManager) return false;
+  return !app.isVersionAtLeast || app.isVersionAtLeast("8.0");
+}
+
+export function requestTelegramLocation(): Promise<TelegramLocationData | null> {
+  const app = telegram();
+  const manager = app?.LocationManager;
+  if (!manager || (app.isVersionAtLeast && !app.isVersionAtLeast("8.0"))) return Promise.resolve(null);
+
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (location: TelegramLocationData | null) => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+      resolve(normalizeLocation(location));
+    };
+    const request = () => {
+      try {
+        manager.getLocation((location) => finish(location));
+      } catch {
+        finish(null);
+      }
+    };
+    const timer = window.setTimeout(() => finish(null), 15000);
+    try {
+      if (manager.isInited) {
+        request();
+      } else {
+        manager.init(request);
+      }
+    } catch {
+      finish(null);
+    }
+  });
+}
+
+function normalizeLocation(location: TelegramLocationData | null | undefined): TelegramLocationData | null {
+  if (!location || !Number.isFinite(location.latitude) || !Number.isFinite(location.longitude)) return null;
+  const normalized: TelegramLocationData = {
+    latitude: location.latitude,
+    longitude: location.longitude,
+  };
+  if (typeof location.horizontal_accuracy === "number" && Number.isFinite(location.horizontal_accuracy)) {
+    normalized.horizontal_accuracy = location.horizontal_accuracy;
+  }
+  return normalized;
 }
 
 export function openTelegramLink(url: string): void {

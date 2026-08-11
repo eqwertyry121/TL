@@ -90,8 +90,13 @@ export interface Api {
   menu(locale: Locale): Promise<{ categories: Category[] }>;
   calculate(token: string, items: Array<{ item_id: string; quantity: number }>): Promise<Calculation>;
   contact(token: string): Promise<VerifiedContact>;
-  createCashLocationChallenge(token: string, input: { calculation_token: string }): Promise<CashLocationChallenge>;
+  createCashLocationChallenge(token: string, input: { calculation_token: string; send_prompt?: boolean }): Promise<CashLocationChallenge>;
   getCashLocationChallenge(token: string, id: string): Promise<CashLocationChallenge>;
+  verifyCashLocationChallenge(
+    token: string,
+    id: string,
+    input: { latitude: number; longitude: number; horizontal_accuracy?: number | null },
+  ): Promise<CashLocationChallenge>;
   createOrder(token: string, input: CreateOrderInput, idempotencyKey: string): Promise<Order>;
   getOrder(token: string, id: string): Promise<Order>;
   listOrders(token: string): Promise<{ orders: Order[] }>;

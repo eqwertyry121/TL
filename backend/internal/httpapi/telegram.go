@@ -24,6 +24,7 @@ type telegramMessage struct {
 	Date           int64                 `json:"date"`
 	From           *telegramUser         `json:"from"`
 	Chat           *telegramChat         `json:"chat"`
+	Text           string                `json:"text"`
 	Contact        *telegramContact      `json:"contact"`
 	Location       *telegramLocation     `json:"location"`
 	ReplyToMessage *telegramReplyMessage `json:"reply_to_message"`
@@ -86,7 +87,11 @@ func (s *Server) createCashLocationChallenge(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	challenge.BotURL = clientBotURL(s.cfg.ClientBotUsername)
-	if challenge.Status == core.CashLocationPending {
+	sendPrompt := true
+	if req.SendPrompt != nil {
+		sendPrompt = *req.SendPrompt
+	}
+	if challenge.Status == core.CashLocationPending && sendPrompt {
 		promptID, err := s.sendLocationPrompt(r.Context(), sess.TelegramUserID)
 		if err != nil {
 			_ = s.store.RejectCashLocationChallenge(r.Context(), sess, challenge.ID, "PROMPT_SEND_FAILED")
@@ -114,6 +119,44 @@ func (s *Server) cashLocationChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	challenge, err := s.store.CashLocationChallenge(r.Context(), mustSession(r), id, s.now())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	challenge.BotURL = clientBotURL(s.cfg.ClientBotUsername)
+	writeJSON(w, http.StatusOK, challenge)
+}
+
+type verifyCashLocationRequest struct {
+	Latitude           *float64 `json:"latitude"`
+	Longitude          *float64 `json:"longitude"`
+	HorizontalAccuracy *float64 `json:"horizontal_accuracy"`
+}
+
+func (s *Server) verifyCashLocationChallenge(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUIDParam(r, "id")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req verifyCashLocationRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if req.Latitude == nil || req.Longitude == nil {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	challenge, err := s.store.VerifyCashLocationForSession(
+		r.Context(),
+		mustSession(r),
+		id,
+		*req.Latitude,
+		*req.Longitude,
+		req.HorizontalAccuracy,
+		s.now(),
+	)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -165,6 +208,11 @@ func (s *Server) clientTelegramWebhook(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
+	if strings.Contains(strings.ToLower(message.Text), "местополож") {
+		_, _ = s.sendLocationPrompt(r.Context(), message.Chat.ID)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -181,10 +229,12 @@ func (s *Server) sendLocationPrompt(ctx context.Context, chatID int64) (int64, e
 				},
 			},
 		},
-		"resize_keyboard":   true,
-		"one_time_keyboard": true,
+		"resize_keyboard":         true,
+		"one_time_keyboard":       false,
+		"is_persistent":           true,
+		"input_field_placeholder": "Нажмите кнопку геолокации",
 	}
-	return s.sendClientBotMessage(ctx, chatID, "Для оплаты наличными отправьте текущее местоположение через кнопку ниже.", replyMarkup)
+	return s.sendClientBotMessage(ctx, chatID, "Нажмите системную кнопку «Отправить моё местоположение» внизу чата. Нужно отправить именно геолокацию, не текст.", replyMarkup)
 }
 
 func (s *Server) sendClientBotMessage(ctx context.Context, chatID int64, text string, replyMarkup any) (int64, error) {

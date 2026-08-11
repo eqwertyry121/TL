@@ -31,7 +31,7 @@ import {
   saveLocale,
   upsertCartLine,
 } from "./storage";
-import { haptic, initialLocale, openTelegramLink, rawInitData, requestTelegramContact, syncBackButton } from "./telegram";
+import { haptic, initialLocale, openTelegramLink, rawInitData, requestTelegramContact, requestTelegramLocation, syncBackButton } from "./telegram";
 import type { Api, AppData, Calculation, CashLocationChallenge, CartLine, CartState, CheckoutDraft, Locale, Route, Session, VerifiedContact } from "./types";
 
 const api = createApi();
@@ -302,10 +302,25 @@ function ClientMiniApp() {
     try {
       const calc = calculation || (await calculate());
       if (!calc) throw new Error("EMPTY_CART");
-      const challenge = await api.createCashLocationChallenge(token, { calculation_token: calc.calculation_token });
+      const challenge = await api.createCashLocationChallenge(token, { calculation_token: calc.calculation_token, send_prompt: false });
       setCashLocation(challenge);
-      if (challenge.status === "PENDING" && challenge.bot_url) {
-        openTelegramLink(challenge.bot_url);
+      if (challenge.status !== "PENDING") return;
+
+      const location = await requestTelegramLocation();
+      if (location) {
+        const next = await api.verifyCashLocationChallenge(token, challenge.id, {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          horizontal_accuracy: location.horizontal_accuracy ?? undefined,
+        });
+        setCashLocation(next);
+        if (next.status !== "PENDING") return;
+      }
+
+      const fallbackChallenge = await api.createCashLocationChallenge(token, { calculation_token: calc.calculation_token, send_prompt: true });
+      setCashLocation(fallbackChallenge);
+      if (fallbackChallenge.status === "PENDING" && fallbackChallenge.bot_url) {
+        openTelegramLink(fallbackChallenge.bot_url);
       }
     } catch (err) {
       setError(errorText(err));
@@ -889,8 +904,8 @@ function Checkout({
               <p>{cashLocationText(cashLocation, cashLocationRadiusMeters)}</p>
             </div>
           </div>
-          <button className="secondary" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
-            {locationLoading ? "Открываем Telegram…" : cashLocation?.status === "VERIFIED" ? "Обновить" : "Подтвердить"}
+          <button className="primary full" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
+            {locationLoading ? "Запрашиваем геолокацию…" : cashLocation?.status === "VERIFIED" ? "Обновить геолокацию" : "📍 Подтвердить геолокацию"}
           </button>
         </div>
       )}
@@ -907,7 +922,7 @@ function cashLocationTitle(challenge: CashLocationChallenge | null): string {
     case "VERIFIED":
       return "Местоположение подтверждено";
     case "PENDING":
-      return "Ожидаем геолокацию в Telegram";
+      return "Ожидаем геолокацию";
     case "REJECTED":
       return "Местоположение не подтверждено";
     case "EXPIRED":
@@ -922,7 +937,7 @@ function cashLocationText(challenge: CashLocationChallenge | null, radiusMeters:
     const distance = typeof challenge.distance_meters === "number" ? ` · ${formatDistance(challenge.distance_meters)} от ресторана` : "";
     return `Для cash всё готово${distance}`;
   }
-  if (challenge?.status === "PENDING") return "Нажмите кнопку в чате с ботом и вернитесь сюда.";
+  if (challenge?.status === "PENDING") return "Разрешите доступ к геолокации в Telegram. Если запрос не появился, откроется чат с ботом — там нужна именно системная geo-кнопка, не текст.";
   if (challenge?.status === "EXPIRED") return "Повторите проверку перед оформлением заказа.";
   if (challenge?.rejection_reason === "OUTSIDE_CASH_AREA") return `Оплата наличными доступна в радиусе ${formatDistance(radiusMeters)} от ресторана.`;
   if (challenge?.rejection_reason === "LOCATION_INACCURATE" || challenge?.rejection_reason === "LOCATION_ACCURACY_MISSING") return "GPS слишком неточный. Повторите рядом с окном или на улице.";

@@ -247,10 +247,16 @@ SMS-подтверждения нет.
 Исключение: для cash-заказа используется одноразовая Telegram-location проверка
 как антифрод перед созданием заказа. Это не карта и не delivery zone:
 
-- frontend не принимает и не отправляет произвольные координаты клиента;
+- frontend не принимает произвольные координаты, не показывает карту и не даёт
+  вручную выбрать точку;
 - клиент нажимает кнопку, backend создаёт короткоживущий challenge;
-- bot запрашивает native Telegram location через `request_location`;
-- backend принимает location только из Telegram webhook от того же user;
+- основной путь: Telegram Mini App запрашивает location через native
+  `WebApp.LocationManager`, затем отправляет координаты backend в рамках
+  проверенной session;
+- запасной путь: bot запрашивает native Telegram location через
+  `request_location`;
+- backend принимает location только от того же Telegram user: либо из
+  авторизованной Mini App session, либо из Telegram webhook;
 - backend считает расстояние до ресторана и сравнивает с радиусом;
 - в PostgreSQL не хранится точная координата клиента — только status проверки,
   distance/accuracy, время и причина отказа;

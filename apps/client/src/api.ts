@@ -35,6 +35,7 @@ function realApi(baseURL: string): Api {
     contact: (token) => get(`${baseURL}/api/v1/contact`, token),
     createCashLocationChallenge: (token, input) => post(`${baseURL}/api/v1/cash-location/challenges`, input, token),
     getCashLocationChallenge: (token, id) => get(`${baseURL}/api/v1/cash-location/challenges/${id}`, token),
+    verifyCashLocationChallenge: (token, id, input) => post(`${baseURL}/api/v1/cash-location/challenges/${id}/telegram-webapp-location`, input, token),
     createOrder: (token, input, idempotencyKey) =>
       post(`${baseURL}/api/v1/orders`, input, token, { "Idempotency-Key": idempotencyKey }),
     getOrder: (token, id) => get(`${baseURL}/api/v1/orders/${id}`, token),
@@ -107,6 +108,9 @@ function demoApi(): Api {
       return demoVerifiedLocationChallenge();
     },
     async getCashLocationChallenge() {
+      return demoVerifiedLocationChallenge();
+    },
+    async verifyCashLocationChallenge() {
       return demoVerifiedLocationChallenge();
     },
     async createOrder(_token, input, idempotencyKey) {
@@ -202,6 +206,7 @@ function unconfiguredApi(): Api {
     contact: fail,
     createCashLocationChallenge: fail,
     getCashLocationChallenge: fail,
+    verifyCashLocationChallenge: fail,
     createOrder: fail,
     getOrder: fail,
     listOrders: fail,

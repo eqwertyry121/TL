@@ -53,7 +53,7 @@ paths:
     post:
       responses:
         "201":
-          description: Creates short-lived cash-location challenge and sends Telegram request_location prompt
+          description: Creates short-lived cash-location challenge. Optional send_prompt=true sends Telegram request_location fallback prompt.
   /cash-location/challenges/{id}:
     get:
       parameters:
@@ -61,6 +61,13 @@ paths:
       responses:
         "200":
           description: Current cash-location challenge state without exact client coordinates
+  /cash-location/challenges/{id}/telegram-webapp-location:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Verifies Telegram Mini App LocationManager coordinates without storing exact client coordinates
   /orders/calculate:
     post:
       responses:
