@@ -258,10 +258,10 @@ SMS-подтверждения нет.
 - frontend не принимает произвольные координаты, не показывает карту и не даёт
   вручную выбрать точку;
 - клиент нажимает кнопку, backend создаёт короткоживущий challenge;
-- основной путь: Telegram Mini App запрашивает location через native
-  `WebApp.LocationManager`, затем отправляет координаты backend в рамках
-  проверенной session;
-- запасной путь: bot запрашивает native Telegram location через
+- основной путь: backend отправляет клиенту в bot native Telegram
+  `request_location` кнопку, а frontend сразу открывает этот bot-chat, чтобы
+  пользователь не искал кнопку вручную;
+- если Telegram скрывает кнопку, команда `/share` повторно показывает
   `request_location`;
 - backend принимает location только от того же Telegram user: либо из
   авторизованной Mini App session, либо из Telegram webhook;

@@ -96,12 +96,11 @@ Do not paste real bot token into docs, screenshots or commits.
 5. Backend stores encrypted phone and `phone_verified_at`.
 6. Client calculates cart.
 7. Frontend creates cash-location challenge at backend.
-8. Frontend requests native location through Telegram Mini App
-   `WebApp.LocationManager`.
-9. Frontend sends the returned coordinates to backend through the authenticated
-   Mini App session. If LocationManager is unavailable or denied, backend sends
-   Telegram `request_location` keyboard as fallback.
-10. Telegram fallback sends native location to client bot webhook.
-11. Backend checks distance to `45.241970, 19.808807` within configured radius.
-12. Backend stores only status/distance/accuracy, not exact client coordinates.
-13. Only then `/orders` can create cash order `NEW`.
+8. Backend sends Telegram `request_location` keyboard to the same user.
+9. Frontend immediately opens the client bot chat so the user sees where to
+   press the location button.
+10. If Telegram hides the keyboard, user can send `/share` to show it again.
+11. Telegram sends native location to client bot webhook.
+12. Backend checks distance to `45.241970, 19.808807` within configured radius.
+13. Backend stores only status/distance/accuracy, not exact client coordinates.
+14. Only then `/orders` can create cash order `NEW`.

@@ -139,9 +139,10 @@ backend отклоняет order.
 
 - frontend создаёт challenge после успешного server calculation;
 - frontend не принимает произвольные latitude/longitude и не показывает карту;
-- основной путь: Telegram Mini App запрашивает native location через
-  `WebApp.LocationManager` и отправляет результат backend в рамках session;
-- fallback: Telegram bot запрашивает native `request_location`;
+- основной путь: backend отправляет в bot native `request_location`, а frontend
+  сразу открывает bot-chat;
+- команда `/share` в bot повторно показывает `request_location`, если Telegram
+  скрыл кнопку;
 - UI polling'ом показывает `PENDING`, `VERIFIED`, `REJECTED` или `EXPIRED`;
 - submit cash-заказа disabled, пока challenge не `VERIFIED`;
 - при смене корзины/calculation старый challenge не используется.
