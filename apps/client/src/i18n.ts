@@ -27,8 +27,7 @@ type Key =
   | "cancelled"
   | "retry"
   | "total"
-  | "subtotal"
-  | "addressWarning";
+  | "subtotal";
 
 const dict: Record<Locale, Record<Key, string>> = {
   ru: {
@@ -59,7 +58,6 @@ const dict: Record<Locale, Record<Key, string>> = {
     retry: "Повторить",
     total: "Итого",
     subtotal: "Блюда",
-    addressWarning: "Проверьте адрес и телефон перед отправкой.",
   },
   sr: {
     closed: "ZATVORENO",
@@ -89,7 +87,6 @@ const dict: Record<Locale, Record<Key, string>> = {
     retry: "Pokušaj ponovo",
     total: "Ukupno",
     subtotal: "Jela",
-    addressWarning: "Proverite adresu i telefon pre slanja.",
   },
   en: {
     closed: "CLOSED",
@@ -119,7 +116,6 @@ const dict: Record<Locale, Record<Key, string>> = {
     retry: "Retry",
     total: "Total",
     subtotal: "Items",
-    addressWarning: "Check address and phone before sending.",
   },
 };
 

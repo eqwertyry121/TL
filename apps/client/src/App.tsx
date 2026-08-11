@@ -940,10 +940,6 @@ function Checkout({
           <textarea value={draft.comment} maxLength={300} onChange={(event) => onDraft({ comment: event.target.value })} />
         </label>
       </div>
-      <div className="notice">
-        <AlertCircle size={18} />
-        <span>{t(locale, "addressWarning")}</span>
-      </div>
       <div className="payment-selector">
         <span>Способ оплаты</span>
         <div>
