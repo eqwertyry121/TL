@@ -107,6 +107,7 @@ export function canRequestTelegramLocation(): boolean {
 }
 
 export function requestTelegramLocation(): Promise<TelegramLocationData | null> {
+  dismissSoftKeyboard();
   const app = telegram();
   const manager = app?.LocationManager;
   if (!manager || (app.isVersionAtLeast && !app.isVersionAtLeast("8.0"))) return Promise.resolve(null);
@@ -152,6 +153,7 @@ function normalizeLocation(location: TelegramLocationData | null | undefined): T
 }
 
 export function openTelegramLink(url: string): void {
+  dismissSoftKeyboard();
   const app = telegram();
   if (app?.openTelegramLink) {
     app.openTelegramLink(url);
@@ -166,4 +168,9 @@ export function haptic(): void {
 
 export function rawInitData(): string {
   return telegram()?.initData || "";
+}
+
+function dismissSoftKeyboard(): void {
+  const active = document.activeElement;
+  if (active instanceof HTMLElement) active.blur();
 }

@@ -208,7 +208,7 @@ func (s *Server) clientTelegramWebhook(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
-	if strings.Contains(strings.ToLower(message.Text), "местополож") {
+	if isShareLocationCommand(message.Text) || strings.Contains(strings.ToLower(message.Text), "местополож") {
 		_, _ = s.sendLocationPrompt(r.Context(), message.Chat.ID)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
@@ -234,7 +234,12 @@ func (s *Server) sendLocationPrompt(ctx context.Context, chatID int64) (int64, e
 		"is_persistent":           true,
 		"input_field_placeholder": "Нажмите кнопку геолокации",
 	}
-	return s.sendClientBotMessage(ctx, chatID, "Нажмите системную кнопку «Отправить моё местоположение» внизу чата. Нужно отправить именно геолокацию, не текст.", replyMarkup)
+	return s.sendClientBotMessage(ctx, chatID, "Нажмите кнопку «Отправить моё местоположение» ниже. Если кнопка не появилась — нажмите или отправьте /share, я покажу её снова. Нужно отправить именно геолокацию-карту, не текст.", replyMarkup)
+}
+
+func isShareLocationCommand(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	return normalized == "/share" || strings.HasPrefix(normalized, "/share@")
 }
 
 func (s *Server) sendClientBotMessage(ctx context.Context, chatID int64, text string, replyMarkup any) (int64, error) {
