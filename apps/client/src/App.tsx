@@ -372,7 +372,7 @@ function ClientMiniApp() {
   if (!data.runtime) {
     return (
       <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={0} header="Tako Lako - Грузинская кухня">
-        <PublicBotLanding error={error} />
+        <PublicBotLanding />
       </Shell>
     );
   }
@@ -453,13 +453,12 @@ function TelegramMainRedirect() {
   return (
     <main className="portal-page">
       <section className="portal-card">
-        <span className="eyebrow">Tako Lako</span>
-        <h1>Открываем меню</h1>
-        <p>Если переход не сработал автоматически, нажмите кнопку ниже.</p>
+        <h1>Грузинская кухня в Telegram</h1>
         <a className="portal-button" href={`/main${window.location.hash || "#/"}`}>
-          Открыть меню
+          Открыть Mini App
           <ChevronRight size={18} />
         </a>
+        <small>Если Telegram не открылся автоматически, найдите бота @takolako_main_bot.</small>
       </section>
     </main>
   );
@@ -476,9 +475,7 @@ function PortalLanding() {
   return (
     <main className="portal-page">
       <section className="portal-card">
-        <span className="eyebrow">Tako Lako</span>
         <h1>Грузинская кухня в Telegram</h1>
-        <p>Открываем Mini App в Telegram. Там можно оформить заказ, поделиться телефоном и подтвердить геолокацию для оплаты наличными.</p>
         <a
           className="portal-button"
           href={clientBotMiniAppURL}
@@ -490,26 +487,18 @@ function PortalLanding() {
           Открыть Mini App
           <ChevronRight size={18} />
         </a>
-        <small>Если Telegram не открылся автоматически, найдите бота @TakoLako_main_bot.</small>
+        <small>Если Telegram не открылся автоматически, найдите бота @takolako_main_bot.</small>
       </section>
     </main>
   );
 }
 
-function PublicBotLanding({ error }: { error?: string }) {
+function PublicBotLanding() {
   return (
     <section className="bot-landing">
-      <span className="eyebrow">Tako Lako</span>
       <h1>Грузинская кухня в Telegram</h1>
-      <p>Откройте Mini App в Telegram, чтобы оформить заказ, поделиться телефоном и подтвердить геолокацию для оплаты наличными.</p>
-      {error && (
-        <div className="notice error compact">
-          <AlertCircle size={18} />
-          <span>{error}</span>
-        </div>
-      )}
-      <TelegramBotButton label="Открыть Mini App в Telegram" />
-      <small>Если Telegram не открылся автоматически, найдите бота @TakoLako_main_bot.</small>
+      <TelegramBotButton label="Открыть Mini App" />
+      <small>Если Telegram не открылся автоматически, найдите бота @takolako_main_bot.</small>
     </section>
   );
 }
