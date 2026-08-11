@@ -140,16 +140,27 @@ function ClientMiniApp() {
   useEffect(() => {
     if (!token || cashLocation?.status !== "PENDING") return;
     let stopped = false;
-    const timer = window.setInterval(() => {
+    const refreshCashLocation = () => {
       api.getCashLocationChallenge(token, cashLocation.id)
         .then((next) => {
           if (!stopped) setCashLocation(next);
         })
         .catch(() => undefined);
-    }, 2000);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "hidden") refreshCashLocation();
+    };
+    refreshCashLocation();
+    const timer = window.setInterval(refreshCashLocation, 2000);
+    window.addEventListener("focus", refreshCashLocation);
+    window.addEventListener("pageshow", refreshCashLocation);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       stopped = true;
       window.clearInterval(timer);
+      window.removeEventListener("focus", refreshCashLocation);
+      window.removeEventListener("pageshow", refreshCashLocation);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [token, cashLocation?.id, cashLocation?.status]);
 

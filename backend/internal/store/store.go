@@ -1081,16 +1081,15 @@ func (s *Store) VerifyCashLocationFromTelegram(ctx context.Context, telegramUser
 
 	var id uuid.UUID
 	var userID uuid.UUID
-	var promptMessageID sql.NullInt64
 	var expiresAt time.Time
 	err = tx.QueryRow(ctx, `
-		SELECT id, user_id, prompt_message_id, expires_at
+		SELECT id, user_id, expires_at
 		FROM cash_location_challenges
 		WHERE telegram_user_id=$1 AND status='PENDING' AND used_at IS NULL
 		ORDER BY created_at DESC
 		LIMIT 1
 		FOR UPDATE
-	`, telegramUserID).Scan(&id, &userID, &promptMessageID, &expiresAt)
+	`, telegramUserID).Scan(&id, &userID, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.CashLocationChallenge{}, core.ErrInvalidInput
 	}
@@ -1109,9 +1108,6 @@ func (s *Store) VerifyCashLocationFromTelegram(ctx context.Context, telegramUser
 			return core.CashLocationChallenge{}, err
 		}
 		return s.cashLocationChallengeByID(ctx, id, userID)
-	}
-	if promptMessageID.Valid && replyToMessageID > 0 && promptMessageID.Int64 != replyToMessageID {
-		return s.rejectCashLocationChallengeTx(ctx, tx, id, userID, "PROMPT_MISMATCH")
 	}
 	return s.verifyCashLocationChallengeTx(ctx, tx, settings, id, userID, expiresAt, latitude, longitude, accuracyMeters, now)
 }
