@@ -31,10 +31,11 @@ import {
   saveLocale,
   upsertCartLine,
 } from "./storage";
-import { haptic, initialLocale, openTelegramLink, requestTelegramContact, syncBackButton } from "./telegram";
+import { haptic, initialLocale, openTelegramLink, rawInitData, requestTelegramContact, syncBackButton } from "./telegram";
 import type { Api, AppData, Calculation, CashLocationChallenge, CartLine, CartState, CheckoutDraft, Locale, Route, Session, VerifiedContact } from "./types";
 
 const api = createApi();
+const clientBotMiniAppURL = "https://t.me/TakoLako_main_bot?startapp";
 
 export function App() {
   const [route, setRoute] = useState<Route>(currentRoute);
@@ -67,6 +68,15 @@ export function App() {
 
   const refresh = useCallback(async () => {
     setError("");
+    if (!data.session && api.mode === "real" && !rawInitData()) {
+      const [runtime, menu] = await Promise.all([
+        api.runtime(),
+        api.menu(locale),
+      ]);
+      setData({ session: null, runtime, categories: menu.categories, orders: [] });
+      setVerifiedContact({ verified: false });
+      return null;
+    }
     const session = data.session || (await api.authenticate(locale));
     const [runtime, menu, orders, contact] = await Promise.all([
       api.runtime(),
@@ -340,6 +350,14 @@ export function App() {
     return <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={0} header="Tako Lako - Грузинская кухня"><div className="state">Загрузка...</div></Shell>;
   }
 
+  if (!data.runtime) {
+    return (
+      <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={0} header="Tako Lako - Грузинская кухня">
+        <PublicBotLanding error={error} />
+      </Shell>
+    );
+  }
+
   const content =
     route.name === "dish" ? (
       <Dish item={itemLookup.get(route.id)} line={cart.lines[route.id]} onSetLine={setLine} locale={locale} />
@@ -390,6 +408,7 @@ export function App() {
           <span>{error}</span>
         </div>
       )}
+      {route.name === "menu" && !data.session && <OpenInTelegramCard />}
       {content}
       {cartQuantity > 0 && route.name !== "checkout" && route.name !== "cart" && (
         <button className="cart-float" onClick={() => navigate({ name: "cart" })}>
@@ -399,6 +418,52 @@ export function App() {
         </button>
       )}
     </Shell>
+  );
+}
+
+function PublicBotLanding({ error }: { error?: string }) {
+  return (
+    <section className="bot-landing">
+      <span className="eyebrow">Tako Lako</span>
+      <h1>Грузинская кухня в Telegram</h1>
+      <p>Откройте Mini App в Telegram, чтобы оформить заказ, поделиться телефоном и подтвердить геолокацию для оплаты наличными.</p>
+      {error && (
+        <div className="notice error compact">
+          <AlertCircle size={18} />
+          <span>{error}</span>
+        </div>
+      )}
+      <TelegramBotButton label="Открыть Mini App в Telegram" />
+      <small>Если Telegram не открылся автоматически, найдите бота @TakoLako_main_bot.</small>
+    </section>
+  );
+}
+
+function OpenInTelegramCard() {
+  return (
+    <section className="telegram-open-card">
+      <div>
+        <strong>Заказ оформляется в Telegram</strong>
+        <p>Так мы безопасно получаем ваш Telegram contact и подтверждаем геолокацию для cash-заказа.</p>
+      </div>
+      <TelegramBotButton label="Открыть бота" compact />
+    </section>
+  );
+}
+
+function TelegramBotButton({ label, compact = false }: { label: string; compact?: boolean }) {
+  return (
+    <a
+      className={compact ? "telegram-button compact" : "telegram-button"}
+      href={clientBotMiniAppURL}
+      onClick={(event) => {
+        event.preventDefault();
+        openTelegramLink(clientBotMiniAppURL);
+      }}
+    >
+      {label}
+      <ChevronRight size={18} />
+    </a>
   );
 }
 
