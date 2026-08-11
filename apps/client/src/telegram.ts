@@ -10,6 +10,7 @@ interface TelegramBackButton {
 
 interface TelegramWebApp {
   initData: string;
+  platform?: string;
   initDataUnsafe?: {
     user?: TelegramUserProfile;
   };
@@ -106,8 +107,21 @@ export function canRequestTelegramLocation(): boolean {
   return !app.isVersionAtLeast || app.isVersionAtLeast("8.0");
 }
 
-export function requestTelegramLocation(): Promise<TelegramLocationData | null> {
+export function shouldRequestLocationInMiniApp(): boolean {
+  if (!hasAnyLocationSource()) return false;
+  const platform = (telegram()?.platform || "").toLowerCase();
+  if (platform === "ios" || platform === "android" || platform === "android_x") return false;
+  return true;
+}
+
+export async function requestTelegramLocation(): Promise<TelegramLocationData | null> {
   dismissSoftKeyboard();
+  const telegramLocation = await requestTelegramLocationManager();
+  if (telegramLocation) return telegramLocation;
+  return requestBrowserLocation();
+}
+
+function requestTelegramLocationManager(): Promise<TelegramLocationData | null> {
   const app = telegram();
   const manager = app?.LocationManager;
   if (!manager || (app.isVersionAtLeast && !app.isVersionAtLeast("8.0"))) return Promise.resolve(null);
@@ -138,6 +152,31 @@ export function requestTelegramLocation(): Promise<TelegramLocationData | null> 
       finish(null);
     }
   });
+}
+
+function requestBrowserLocation(): Promise<TelegramLocationData | null> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve(normalizeLocation({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          horizontal_accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
+        }));
+      },
+      () => resolve(null),
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 30000,
+      },
+    );
+  });
+}
+
+function hasAnyLocationSource(): boolean {
+  return canRequestTelegramLocation() || (typeof navigator !== "undefined" && Boolean(navigator.geolocation));
 }
 
 function normalizeLocation(location: TelegramLocationData | null | undefined): TelegramLocationData | null {

@@ -142,7 +142,10 @@ backend отклоняет order.
 - основной путь: backend отправляет в bot native `request_location`, а frontend
   сразу открывает bot-chat;
 - команда `/share` в bot повторно показывает `request_location`, если Telegram
-  скрыл кнопку;
+  скрыл кнопку; команда не может сама отправить GPS;
+- для Telegram desktop/web frontend пробует запросить геолокацию внутри Mini App
+  через Telegram LocationManager/browser geolocation и отправляет её на backend
+  только в рамках текущего одноразового challenge;
 - UI polling'ом показывает `PENDING`, `VERIFIED`, `REJECTED` или `EXPIRED`;
 - submit cash-заказа disabled, пока challenge не `VERIFIED`;
 - при смене корзины/calculation старый challenge не используется.

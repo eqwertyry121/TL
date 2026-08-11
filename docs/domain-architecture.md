@@ -100,7 +100,13 @@ Do not paste real bot token into docs, screenshots or commits.
 9. Frontend immediately opens the client bot chat so the user sees where to
    press the location button.
 10. If Telegram hides the keyboard, user can send `/share` to show it again.
-11. Telegram sends native location to client bot webhook.
-12. Backend checks distance to `45.241970, 19.808807` within configured radius.
-13. Backend stores only status/distance/accuracy, not exact client coordinates.
-14. Only then `/orders` can create cash order `NEW`.
+    `/share` does not send GPS by itself.
+11. On Telegram desktop/web, where the bot keyboard may send plain text instead
+    of a location object, frontend asks for geolocation inside Mini App via
+    Telegram LocationManager/browser geolocation and posts it to the challenge
+    endpoint.
+12. Telegram sends native location to client bot webhook, or Mini App sends the
+    approved geolocation to the session-protected endpoint.
+13. Backend checks distance to `45.241970, 19.808807` within configured radius.
+14. Backend stores only status/distance/accuracy, not exact client coordinates.
+15. Only then `/orders` can create cash order `NEW`.

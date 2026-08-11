@@ -35,7 +35,16 @@ import {
   saveLocale,
   upsertCartLine,
 } from "./storage";
-import { haptic, initialLocale, openTelegramLink, rawInitData, requestTelegramContact, syncBackButton } from "./telegram";
+import {
+  haptic,
+  initialLocale,
+  openTelegramLink,
+  rawInitData,
+  requestTelegramContact,
+  requestTelegramLocation,
+  shouldRequestLocationInMiniApp,
+  syncBackButton,
+} from "./telegram";
 import type { Api, AppData, Calculation, CashLocationChallenge, CartLine, CartState, CheckoutDraft, Locale, Route, Session, VerifiedContact } from "./types";
 
 const api = createApi();
@@ -341,12 +350,41 @@ function ClientMiniApp() {
     if (!token || locationLoading) return;
     setLocationLoading(true);
     setError("");
+    const inAppLocation = shouldRequestLocationInMiniApp();
+    const inAppLocationRequest = inAppLocation ? requestTelegramLocation() : null;
     try {
       const calc = calculation || (await calculate());
       if (!calc) throw new Error("EMPTY_CART");
-      const challenge = await api.createCashLocationChallenge(token, { calculation_token: calc.calculation_token, send_prompt: true });
+      const challenge = await api.createCashLocationChallenge(token, {
+        calculation_token: calc.calculation_token,
+        send_prompt: !inAppLocation,
+      });
       setCashLocation(challenge);
-      if (challenge.status === "PENDING" && challenge.bot_url) {
+      if (challenge.status !== "PENDING") return;
+
+      if (inAppLocationRequest) {
+        const location = await inAppLocationRequest;
+        if (location) {
+          const verified = await api.verifyCashLocationChallenge(token, challenge.id, {
+            latitude: location.latitude,
+            longitude: location.longitude,
+            horizontal_accuracy: location.horizontal_accuracy ?? null,
+          });
+          setCashLocation(verified);
+          return;
+        }
+        const promptedChallenge = await api.createCashLocationChallenge(token, {
+          calculation_token: calc.calculation_token,
+          send_prompt: true,
+        });
+        setCashLocation(promptedChallenge);
+        if (promptedChallenge.status === "PENDING" && promptedChallenge.bot_url) {
+          openTelegramLink(promptedChallenge.bot_url);
+        }
+        return;
+      }
+
+      if (challenge.bot_url) {
         openTelegramLink(challenge.bot_url);
       }
     } catch (err) {
@@ -933,7 +971,7 @@ function Checkout({
             </div>
           </div>
           <button className="primary full" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
-            {locationLoading ? "Открываем бота…" : cashLocation?.status === "VERIFIED" ? "Обновить геолокацию" : "📍 Подтвердить геолокацию"}
+            {locationLoading ? "Проверяем геолокацию…" : cashLocation?.status === "VERIFIED" ? "Обновить геолокацию" : "📍 Подтвердить геолокацию"}
           </button>
         </div>
       )}
@@ -965,7 +1003,7 @@ function cashLocationText(challenge: CashLocationChallenge | null, radiusMeters:
     const distance = typeof challenge.distance_meters === "number" ? ` · ${formatDistance(challenge.distance_meters)} от ресторана` : "";
     return `Для cash всё готово${distance}`;
   }
-  if (challenge?.status === "PENDING") return "Я открыл чат с ботом. Нажмите там кнопку «Отправить моё местоположение». Если кнопки нет — отправьте /share.";
+  if (challenge?.status === "PENDING") return "Если открылся бот — нажмите там кнопку «Отправить моё местоположение». /share только показывает кнопку заново. На компьютере вернитесь в Mini App и нажмите «Подтвердить геолокацию» здесь.";
   if (challenge?.status === "EXPIRED") return "Повторите проверку перед оформлением заказа.";
   if (challenge?.rejection_reason === "OUTSIDE_CASH_AREA") return `Оплата наличными доступна в радиусе ${formatDistance(radiusMeters)} от ресторана.`;
   if (challenge?.rejection_reason === "LOCATION_INACCURATE" || challenge?.rejection_reason === "LOCATION_ACCURACY_MISSING") return "GPS слишком неточный. Повторите рядом с окном или на улице.";

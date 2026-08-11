@@ -262,7 +262,11 @@ SMS-подтверждения нет.
   `request_location` кнопку, а frontend сразу открывает этот bot-chat, чтобы
   пользователь не искал кнопку вручную;
 - если Telegram скрывает кнопку, команда `/share` повторно показывает
-  `request_location`;
+  `request_location`; команда не может сама отправить GPS за пользователя;
+- на desktop/web Telegram, где bot-кнопка может отправляться как обычный текст,
+  frontend запрашивает геолокацию прямо внутри Mini App через Telegram
+  LocationManager/browser geolocation и отправляет результат на backend для той
+  же одноразовой проверки;
 - backend принимает location только от того же Telegram user: либо из
   авторизованной Mini App session, либо из Telegram webhook;
 - backend считает расстояние до ресторана и сравнивает с радиусом;

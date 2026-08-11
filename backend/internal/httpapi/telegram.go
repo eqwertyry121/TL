@@ -234,7 +234,7 @@ func (s *Server) sendLocationPrompt(ctx context.Context, chatID int64) (int64, e
 		"is_persistent":           true,
 		"input_field_placeholder": "Нажмите кнопку геолокации",
 	}
-	return s.sendClientBotMessage(ctx, chatID, "Нажмите кнопку «Отправить моё местоположение» ниже. Если кнопка не появилась — нажмите или отправьте /share, я покажу её снова. Нужно отправить именно геолокацию-карту, не текст.", replyMarkup)
+	return s.sendClientBotMessage(ctx, chatID, "Нажмите кнопку «Отправить моё местоположение» ниже. /share только показывает кнопку заново. Если с компьютера отправляется текст — вернитесь в Mini App и подтвердите геолокацию там либо откройте заказ на телефоне. Нужно отправить именно геолокацию-карту, не текст.", replyMarkup)
 }
 
 func isShareLocationCommand(text string) bool {
