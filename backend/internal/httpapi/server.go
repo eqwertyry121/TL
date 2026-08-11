@@ -222,6 +222,7 @@ func (s *Server) telegramAuth(w http.ResponseWriter, r *http.Request) {
 		Audience core.Audience `json:"audience"`
 		Role     core.Role     `json:"role"`
 		InitData string        `json:"init_data"`
+		Locale   string        `json:"locale,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, err)

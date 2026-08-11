@@ -21,12 +21,11 @@ export function createApi(): Api {
 function realApi(baseURL: string): Api {
   return {
     mode: "real",
-    async authenticate(locale) {
+    async authenticate(_locale) {
       const response = await post(`${baseURL}/api/v1/auth/telegram`, {
         audience: "client",
         role: "CLIENT",
         init_data: rawInitData(),
-        locale,
       });
       return response.session;
     },
