@@ -68,19 +68,30 @@ export function App() {
 
   const refresh = useCallback(async () => {
     setError("");
+    const [runtime, menu] = await Promise.all([
+      api.runtime(),
+      api.menu(locale),
+    ]);
+
     if (!data.session && api.mode === "real" && !rawInitData()) {
-      const [runtime, menu] = await Promise.all([
-        api.runtime(),
-        api.menu(locale),
-      ]);
       setData({ session: null, runtime, categories: menu.categories, orders: [] });
       setVerifiedContact({ verified: false });
       return null;
     }
-    const session = data.session || (await api.authenticate(locale));
-    const [runtime, menu, orders, contact] = await Promise.all([
-      api.runtime(),
-      api.menu(locale),
+
+    let session = data.session;
+    if (!session) {
+      try {
+        session = await api.authenticate(locale);
+      } catch (err) {
+        setData({ session: null, runtime, categories: menu.categories, orders: [] });
+        setVerifiedContact({ verified: false });
+        setError(errorText(err));
+        return null;
+      }
+    }
+
+    const [orders, contact] = await Promise.all([
       api.listOrders(session.token).catch(() => ({ orders: [] })),
       api.contact(session.token).catch(() => ({ verified: false })),
     ]);
