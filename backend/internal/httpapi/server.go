@@ -48,6 +48,7 @@ func (s *Server) Routes() http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	r.Use(s.withCORS)
 	r.Get("/health", s.health)
 	if s.cfg.MediaDir != "" {
 		fileServer := http.StripPrefix("/media/", http.FileServer(http.Dir(s.cfg.MediaDir)))
@@ -61,10 +62,14 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/menu", s.menu)
 		r.Post("/auth/telegram", s.telegramAuth)
 		r.Post("/dev/session", s.devSession)
+		r.Post("/telegram/client/webhook", s.clientTelegramWebhook)
 
 		r.Group(func(r chi.Router) {
 			r.Use(s.withSession)
 			r.Get("/me", s.me)
+			r.Get("/contact", s.contact)
+			r.Post("/cash-location/challenges", s.createCashLocationChallenge)
+			r.Get("/cash-location/challenges/{id}", s.cashLocationChallenge)
 			r.Post("/orders/calculate", s.calculate)
 			r.Post("/orders", s.createOrder)
 			r.Get("/orders", s.clientOrders)
@@ -138,17 +143,19 @@ func (s *Server) runtime(w http.ResponseWriter, r *http.Request) {
 		payments = append(payments, "crypto")
 	}
 	writeJSON(w, http.StatusOK, core.Runtime{
-		ServerTime:           now,
-		Timezone:             settings.Timezone,
-		AcceptingOrders:      accept.OK,
-		Reason:               accept.Reason,
-		NextOpening:          accept.NextOpening,
-		DayOffBanner:         settings.DayOffBanner,
-		FlatDeliveryFeeMinor: settings.FlatDeliveryFeeMinor,
-		Currency:             settings.Currency,
-		EnabledPayments:      payments,
-		SupportedLocales:     []string{"ru", "sr", "en"},
-		SupportText:          settings.SupportText,
+		ServerTime:               now,
+		Timezone:                 settings.Timezone,
+		AcceptingOrders:          accept.OK,
+		Reason:                   accept.Reason,
+		NextOpening:              accept.NextOpening,
+		DayOffBanner:             settings.DayOffBanner,
+		FlatDeliveryFeeMinor:     settings.FlatDeliveryFeeMinor,
+		Currency:                 settings.Currency,
+		EnabledPayments:          payments,
+		SupportedLocales:         []string{"ru", "sr", "en"},
+		SupportText:              settings.SupportText,
+		CashLocationRequired:     settings.CashLocationRequired,
+		CashLocationRadiusMeters: settings.CashLocationRadiusMeters,
 	})
 }
 
@@ -173,6 +180,7 @@ func (s *Server) devSession(w http.ResponseWriter, r *http.Request) {
 		FirstName      string    `json:"first_name"`
 		PhotoURL       string    `json:"photo_url"`
 		LanguageCode   string    `json:"language_code"`
+		Phone          string    `json:"phone"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, err)
@@ -199,6 +207,12 @@ func (s *Server) devSession(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, err)
 		return
+	}
+	if req.Role == core.RoleClient && strings.TrimSpace(req.Phone) != "" {
+		if err := s.store.VerifyTelegramContact(r.Context(), req.TelegramUserID, req.TelegramUserID, req.Phone); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"session": session, "roles": roles})
 }
@@ -956,6 +970,35 @@ func (s *Server) withSession(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) withCORS(next http.Handler) http.Handler {
+	allowed := make(map[string]bool, len(s.cfg.AllowedOrigins))
+	for _, origin := range s.cfg.AllowedOrigins {
+		origin = strings.TrimRight(strings.TrimSpace(origin), "/")
+		if origin != "" {
+			allowed[origin] = true
+		}
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/")
+		if origin != "" && allowed[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization,Content-Type,Idempotency-Key")
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.Header().Add("Vary", "Origin")
+		}
+		if r.Method == http.MethodOptions {
+			if origin != "" && !allowed[origin] {
+				writeError(w, core.ErrForbidden)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func mustSession(r *http.Request) core.Session {
 	return r.Context().Value(sessionKey).(core.Session)
 }
@@ -1044,6 +1087,14 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code, messageKey = http.StatusConflict, "PAYMENT_NOT_CONFIRMED", "payment_not_confirmed"
 	case errors.Is(err, core.ErrTermsRequired):
 		status, code, messageKey = http.StatusBadRequest, "TERMS_REQUIRED", "terms_required"
+	case errors.Is(err, core.ErrContactNotVerified):
+		status, code, messageKey = http.StatusConflict, "CONTACT_NOT_VERIFIED", "contact_not_verified"
+	case errors.Is(err, core.ErrCashLocationRequired):
+		status, code, messageKey = http.StatusConflict, "CASH_LOCATION_REQUIRED", "cash_location_required"
+	case errors.Is(err, core.ErrCashLocationOutside):
+		status, code, messageKey = http.StatusConflict, "CASH_LOCATION_OUTSIDE", "cash_location_outside"
+	case errors.Is(err, core.ErrCashLocationInaccurate):
+		status, code, messageKey = http.StatusConflict, "CASH_LOCATION_INACCURATE", "cash_location_inaccurate"
 	case errors.Is(err, tgauth.ErrInvalidInitData):
 		status, code, messageKey = http.StatusUnauthorized, "AUTH_INVALID", "auth_invalid"
 	}

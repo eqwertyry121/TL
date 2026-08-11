@@ -25,6 +25,8 @@ type Config struct {
 	ClientBotToken           string
 	StaffBotUsername         string
 	StaffBotToken            string
+	TelegramWebhookSecret    string
+	AllowedOrigins           []string
 	BootstrapOwnerTelegramID int64
 	LocalRoleSwitcherEnabled bool
 	EncryptionKey            []byte
@@ -49,6 +51,8 @@ func Load() (Config, error) {
 		ClientBotToken:           os.Getenv("TELEGRAM_CLIENT_BOT_TOKEN"),
 		StaffBotUsername:         os.Getenv("TELEGRAM_STAFF_BOT_USERNAME"),
 		StaffBotToken:            os.Getenv("TELEGRAM_STAFF_BOT_TOKEN"),
+		TelegramWebhookSecret:    os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
+		AllowedOrigins:           splitCSV(get("APP_ALLOWED_ORIGINS", defaultAllowedOrigins())),
 		BootstrapOwnerTelegramID: mustInt64(get("BOOTSTRAP_OWNER_TELEGRAM_ID", "1048084234")),
 		LocalRoleSwitcherEnabled: getBool("LOCAL_ROLE_SWITCHER_ENABLED", true),
 		SessionTTL:               getDuration("SESSION_TTL", 24*time.Hour),
@@ -68,6 +72,9 @@ func Load() (Config, error) {
 		}
 		if cfg.StaffBotToken == "" {
 			return Config{}, fmt.Errorf("%w: missing staff bot token", core.ErrProductionUnsafeValue)
+		}
+		if cfg.TelegramWebhookSecret == "" {
+			return Config{}, fmt.Errorf("%w: missing Telegram webhook secret", core.ErrProductionUnsafeValue)
 		}
 	}
 	return cfg, nil
@@ -97,6 +104,36 @@ func getDuration(key string, fallback time.Duration) time.Duration {
 		return d
 	}
 	return fallback
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		trimmed := strings.TrimRight(strings.TrimSpace(part), "/")
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func defaultAllowedOrigins() string {
+	return strings.Join([]string{
+		"https://takolako.site",
+		"https://www.takolako.site",
+		"http://127.0.0.1:5173",
+		"http://127.0.0.1:5174",
+		"http://127.0.0.1:5175",
+		"http://127.0.0.1:5176",
+		"http://localhost:5173",
+		"http://localhost:5174",
+		"http://localhost:5175",
+		"http://localhost:5176",
+	}, ",")
 }
 
 func mustInt64(value string) int64 {

@@ -1,7 +1,7 @@
 import type { AdminCategory, AdminMenuItem, Category, Order, Runtime, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
 import { demoCategories, demoRuntime } from "./fixtures";
 import { rawInitData, telegramUser } from "./telegram";
-import type { Api, Calculation, CreateOrderInput, Locale, Session } from "./types";
+import type { Api, Calculation, CashLocationChallenge, CreateOrderInput, Locale, Session } from "./types";
 
 const demoOrdersKey = "tk-client-demo-orders-v1";
 const demoCalculationsKey = "tk-client-demo-calculations-v1";
@@ -33,6 +33,9 @@ function realApi(baseURL: string): Api {
     runtime: () => get(`${baseURL}/api/v1/runtime`),
     menu: (locale) => get(`${baseURL}/api/v1/menu?locale=${locale}`),
     calculate: (token, items) => post(`${baseURL}/api/v1/orders/calculate`, { items }, token),
+    contact: (token) => get(`${baseURL}/api/v1/contact`, token),
+    createCashLocationChallenge: (token, input) => post(`${baseURL}/api/v1/cash-location/challenges`, input, token),
+    getCashLocationChallenge: (token, id) => get(`${baseURL}/api/v1/cash-location/challenges/${id}`, token),
     createOrder: (token, input, idempotencyKey) =>
       post(`${baseURL}/api/v1/orders`, input, token, { "Idempotency-Key": idempotencyKey }),
     getOrder: (token, id) => get(`${baseURL}/api/v1/orders/${id}`, token),
@@ -92,6 +95,21 @@ function demoApi(): Api {
       saveDemoCalculation(calculation);
       return calculation;
     },
+    async contact() {
+      return {
+        verified: true,
+        phone: "+381600000000",
+        masked: "*******0000",
+        verified_at: new Date().toISOString(),
+      };
+    },
+    async createCashLocationChallenge(_token, input) {
+      loadDemoCalculation(input.calculation_token);
+      return demoVerifiedLocationChallenge();
+    },
+    async getCashLocationChallenge() {
+      return demoVerifiedLocationChallenge();
+    },
     async createOrder(_token, input, idempotencyKey) {
       const runtime = loadDemoRuntime();
       if (!runtime.accepting_orders) {
@@ -99,6 +117,9 @@ function demoApi(): Api {
       }
       if (!input.phone.trim() || !input.address.trim()) {
         throw apiError("INVALID_INPUT");
+      }
+      if (input.payment_method === "cash" && !input.cash_location_challenge_id) {
+        throw apiError("CASH_LOCATION_REQUIRED");
       }
       const orders = loadDemoOrders();
       const existing = orders.find((order) => (order as DemoOrder).__key === idempotencyKey);
@@ -157,6 +178,18 @@ function demoTelegramProfile(): { telegram_user_id: number; username: string; fi
   };
 }
 
+function demoVerifiedLocationChallenge(): CashLocationChallenge {
+  return {
+    id: crypto.randomUUID(),
+    status: "VERIFIED",
+    distance_meters: 1200,
+    accuracy_meters: 25,
+    expires_at: new Date(Date.now() + 3 * 60 * 1000).toISOString(),
+    verified_at: new Date().toISOString(),
+    dev_bypass: true,
+  };
+}
+
 function unconfiguredApi(): Api {
   const fail = async () => {
     throw apiError("SERVER_UNAVAILABLE");
@@ -167,6 +200,9 @@ function unconfiguredApi(): Api {
     runtime: fail,
     menu: fail,
     calculate: fail,
+    contact: fail,
+    createCashLocationChallenge: fail,
+    getCashLocationChallenge: fail,
     createOrder: fail,
     getOrder: fail,
     listOrders: fail,
@@ -218,18 +254,39 @@ function loadDemoRuntime(): Runtime {
       ...(settings.cash_enabled ? ["cash" as const] : []),
       ...(settings.crypto_enabled ? ["crypto" as const] : []),
     ],
+    cash_location_required: settings.cash_location_required,
+    cash_location_radius_meters: settings.cash_location_radius_meters,
   };
 }
 
 function loadDemoSettings(): Settings {
   const settings = loadJSON<Settings>(demoSettingsKey, seedDemoSettings());
+  const normalized: Settings = {
+    ...settings,
+    cash_location_required: settings.cash_location_required ?? true,
+    restaurant_latitude: settings.restaurant_latitude ?? 45.24197,
+    restaurant_longitude: settings.restaurant_longitude ?? 19.808807,
+    cash_location_radius_meters: settings.cash_location_radius_meters || 12000,
+    cash_location_ttl_seconds: settings.cash_location_ttl_seconds || 180,
+    cash_location_max_accuracy_meters: settings.cash_location_max_accuracy_meters || 200,
+  };
   if (!localStorage.getItem(demoCryptoTestMigrationKey)) {
-    const next = { ...settings, crypto_enabled: true };
+    const next = { ...normalized, crypto_enabled: true };
     localStorage.setItem(demoSettingsKey, JSON.stringify(next));
     localStorage.setItem(demoCryptoTestMigrationKey, "1");
     return next;
   }
-  return settings;
+  if (
+    normalized.cash_location_required !== settings.cash_location_required ||
+    normalized.restaurant_latitude !== settings.restaurant_latitude ||
+    normalized.restaurant_longitude !== settings.restaurant_longitude ||
+    normalized.cash_location_radius_meters !== settings.cash_location_radius_meters ||
+    normalized.cash_location_ttl_seconds !== settings.cash_location_ttl_seconds ||
+    normalized.cash_location_max_accuracy_meters !== settings.cash_location_max_accuracy_meters
+  ) {
+    localStorage.setItem(demoSettingsKey, JSON.stringify(normalized));
+  }
+  return normalized;
 }
 
 function demoAcceptingState(settings: Settings): { ok: boolean; reason: string; nextOpening?: string } {
@@ -300,6 +357,12 @@ function seedDemoSettings(): Settings {
     cash_enabled: true,
     card_enabled: false,
     crypto_enabled: true,
+    cash_location_required: true,
+    restaurant_latitude: 45.24197,
+    restaurant_longitude: 19.808807,
+    cash_location_radius_meters: 12000,
+    cash_location_ttl_seconds: 180,
+    cash_location_max_accuracy_meters: 200,
     version: 1,
     schedule: defaultSchedule(),
   };

@@ -10,12 +10,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/eqwertyry121/TL/backend/internal/core"
 	cryptobox "github.com/eqwertyry121/TL/backend/internal/crypto"
+	"github.com/eqwertyry121/TL/backend/internal/geo"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -28,13 +30,14 @@ type Store struct {
 }
 
 type CreateOrderInput struct {
-	CalculationToken string             `json:"calculation_token"`
-	Phone            string             `json:"phone"`
-	Address          string             `json:"address"`
-	Comment          string             `json:"comment"`
-	PaymentMethod    core.PaymentMethod `json:"payment_method"`
-	TermsAccepted    bool               `json:"terms_accepted"`
-	Locale           string             `json:"locale"`
+	CalculationToken        string             `json:"calculation_token"`
+	CashLocationChallengeID string             `json:"cash_location_challenge_id"`
+	Phone                   string             `json:"phone"`
+	Address                 string             `json:"address"`
+	Comment                 string             `json:"comment"`
+	PaymentMethod           core.PaymentMethod `json:"payment_method"`
+	TermsAccepted           bool               `json:"terms_accepted"`
+	Locale                  string             `json:"locale"`
 }
 
 type UpsertCategoryInput struct {
@@ -67,16 +70,26 @@ type UpsertMenuItemInput struct {
 }
 
 type UpdateSettingsInput struct {
-	FlatDeliveryFeeMinor int    `json:"flat_delivery_fee_minor"`
-	SupportText          string `json:"support_text"`
-	SupportPhone         string `json:"support_phone"`
-	TermsURL             string `json:"terms_url"`
-	MaxItemQuantity      int    `json:"max_item_quantity"`
-	MaxCommentLength     int    `json:"max_comment_length"`
-	CashEnabled          bool   `json:"cash_enabled"`
-	CardEnabled          bool   `json:"card_enabled"`
-	CryptoEnabled        bool   `json:"crypto_enabled"`
-	Version              int    `json:"version"`
+	FlatDeliveryFeeMinor          int     `json:"flat_delivery_fee_minor"`
+	SupportText                   string  `json:"support_text"`
+	SupportPhone                  string  `json:"support_phone"`
+	TermsURL                      string  `json:"terms_url"`
+	MaxItemQuantity               int     `json:"max_item_quantity"`
+	MaxCommentLength              int     `json:"max_comment_length"`
+	CashEnabled                   bool    `json:"cash_enabled"`
+	CardEnabled                   bool    `json:"card_enabled"`
+	CryptoEnabled                 bool    `json:"crypto_enabled"`
+	CashLocationRequired          bool    `json:"cash_location_required"`
+	RestaurantLatitude            float64 `json:"restaurant_latitude"`
+	RestaurantLongitude           float64 `json:"restaurant_longitude"`
+	CashLocationRadiusMeters      int     `json:"cash_location_radius_meters"`
+	CashLocationTTLSeconds        int     `json:"cash_location_ttl_seconds"`
+	CashLocationMaxAccuracyMeters int     `json:"cash_location_max_accuracy_meters"`
+	Version                       int     `json:"version"`
+}
+
+type CreateCashLocationChallengeInput struct {
+	CalculationToken string `json:"calculation_token"`
 }
 
 type AdminOrderFilter struct {
@@ -235,7 +248,9 @@ func (s *Store) Settings(ctx context.Context) (core.Settings, error) {
 	err := s.pool.QueryRow(ctx, `
 		SELECT timezone, currency, manual_day_off, day_off_banner, flat_delivery_fee_minor,
 			support_text, support_phone, terms_url, max_item_quantity, max_comment_length,
-			cash_enabled, card_enabled, crypto_enabled, version
+			cash_enabled, card_enabled, crypto_enabled, cash_location_required, restaurant_latitude,
+			restaurant_longitude, cash_location_radius_meters, cash_location_ttl_seconds,
+			cash_location_max_accuracy_meters, version
 		FROM app_settings WHERE id=true
 	`).Scan(
 		&settings.Timezone,
@@ -251,6 +266,12 @@ func (s *Store) Settings(ctx context.Context) (core.Settings, error) {
 		&settings.CashEnabled,
 		&settings.CardEnabled,
 		&settings.CryptoEnabled,
+		&settings.CashLocationRequired,
+		&settings.RestaurantLatitude,
+		&settings.RestaurantLongitude,
+		&settings.CashLocationRadiusMeters,
+		&settings.CashLocationTTLSeconds,
+		&settings.CashLocationMaxAccuracyMeters,
 		&settings.Version,
 	)
 	if err != nil {
@@ -315,7 +336,26 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 		return core.Settings{}, core.ErrForbidden
 	}
 	input.FlatDeliveryFeeMinor = 0
+	if input.CashLocationRadiusMeters == 0 {
+		input.CashLocationRadiusMeters = 12000
+	}
+	if input.CashLocationTTLSeconds == 0 {
+		input.CashLocationTTLSeconds = 180
+	}
+	if input.CashLocationMaxAccuracyMeters == 0 {
+		input.CashLocationMaxAccuracyMeters = 200
+	}
 	if input.FlatDeliveryFeeMinor < 0 || input.MaxItemQuantity <= 0 || input.MaxCommentLength <= 0 || !input.CashEnabled {
+		return core.Settings{}, core.ErrInvalidInput
+	}
+	if input.CashLocationRadiusMeters <= 0 || input.CashLocationTTLSeconds < 30 || input.CashLocationTTLSeconds > 900 ||
+		input.CashLocationMaxAccuracyMeters < 10 || input.CashLocationMaxAccuracyMeters > 1500 {
+		return core.Settings{}, core.ErrInvalidInput
+	}
+	if !geo.ValidCoordinates(input.RestaurantLatitude, input.RestaurantLongitude) {
+		return core.Settings{}, core.ErrInvalidInput
+	}
+	if input.CashLocationRequired && input.RestaurantLatitude == 0 && input.RestaurantLongitude == 0 {
 		return core.Settings{}, core.ErrInvalidInput
 	}
 	if input.CardEnabled || input.CryptoEnabled {
@@ -329,10 +369,14 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 		UPDATE app_settings
 		SET flat_delivery_fee_minor=$1, support_text=$2, support_phone=$3, terms_url=$4,
 			max_item_quantity=$5, max_comment_length=$6, cash_enabled=$7, card_enabled=false,
-			crypto_enabled=false, version=version+1, updated_at=now()
-		WHERE id=true AND version=$8
+			crypto_enabled=false, cash_location_required=$8, restaurant_latitude=$9, restaurant_longitude=$10,
+			cash_location_radius_meters=$11, cash_location_ttl_seconds=$12,
+			cash_location_max_accuracy_meters=$13, version=version+1, updated_at=now()
+		WHERE id=true AND version=$14
 	`, input.FlatDeliveryFeeMinor, safe(input.SupportText), safe(input.SupportPhone), safe(input.TermsURL),
-		input.MaxItemQuantity, input.MaxCommentLength, input.CashEnabled, input.Version)
+		input.MaxItemQuantity, input.MaxCommentLength, input.CashEnabled, input.CashLocationRequired,
+		input.RestaurantLatitude, input.RestaurantLongitude, input.CashLocationRadiusMeters,
+		input.CashLocationTTLSeconds, input.CashLocationMaxAccuracyMeters, input.Version)
 	if err != nil {
 		return core.Settings{}, err
 	}
@@ -857,6 +901,256 @@ func (s *Store) Calculate(ctx context.Context, sess core.Session, input []core.C
 	return calc, nil
 }
 
+func (s *Store) VerifiedContact(ctx context.Context, sess core.Session) (core.VerifiedContact, error) {
+	if sess.ActiveRole != core.RoleClient {
+		return core.VerifiedContact{}, core.ErrForbidden
+	}
+	var phoneCipher string
+	var verifiedAt sql.NullTime
+	err := s.pool.QueryRow(ctx, `
+		SELECT phone_ciphertext, phone_verified_at
+		FROM users
+		WHERE id=$1
+	`, sess.UserID).Scan(&phoneCipher, &verifiedAt)
+	if err != nil {
+		return core.VerifiedContact{}, err
+	}
+	if !verifiedAt.Valid || strings.TrimSpace(phoneCipher) == "" {
+		return core.VerifiedContact{Verified: false}, nil
+	}
+	phone, err := s.box.Decrypt(phoneCipher)
+	if err != nil {
+		return core.VerifiedContact{}, err
+	}
+	return core.VerifiedContact{
+		Verified:   true,
+		Phone:      phone,
+		Masked:     maskPhone(phone),
+		VerifiedAt: &verifiedAt.Time,
+	}, nil
+}
+
+func (s *Store) VerifyTelegramContact(ctx context.Context, telegramUserID, contactUserID int64, phone string) error {
+	phone = safe(phone)
+	if telegramUserID <= 0 || telegramUserID != contactUserID || phone == "" {
+		return core.ErrInvalidInput
+	}
+	phoneCipher, err := s.box.Encrypt(phone)
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO users (telegram_user_id, phone_ciphertext, phone_hash, phone_verified_at)
+		VALUES ($1, $2, $3, now())
+		ON CONFLICT (telegram_user_id)
+		DO UPDATE SET phone_ciphertext=EXCLUDED.phone_ciphertext, phone_hash=EXCLUDED.phone_hash,
+			phone_verified_at=now(), updated_at=now()
+	`, telegramUserID, phoneCipher, hashPII(phone))
+	return err
+}
+
+func (s *Store) CreateCashLocationChallenge(ctx context.Context, sess core.Session, input CreateCashLocationChallengeInput, now time.Time, devBypass bool) (core.CashLocationChallenge, error) {
+	if sess.ActiveRole != core.RoleClient {
+		return core.CashLocationChallenge{}, core.ErrForbidden
+	}
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	if !settings.CashEnabled {
+		return core.CashLocationChallenge{}, core.ErrPaymentNotConfirmed
+	}
+	tokenHash := hashString(input.CalculationToken)
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM calculation_tokens
+			WHERE token_hash=$1 AND user_id=$2 AND used_at IS NULL AND expires_at > now()
+		)
+	`, tokenHash, sess.UserID).Scan(&exists); err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	if !exists {
+		return core.CashLocationChallenge{}, core.ErrCalculationExpired
+	}
+	if settings.CashLocationRequired && !devBypass && !cashLocationConfigured(settings) {
+		return core.CashLocationChallenge{}, core.ErrInvalidInput
+	}
+	ttl := cashLocationTTL(settings)
+	expiresAt := now.UTC().Add(ttl)
+	status := core.CashLocationPending
+	var verifiedAt any
+	var distance any
+	var accuracy any
+	if devBypass {
+		status = core.CashLocationVerified
+		verifiedAt = now.UTC()
+		distance = 0
+		accuracy = 0
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	defer rollback(ctx, tx)
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE cash_location_challenges
+		SET status='EXPIRED', updated_at=now()
+		WHERE user_id=$1 AND status IN ('PENDING', 'VERIFIED') AND used_at IS NULL
+	`, sess.UserID); err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	var id uuid.UUID
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO cash_location_challenges (
+			user_id, telegram_user_id, calculation_token_hash, status, distance_meters,
+			accuracy_meters, dev_bypass, verified_at, expires_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING id
+	`, sess.UserID, sess.TelegramUserID, tokenHash, string(status), distance, accuracy, devBypass, verifiedAt, expiresAt).Scan(&id); err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	return s.CashLocationChallenge(ctx, sess, id, now)
+}
+
+func (s *Store) AttachCashLocationPrompt(ctx context.Context, sess core.Session, challengeID uuid.UUID, promptMessageID int64) error {
+	if sess.ActiveRole != core.RoleClient || promptMessageID <= 0 {
+		return core.ErrInvalidInput
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE cash_location_challenges
+		SET prompt_message_id=$1, updated_at=now()
+		WHERE id=$2 AND user_id=$3 AND status='PENDING'
+	`, promptMessageID, challengeID, sess.UserID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return core.ErrInvalidInput
+	}
+	return nil
+}
+
+func (s *Store) RejectCashLocationChallenge(ctx context.Context, sess core.Session, challengeID uuid.UUID, reason string) error {
+	if sess.ActiveRole != core.RoleClient {
+		return core.ErrForbidden
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE cash_location_challenges
+		SET status='REJECTED', rejection_reason=$1, updated_at=now()
+		WHERE id=$2 AND user_id=$3 AND status='PENDING'
+	`, safe(reason), challengeID, sess.UserID)
+	return err
+}
+
+func (s *Store) CashLocationChallenge(ctx context.Context, sess core.Session, challengeID uuid.UUID, now time.Time) (core.CashLocationChallenge, error) {
+	if sess.ActiveRole != core.RoleClient {
+		return core.CashLocationChallenge{}, core.ErrForbidden
+	}
+	if err := s.expireCashLocationChallenges(ctx, sess.UserID, now); err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	return s.cashLocationChallengeByID(ctx, challengeID, sess.UserID)
+}
+
+func (s *Store) VerifyCashLocationFromTelegram(ctx context.Context, telegramUserID int64, replyToMessageID int64, messageDate time.Time, latitude, longitude float64, accuracyMeters *float64, now time.Time) (core.CashLocationChallenge, error) {
+	if telegramUserID <= 0 || !geo.ValidCoordinates(latitude, longitude) {
+		return core.CashLocationChallenge{}, core.ErrInvalidInput
+	}
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	ttl := cashLocationTTL(settings)
+	if messageDate.IsZero() || now.UTC().Sub(messageDate.UTC()) > ttl || messageDate.UTC().After(now.UTC().Add(2*time.Minute)) {
+		return core.CashLocationChallenge{}, core.ErrInvalidInput
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	defer rollback(ctx, tx)
+
+	var id uuid.UUID
+	var userID uuid.UUID
+	var promptMessageID sql.NullInt64
+	var expiresAt time.Time
+	err = tx.QueryRow(ctx, `
+		SELECT id, user_id, prompt_message_id, expires_at
+		FROM cash_location_challenges
+		WHERE telegram_user_id=$1 AND status='PENDING' AND used_at IS NULL
+		ORDER BY created_at DESC
+		LIMIT 1
+		FOR UPDATE
+	`, telegramUserID).Scan(&id, &userID, &promptMessageID, &expiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return core.CashLocationChallenge{}, core.ErrInvalidInput
+	}
+	if err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	if !now.UTC().Before(expiresAt) {
+		if _, err := tx.Exec(ctx, `
+			UPDATE cash_location_challenges
+			SET status='EXPIRED', updated_at=now()
+			WHERE id=$1
+		`, id); err != nil {
+			return core.CashLocationChallenge{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return core.CashLocationChallenge{}, err
+		}
+		return s.cashLocationChallengeByID(ctx, id, userID)
+	}
+	if promptMessageID.Valid && replyToMessageID > 0 && promptMessageID.Int64 != replyToMessageID {
+		return s.rejectCashLocationChallengeTx(ctx, tx, id, userID, "PROMPT_MISMATCH")
+	}
+	if accuracyMeters == nil || *accuracyMeters < 0 {
+		return s.rejectCashLocationChallengeTx(ctx, tx, id, userID, "LOCATION_ACCURACY_MISSING")
+	}
+	accuracy := int(math.Ceil(*accuracyMeters))
+	if accuracy > settings.CashLocationMaxAccuracyMeters {
+		return s.rejectCashLocationChallengeTx(ctx, tx, id, userID, "LOCATION_INACCURATE")
+	}
+	if !cashLocationConfigured(settings) {
+		return s.rejectCashLocationChallengeTx(ctx, tx, id, userID, "LOCATION_NOT_CONFIGURED")
+	}
+	distance := int(math.Ceil(geo.DistanceMeters(settings.RestaurantLatitude, settings.RestaurantLongitude, latitude, longitude)))
+	if distance+accuracy > settings.CashLocationRadiusMeters {
+		if _, err := tx.Exec(ctx, `
+			UPDATE cash_location_challenges
+			SET status='REJECTED', rejection_reason='OUTSIDE_CASH_AREA', distance_meters=$2,
+				accuracy_meters=$3, updated_at=now()
+			WHERE id=$1
+		`, id, distance, accuracy); err != nil {
+			return core.CashLocationChallenge{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return core.CashLocationChallenge{}, err
+		}
+		return s.cashLocationChallengeByID(ctx, id, userID)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE cash_location_challenges
+		SET status='VERIFIED', rejection_reason='', distance_meters=$2, accuracy_meters=$3,
+			verified_at=now(), expires_at=now() + ($4::int * interval '1 second'), updated_at=now()
+		WHERE id=$1
+	`, id, distance, accuracy, settings.CashLocationTTLSeconds); err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	return s.cashLocationChallengeByID(ctx, id, userID)
+}
+
 func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input CreateOrderInput, idempotencyKey, requestHash string, now time.Time) (core.Order, error) {
 	if sess.ActiveRole != core.RoleClient {
 		return core.Order{}, core.ErrForbidden
@@ -878,10 +1172,15 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		}
 		return core.Order{}, core.ErrRestaurantClosed
 	}
-	phone := safe(input.Phone)
+	if !settings.CashEnabled {
+		return core.Order{}, core.ErrPaymentNotConfirmed
+	}
+	if !input.TermsAccepted {
+		return core.Order{}, core.ErrTermsRequired
+	}
 	address := safe(input.Address)
 	comment := safe(input.Comment)
-	if phone == "" || address == "" {
+	if address == "" {
 		return core.Order{}, core.ErrInvalidInput
 	}
 	if len([]rune(comment)) > settings.MaxCommentLength {
@@ -923,6 +1222,14 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if err := json.Unmarshal(rawItems, &items); err != nil {
 		return core.Order{}, err
 	}
+	phone, err := s.verifiedPhoneForCashOrder(ctx, tx, sess.UserID, input.Phone)
+	if err != nil {
+		return core.Order{}, err
+	}
+	cashLocationChallengeID, cashLocationVerifiedAt, cashLocationDistance, err := s.useCashLocationChallengeTx(ctx, tx, sess, input.CashLocationChallengeID, tokenHash, settings, now)
+	if err != nil {
+		return core.Order{}, err
+	}
 	phoneCipher, err := s.box.Encrypt(phone)
 	if err != nil {
 		return core.Order{}, err
@@ -938,11 +1245,13 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	err = tx.QueryRow(ctx, `
 		INSERT INTO orders (
 			client_user_id, fulfillment_status, payment_method, payment_status, subtotal_minor, delivery_fee_minor,
-			total_minor, currency, phone_ciphertext, phone_hash, address_ciphertext, customer_comment, locale
+			total_minor, currency, phone_ciphertext, phone_hash, address_ciphertext, customer_comment, locale,
+			cash_location_challenge_id, cash_location_verified_at, cash_location_distance_meters
 		)
-		VALUES ($1, 'NEW', 'cash', 'CASH_PENDING', $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, 'NEW', 'cash', 'CASH_PENDING', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, public_number, created_at
-	`, sess.UserID, subtotal, delivery, total, currency, phoneCipher, phoneHash, addressCipher, comment, localeOrDefault(input.Locale)).
+	`, sess.UserID, subtotal, delivery, total, currency, phoneCipher, phoneHash, addressCipher, comment, localeOrDefault(input.Locale),
+		uuidSQL(cashLocationChallengeID), timeSQL(cashLocationVerifiedAt), intSQL(cashLocationDistance)).
 		Scan(&orderID, &publicNumber, &createdAt)
 	if err != nil {
 		return core.Order{}, err
@@ -985,25 +1294,27 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		return core.Order{}, err
 	}
 	order := core.Order{
-		ID:                orderID,
-		PublicNumber:      publicNumber,
-		ClientUserID:      sess.UserID,
-		ClientUsername:    sess.Username,
-		ClientFirstName:   sess.FirstName,
-		ClientPhotoURL:    sess.PhotoURL,
-		FulfillmentStatus: core.StatusNew,
-		PaymentMethod:     core.PaymentCash,
-		PaymentStatus:     core.PaymentCashPending,
-		SubtotalMinor:     subtotal,
-		DeliveryFeeMinor:  delivery,
-		TotalMinor:        total,
-		Currency:          currency,
-		Phone:             phone,
-		Address:           address,
-		CustomerComment:   comment,
-		Locale:            localeOrDefault(input.Locale),
-		Version:           1,
-		CreatedAt:         createdAt,
+		ID:                         orderID,
+		PublicNumber:               publicNumber,
+		ClientUserID:               sess.UserID,
+		ClientUsername:             sess.Username,
+		ClientFirstName:            sess.FirstName,
+		ClientPhotoURL:             sess.PhotoURL,
+		FulfillmentStatus:          core.StatusNew,
+		PaymentMethod:              core.PaymentCash,
+		PaymentStatus:              core.PaymentCashPending,
+		SubtotalMinor:              subtotal,
+		DeliveryFeeMinor:           delivery,
+		TotalMinor:                 total,
+		Currency:                   currency,
+		Phone:                      phone,
+		Address:                    address,
+		CustomerComment:            comment,
+		Locale:                     localeOrDefault(input.Locale),
+		Version:                    1,
+		CreatedAt:                  createdAt,
+		CashLocationVerifiedAt:     cashLocationVerifiedAt,
+		CashLocationDistanceMeters: cashLocationDistance,
 	}
 	for _, item := range items {
 		order.Items = append(order.Items, core.OrderItem{
@@ -1421,17 +1732,19 @@ func (s *Store) AdminDashboard(ctx context.Context, sess core.Session, now time.
 		payments = append(payments, "crypto")
 	}
 	runtime := core.Runtime{
-		ServerTime:           now.UTC(),
-		Timezone:             settings.Timezone,
-		AcceptingOrders:      accept.OK,
-		Reason:               accept.Reason,
-		NextOpening:          accept.NextOpening,
-		DayOffBanner:         settings.DayOffBanner,
-		FlatDeliveryFeeMinor: settings.FlatDeliveryFeeMinor,
-		Currency:             settings.Currency,
-		EnabledPayments:      payments,
-		SupportedLocales:     []string{"ru", "sr", "en"},
-		SupportText:          settings.SupportText,
+		ServerTime:               now.UTC(),
+		Timezone:                 settings.Timezone,
+		AcceptingOrders:          accept.OK,
+		Reason:                   accept.Reason,
+		NextOpening:              accept.NextOpening,
+		DayOffBanner:             settings.DayOffBanner,
+		FlatDeliveryFeeMinor:     settings.FlatDeliveryFeeMinor,
+		Currency:                 settings.Currency,
+		EnabledPayments:          payments,
+		SupportedLocales:         []string{"ru", "sr", "en"},
+		SupportText:              settings.SupportText,
+		CashLocationRequired:     settings.CashLocationRequired,
+		CashLocationRadiusMeters: settings.CashLocationRadiusMeters,
 	}
 	loc, err := time.LoadLocation(settings.Timezone)
 	if err != nil {
@@ -1778,12 +2091,15 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 	var order core.Order
 	var phoneCipher, addressCipher string
 	var ready, delivered, cancelled sql.NullTime
+	var locationVerified sql.NullTime
+	var locationDistance sql.NullInt32
 	err := s.pool.QueryRow(ctx, `
 		SELECT o.id, o.public_number, o.client_user_id, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
 			COALESCE(u.photo_url, ''),
 			o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency, o.phone_ciphertext, o.address_ciphertext,
-			o.customer_comment, o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at
+			o.customer_comment, o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.cash_location_verified_at, o.cash_location_distance_meters
 		FROM orders o
 		JOIN users u ON u.id=o.client_user_id
 		WHERE o.id=$1
@@ -1793,6 +2109,7 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 		&order.PaymentStatus, &order.SubtotalMinor, &order.DeliveryFeeMinor, &order.TotalMinor, &order.Currency,
 		&phoneCipher, &addressCipher, &order.CustomerComment, &order.Locale, &order.Version, &order.CreatedAt,
 		&ready, &delivered, &cancelled,
+		&locationVerified, &locationDistance,
 	)
 	if err != nil {
 		return core.Order{}, err
@@ -1813,6 +2130,13 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 	}
 	if cancelled.Valid {
 		order.CancelledAt = &cancelled.Time
+	}
+	if locationVerified.Valid {
+		order.CashLocationVerifiedAt = &locationVerified.Time
+	}
+	if locationDistance.Valid {
+		value := int(locationDistance.Int32)
+		order.CashLocationDistanceMeters = &value
 	}
 	items, err := s.orderItems(ctx, order.ID)
 	if err != nil {
@@ -2070,17 +2394,195 @@ func staffAudit(member core.StaffMember) map[string]any {
 
 func safeSettingsAudit(settings core.Settings) map[string]any {
 	return map[string]any{
-		"flat_delivery_fee_minor": settings.FlatDeliveryFeeMinor,
-		"support_text":            settings.SupportText,
-		"support_phone":           settings.SupportPhone,
-		"terms_url":               settings.TermsURL,
-		"max_item_quantity":       settings.MaxItemQuantity,
-		"max_comment_length":      settings.MaxCommentLength,
-		"cash_enabled":            settings.CashEnabled,
-		"card_enabled":            settings.CardEnabled,
-		"crypto_enabled":          settings.CryptoEnabled,
-		"version":                 settings.Version,
+		"flat_delivery_fee_minor":           settings.FlatDeliveryFeeMinor,
+		"support_text":                      settings.SupportText,
+		"support_phone":                     settings.SupportPhone,
+		"terms_url":                         settings.TermsURL,
+		"max_item_quantity":                 settings.MaxItemQuantity,
+		"max_comment_length":                settings.MaxCommentLength,
+		"cash_enabled":                      settings.CashEnabled,
+		"card_enabled":                      settings.CardEnabled,
+		"crypto_enabled":                    settings.CryptoEnabled,
+		"cash_location_required":            settings.CashLocationRequired,
+		"restaurant_latitude":               settings.RestaurantLatitude,
+		"restaurant_longitude":              settings.RestaurantLongitude,
+		"cash_location_radius_meters":       settings.CashLocationRadiusMeters,
+		"cash_location_ttl_seconds":         settings.CashLocationTTLSeconds,
+		"cash_location_max_accuracy_meters": settings.CashLocationMaxAccuracyMeters,
+		"version":                           settings.Version,
 	}
+}
+
+func (s *Store) verifiedPhoneForCashOrder(ctx context.Context, tx pgx.Tx, userID uuid.UUID, inputPhone string) (string, error) {
+	var phoneCipher, phoneHash string
+	var verifiedAt sql.NullTime
+	err := tx.QueryRow(ctx, `
+		SELECT phone_ciphertext, phone_hash, phone_verified_at
+		FROM users
+		WHERE id=$1
+		FOR UPDATE
+	`, userID).Scan(&phoneCipher, &phoneHash, &verifiedAt)
+	if err != nil {
+		return "", err
+	}
+	if !verifiedAt.Valid || strings.TrimSpace(phoneCipher) == "" || strings.TrimSpace(phoneHash) == "" {
+		return "", core.ErrContactNotVerified
+	}
+	phone, err := s.box.Decrypt(phoneCipher)
+	if err != nil {
+		return "", err
+	}
+	if trimmed := safe(inputPhone); trimmed != "" && hashPII(trimmed) != phoneHash {
+		return "", core.ErrContactNotVerified
+	}
+	return phone, nil
+}
+
+func (s *Store) useCashLocationChallengeTx(ctx context.Context, tx pgx.Tx, sess core.Session, challengeIDText, calculationTokenHash string, settings core.Settings, now time.Time) (*uuid.UUID, *time.Time, *int, error) {
+	if !settings.CashLocationRequired {
+		return nil, nil, nil, nil
+	}
+	challengeID, err := uuid.Parse(strings.TrimSpace(challengeIDText))
+	if err != nil || challengeID == uuid.Nil {
+		return nil, nil, nil, core.ErrCashLocationRequired
+	}
+	var status, storedTokenHash string
+	var verifiedAt, usedAt sql.NullTime
+	var expiresAt time.Time
+	var distance, accuracy sql.NullInt32
+	err = tx.QueryRow(ctx, `
+		SELECT status, calculation_token_hash, distance_meters, accuracy_meters, verified_at, expires_at, used_at
+		FROM cash_location_challenges
+		WHERE id=$1 AND user_id=$2
+		FOR UPDATE
+	`, challengeID, sess.UserID).Scan(&status, &storedTokenHash, &distance, &accuracy, &verifiedAt, &expiresAt, &usedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, nil, core.ErrCashLocationRequired
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if status != string(core.CashLocationVerified) || storedTokenHash != calculationTokenHash || !verifiedAt.Valid ||
+		!now.UTC().Before(expiresAt) || usedAt.Valid || !distance.Valid || !accuracy.Valid {
+		return nil, nil, nil, core.ErrCashLocationRequired
+	}
+	if int(distance.Int32)+int(accuracy.Int32) > settings.CashLocationRadiusMeters {
+		return nil, nil, nil, core.ErrCashLocationOutside
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE cash_location_challenges
+		SET status='USED', used_at=now(), updated_at=now()
+		WHERE id=$1
+	`, challengeID); err != nil {
+		return nil, nil, nil, err
+	}
+	distanceValue := int(distance.Int32)
+	return &challengeID, &verifiedAt.Time, &distanceValue, nil
+}
+
+func (s *Store) expireCashLocationChallenges(ctx context.Context, userID uuid.UUID, now time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE cash_location_challenges
+		SET status='EXPIRED', updated_at=now()
+		WHERE user_id=$1 AND status IN ('PENDING', 'VERIFIED') AND used_at IS NULL AND expires_at <= $2
+	`, userID, now.UTC())
+	return err
+}
+
+func (s *Store) cashLocationChallengeByID(ctx context.Context, challengeID, userID uuid.UUID) (core.CashLocationChallenge, error) {
+	var challenge core.CashLocationChallenge
+	var distance, accuracy sql.NullInt32
+	var verifiedAt, usedAt sql.NullTime
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, status, rejection_reason, distance_meters, accuracy_meters, expires_at,
+			verified_at, used_at, dev_bypass
+		FROM cash_location_challenges
+		WHERE id=$1 AND user_id=$2
+	`, challengeID, userID).Scan(
+		&challenge.ID,
+		&challenge.Status,
+		&challenge.RejectionReason,
+		&distance,
+		&accuracy,
+		&challenge.ExpiresAt,
+		&verifiedAt,
+		&usedAt,
+		&challenge.DevBypass,
+	)
+	if err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	if distance.Valid {
+		value := int(distance.Int32)
+		challenge.DistanceMeters = &value
+	}
+	if accuracy.Valid {
+		value := int(accuracy.Int32)
+		challenge.AccuracyMeters = &value
+	}
+	if verifiedAt.Valid {
+		challenge.VerifiedAt = &verifiedAt.Time
+	}
+	if usedAt.Valid {
+		challenge.UsedAt = &usedAt.Time
+	}
+	return challenge, nil
+}
+
+func (s *Store) rejectCashLocationChallengeTx(ctx context.Context, tx pgx.Tx, id, userID uuid.UUID, reason string) (core.CashLocationChallenge, error) {
+	if _, err := tx.Exec(ctx, `
+		UPDATE cash_location_challenges
+		SET status='REJECTED', rejection_reason=$2, updated_at=now()
+		WHERE id=$1
+	`, id, safe(reason)); err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.CashLocationChallenge{}, err
+	}
+	return s.cashLocationChallengeByID(ctx, id, userID)
+}
+
+func cashLocationTTL(settings core.Settings) time.Duration {
+	if settings.CashLocationTTLSeconds <= 0 {
+		return 3 * time.Minute
+	}
+	return time.Duration(settings.CashLocationTTLSeconds) * time.Second
+}
+
+func cashLocationConfigured(settings core.Settings) bool {
+	return geo.ValidCoordinates(settings.RestaurantLatitude, settings.RestaurantLongitude) &&
+		(settings.RestaurantLatitude != 0 || settings.RestaurantLongitude != 0)
+}
+
+func uuidSQL(value *uuid.UUID) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func timeSQL(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func intSQL(value *int) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func maskPhone(phone string) string {
+	phone = safe(phone)
+	if len([]rune(phone)) <= 4 {
+		return phone
+	}
+	runes := []rune(phone)
+	return strings.Repeat("*", len(runes)-4) + string(runes[len(runes)-4:])
 }
 
 func validStaffRole(role core.Role) bool {

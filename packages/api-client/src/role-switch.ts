@@ -45,15 +45,9 @@ export function roleLinks(activeRole: Role): RoleLink[] {
 
 export function roleUrl(role: Role): string {
   if (typeof window === "undefined") return "#";
-  const { protocol, hostname, origin, pathname } = window.location;
+  const { protocol, hostname, origin } = window.location;
   if (hostname === "127.0.0.1" || hostname === "localhost") {
     return `${protocol}//${hostname}:${localPorts[role]}/`;
   }
-  const base = pageBase(pathname);
-  return `${origin}${base}${paths[role]}`;
-}
-
-function pageBase(pathname: string): string {
-  const first = pathname.split("/").filter(Boolean)[0];
-  return first === "TL" ? "/TL/" : "/";
+  return `${origin}/${paths[role]}`;
 }

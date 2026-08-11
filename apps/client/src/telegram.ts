@@ -17,6 +17,7 @@ interface TelegramWebApp {
   ready(): void;
   expand(): void;
   requestContact?(callback: (ok: boolean, contact?: { phone_number?: string; user_id?: number }) => void): void;
+  openTelegramLink?(url: string): void;
   HapticFeedback?: {
     impactOccurred(style: "light" | "medium" | "heavy"): void;
   };
@@ -66,16 +67,25 @@ export function syncBackButton(route: Route, onBack: () => void): () => void {
   return () => back.offClick(onBack);
 }
 
-export function requestTelegramContact(): Promise<string | null> {
+export function requestTelegramContact(): Promise<boolean> {
   const app = telegram();
-  if (!app?.requestContact) return Promise.resolve(null);
+  if (!app?.requestContact) return Promise.resolve(false);
   return new Promise((resolve) => {
-    const timer = window.setTimeout(() => resolve(null), 12000);
-    app.requestContact?.((ok, contact) => {
+    const timer = window.setTimeout(() => resolve(false), 12000);
+    app.requestContact?.((ok) => {
       window.clearTimeout(timer);
-      resolve(ok && contact?.phone_number ? contact.phone_number : null);
+      resolve(Boolean(ok));
     });
   });
+}
+
+export function openTelegramLink(url: string): void {
+  const app = telegram();
+  if (app?.openTelegramLink) {
+    app.openTelegramLink(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 export function haptic(): void {

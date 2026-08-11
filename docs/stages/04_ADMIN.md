@@ -215,10 +215,16 @@ Actions:
 - support Telegram/phone;
 - text/link terms;
 - enabled payment methods;
+- cash-location required toggle;
+- restaurant latitude/longitude for cash anti-fraud check;
+- cash-location radius, TTL and max allowed Telegram accuracy;
 - notification toggles/templates при необходимости.
 
 Secrets отсутствуют. Card/crypto нельзя enabled, если backend не видит
 production-ready provider config.
+Exact client latitude/longitude must not be shown in Admin because backend does
+not store it; Admin can see only verification status/distance/accuracy on the
+order when needed for troubleshooting.
 
 ## 9. Аналитика
 

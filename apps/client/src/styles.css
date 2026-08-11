@@ -1223,6 +1223,56 @@ textarea {
   line-height: 1.35;
 }
 
+.cash-location {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid #e3d6c7;
+  border-radius: var(--radius-md);
+  padding: clamp(0.85rem, 2.4vw, 1.05rem);
+  background: rgba(255, 253, 248, 0.88);
+  color: var(--text);
+}
+
+.cash-location > div {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+}
+
+.cash-location svg {
+  flex: 0 0 auto;
+  color: var(--color-primary);
+  margin-top: 0.1rem;
+}
+
+.cash-location strong {
+  display: block;
+  font-size: clamp(0.98rem, 2.45vw, 1.1rem);
+  font-weight: 900;
+}
+
+.cash-location p {
+  margin: 0.18rem 0 0;
+  color: var(--muted);
+  font-size: clamp(0.86rem, 2.2vw, 0.98rem);
+  font-weight: 700;
+  line-height: 1.38;
+}
+
+.cash-location.verified {
+  border-color: rgba(94, 107, 58, 0.35);
+  background: rgba(242, 247, 231, 0.9);
+}
+
+.cash-location.verified svg {
+  color: var(--color-secondary);
+}
+
+.cash-location.rejected {
+  border-color: rgba(107, 31, 42, 0.32);
+  background: rgba(255, 246, 241, 0.9);
+}
+
 .order-status {
   display: flex;
   align-items: center;

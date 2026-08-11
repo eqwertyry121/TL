@@ -17,9 +17,10 @@
 
 ```text
 Internet
-  → Nginx HTTPS
-      → Go app
-      → frontend static files
+  → GitHub Pages HTTPS
+      → frontend static files on takolako.site
+  → VPS Nginx HTTPS on api.takolako.site
+      → Go app API/webhooks/media
   → private Docker network
       → PostgreSQL
 
@@ -34,7 +35,7 @@ Docker Compose:
 
 - `app`;
 - `postgres`;
-- `nginx`.
+- `nginx` on VPS for `api.takolako.site`.
 
 Больше services не добавлять без измеренной причины.
 

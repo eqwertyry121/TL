@@ -6,6 +6,7 @@
 2. [Что было упрощено](SIMPLIFICATION_NOTES.md)
 3. [Локальная разработка](local-development.md)
 4. [OpenAPI](openapi.yaml)
+5. [Domain architecture](domain-architecture.md)
 
 ## Артефакты этапа 0
 
@@ -16,7 +17,7 @@
 5. [Menu fixtures](menu-fixtures.csv)
 6. [Minimal texts](i18n-minimal-texts.md)
 7. [Wireframes](wireframes.md)
-8. [GitHub Pages preview](github-pages.md)
+8. [GitHub Pages frontend hosting](github-pages.md)
 9. [Open items](stage0-open-items.md)
 
 ## Этапы

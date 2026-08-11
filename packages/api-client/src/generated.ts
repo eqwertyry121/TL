@@ -15,6 +15,8 @@ export interface Runtime {
   enabled_payments: PaymentMethod[];
   supported_locales: Array<"ru" | "sr" | "en">;
   support_text: string;
+  cash_location_required: boolean;
+  cash_location_radius_meters: number;
 }
 
 export interface ScheduleDay {
@@ -118,6 +120,8 @@ export interface Order {
   ready_at?: string;
   delivered_at?: string;
   cancelled_at?: string;
+  cash_location_verified_at?: string;
+  cash_location_distance_meters?: number;
   items: OrderItem[];
   events?: OrderEvent[];
 }
@@ -157,6 +161,12 @@ export interface Settings {
   cash_enabled: boolean;
   card_enabled: boolean;
   crypto_enabled: boolean;
+  cash_location_required: boolean;
+  restaurant_latitude: number;
+  restaurant_longitude: number;
+  cash_location_radius_meters: number;
+  cash_location_ttl_seconds: number;
+  cash_location_max_accuracy_meters: number;
   version: number;
   schedule?: ScheduleDay[];
 }

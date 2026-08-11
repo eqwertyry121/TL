@@ -3,6 +3,7 @@ info:
   title: TK Delivery API
   version: 0.1.0
 servers:
+  - url: https://api.takolako.site/api/v1
   - url: http://127.0.0.1:8080/api/v1
 security:
   - bearerAuth: []
@@ -37,6 +38,29 @@ paths:
       responses:
         "200":
           description: Telegram initData session
+  /telegram/client/webhook:
+    post:
+      security: []
+      responses:
+        "200":
+          description: Client bot webhook for verified contact and native Telegram location messages
+  /contact:
+    get:
+      responses:
+        "200":
+          description: Verified Telegram contact for current client session
+  /cash-location/challenges:
+    post:
+      responses:
+        "201":
+          description: Creates short-lived cash-location challenge and sends Telegram request_location prompt
+  /cash-location/challenges/{id}:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Current cash-location challenge state without exact client coordinates
   /orders/calculate:
     post:
       responses:
@@ -56,7 +80,7 @@ paths:
             type: string
       responses:
         "201":
-          description: Created cash order
+          description: Created cash order. If cash location is enabled, request must include a verified unused cash_location_challenge_id.
   /orders/{id}:
     get:
       parameters:

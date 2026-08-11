@@ -127,22 +127,52 @@ Client:
 $client = Invoke-RestMethod http://127.0.0.1:8080/api/v1/dev/session `
   -Method Post `
   -ContentType 'application/json' `
-  -Body '{"telegram_user_id":1048084234,"role":"CLIENT"}'
+  -Body '{"telegram_user_id":1048084234,"role":"CLIENT","phone":"+381600000000"}'
 ```
 
 Kitchen/Courier/Admin use the same endpoint with `KITCHEN`, `COURIER` or
 `ADMIN`. Telegram ID `1048084234` is seeded with all three staff roles for local
 testing.
 
+For the bootstrap owner in `development`, cash-location challenge is verified
+without real GPS so the full cash flow can be tested locally. In production this
+bypass is disabled.
+
+## Telegram contact and location webhook
+
+Real Telegram contact/location confirmation requires the backend to be reachable
+from Telegram by public HTTPS. Local `127.0.0.1` is not enough; use the VPS or a
+temporary HTTPS tunnel during integration testing.
+
+Set a secret in `.env.local` or deployment secrets:
+
+```powershell
+$env:TELEGRAM_WEBHOOK_SECRET = "long-random-string"
+```
+
+Then register the client bot webhook:
+
+```text
+https://api.telegram.org/bot<CLIENT_BOT_TOKEN>/setWebhook?url=https://<backend-domain>/api/v1/telegram/client/webhook&secret_token=<TELEGRAM_WEBHOOK_SECRET>
+```
+
+Do not put the real bot token or webhook secret in git, docs, screenshots or
+logs.
+
 ## Minimal cash-flow smoke
 
 1. `GET /api/v1/menu`
 2. `POST /api/v1/orders/calculate` with a client bearer token
-3. `POST /api/v1/orders` with `Idempotency-Key`
-4. `GET /api/v1/kitchen/orders` with a kitchen token
-5. `POST /api/v1/kitchen/orders/{id}/ready`
-6. `GET /api/v1/courier/orders` with a courier token
-7. `POST /api/v1/courier/orders/{id}/delivered`
+3. `GET /api/v1/contact`; for real Telegram it must be verified by
+   `request_contact`, for local bootstrap owner `/dev/session` can seed it
+4. `POST /api/v1/cash-location/challenges` with the calculation token
+5. wait until challenge status is `VERIFIED`
+6. `POST /api/v1/orders` with `Idempotency-Key` and
+   `cash_location_challenge_id`
+7. `GET /api/v1/kitchen/orders` with a kitchen token
+8. `POST /api/v1/kitchen/orders/{id}/ready`
+9. `GET /api/v1/courier/orders` with a courier token
+10. `POST /api/v1/courier/orders/{id}/delivered`
 
 If the restaurant is closed by schedule or manual `ВЫХОДНОЙ`, order creation
 returns `RESTAURANT_CLOSED` or `MANUAL_DAY_OFF`. Menu and calculation remain

@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Check,
   ChevronRight,
+  MapPin,
   Minus,
   Phone,
   Plus,
@@ -30,8 +31,8 @@ import {
   saveLocale,
   upsertCartLine,
 } from "./storage";
-import { haptic, initialLocale, requestTelegramContact, syncBackButton } from "./telegram";
-import type { Api, AppData, Calculation, CartLine, CartState, CheckoutDraft, Locale, Route, Session } from "./types";
+import { haptic, initialLocale, openTelegramLink, requestTelegramContact, syncBackButton } from "./telegram";
+import type { Api, AppData, Calculation, CashLocationChallenge, CartLine, CartState, CheckoutDraft, Locale, Route, Session, VerifiedContact } from "./types";
 
 const api = createApi();
 
@@ -42,7 +43,11 @@ export function App() {
   const [draft, setDraft] = useState<CheckoutDraft>(loadCheckoutDraft);
   const [data, setData] = useState<AppData>({ session: null, runtime: null, categories: [], orders: [] });
   const [calculation, setCalculation] = useState<Calculation | null>(null);
+  const [verifiedContact, setVerifiedContact] = useState<VerifiedContact | null>(null);
+  const [cashLocation, setCashLocation] = useState<CashLocationChallenge | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<Extract<PaymentMethod, "cash" | "crypto">>("cash");
+  const [contactLoading, setContactLoading] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -58,12 +63,19 @@ export function App() {
   const checkoutOpen = Boolean(data.runtime?.accepting_orders);
   const dayOffBlocked = isDayOffRuntime(data.runtime) && !isOwnerTelegramId(data.session?.telegram_user_id);
   const paymentMethods = useMemo(() => checkoutPaymentMethods(data.runtime?.enabled_payments || []), [data.runtime?.enabled_payments]);
+  const cashLocationRequired = data.runtime?.cash_location_required ?? true;
 
   const refresh = useCallback(async () => {
     setError("");
     const session = data.session || (await api.authenticate(locale));
-    const [runtime, menu, orders] = await Promise.all([api.runtime(), api.menu(locale), api.listOrders(session.token).catch(() => ({ orders: [] }))]);
+    const [runtime, menu, orders, contact] = await Promise.all([
+      api.runtime(),
+      api.menu(locale),
+      api.listOrders(session.token).catch(() => ({ orders: [] })),
+      api.contact(session.token).catch(() => ({ verified: false })),
+    ]);
     setData({ session, runtime, categories: menu.categories, orders: orders.orders });
+    setVerifiedContact(contact);
     return session;
   }, [data.session, locale]);
 
@@ -89,6 +101,22 @@ export function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [route]);
+
+  useEffect(() => {
+    if (!token || cashLocation?.status !== "PENDING") return;
+    let stopped = false;
+    const timer = window.setInterval(() => {
+      api.getCashLocationChallenge(token, cashLocation.id)
+        .then((next) => {
+          if (!stopped) setCashLocation(next);
+        })
+        .catch(() => undefined);
+    }, 2000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [token, cashLocation?.id, cashLocation?.status]);
 
   useEffect(() => {
     document.body.classList.toggle("has-day-off-overlay", dayOffBlocked);
@@ -194,6 +222,12 @@ export function App() {
     saveCheckoutDraft(next);
   }
 
+  useEffect(() => {
+    if (verifiedContact?.verified && verifiedContact.phone && draft.phone !== verifiedContact.phone) {
+      updateDraft({ phone: verifiedContact.phone });
+    }
+  }, [verifiedContact?.phone, verifiedContact?.verified]);
+
   async function calculate() {
     if (!token || availableCartLines.length === 0) return null;
     const result = await api.calculate(
@@ -201,12 +235,59 @@ export function App() {
       availableCartLines.map((line) => ({ item_id: line.itemId, quantity: line.quantity })),
     );
     setCalculation(result);
+    setCashLocation(null);
     return result;
+  }
+
+  async function confirmContact() {
+    if (!token || contactLoading) return;
+    setContactLoading(true);
+    setError("");
+    try {
+      const allowed = await requestTelegramContact();
+      if (!allowed) {
+        setError("Telegram не передал телефон. Нажмите кнопку и разрешите отправку номера.");
+        return;
+      }
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const contact = await api.contact(token);
+        if (contact.verified && contact.phone) {
+          setVerifiedContact(contact);
+          updateDraft({ phone: contact.phone });
+          return;
+        }
+        await delay(1200);
+      }
+      setError("Телефон ещё не дошёл до бота. Откройте чат с ботом и попробуйте ещё раз.");
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setContactLoading(false);
+    }
+  }
+
+  async function confirmCashLocation() {
+    if (!token || locationLoading) return;
+    setLocationLoading(true);
+    setError("");
+    try {
+      const calc = calculation || (await calculate());
+      if (!calc) throw new Error("EMPTY_CART");
+      const challenge = await api.createCashLocationChallenge(token, { calculation_token: calc.calculation_token });
+      setCashLocation(challenge);
+      if (challenge.status === "PENDING" && challenge.bot_url) {
+        openTelegramLink(challenge.bot_url);
+      }
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setLocationLoading(false);
+    }
   }
 
   async function submitOrder() {
     if (!token || submitting) return;
-    if (!draft.phone.trim() || !draft.street.trim()) {
+    if (!verifiedContact?.verified || !draft.phone.trim() || !draft.street.trim()) {
       setError("Поделитесь телефоном через Telegram и заполните адрес");
       return;
     }
@@ -215,6 +296,10 @@ export function App() {
     try {
       const calc = calculation || (await calculate());
       if (!calc) throw new Error("EMPTY_CART");
+      if (paymentMethod === "cash" && cashLocationRequired && cashLocation?.status !== "VERIFIED") {
+        setError("Для оплаты наличными подтвердите местоположение");
+        return;
+      }
       if (paymentMethod === "crypto" && !window.confirm(`Тестовая crypto-оплата ${money(calc.total_minor)} будет сразу отмечена как PAID. Реальные деньги не списываются.`)) return;
       const order = await api.createOrder(
         token,
@@ -224,6 +309,7 @@ export function App() {
           address: [draft.street, draft.details].filter(Boolean).join(", "),
           comment: draft.comment.trim(),
           payment_method: paymentMethod,
+          cash_location_challenge_id: paymentMethod === "cash" ? cashLocation?.id : undefined,
           terms_accepted: true,
           locale,
         },
@@ -233,6 +319,7 @@ export function App() {
       resetPendingIdempotencyKey();
       setCart(loadCart());
       setCalculation(null);
+      setCashLocation(null);
       mergeOrder(order);
       replaceRoute({ name: "order", id: order.id });
     } catch (err) {
@@ -269,9 +356,17 @@ export function App() {
         locale={locale}
         paymentMethod={paymentMethod}
         paymentMethods={paymentMethods}
+        verifiedContact={verifiedContact}
+        contactLoading={contactLoading}
+        cashLocation={cashLocation}
+        cashLocationRequired={cashLocationRequired}
+        cashLocationRadiusMeters={data.runtime?.cash_location_radius_meters || 12000}
+        locationLoading={locationLoading}
         submitting={submitting}
         onDraft={updateDraft}
         onPaymentMethod={setPaymentMethod}
+        onConfirmContact={confirmContact}
+        onConfirmCashLocation={confirmCashLocation}
         onCalculate={calculate}
         onSubmit={submitOrder}
       />
@@ -570,9 +665,17 @@ function Checkout({
   locale,
   paymentMethod,
   paymentMethods,
+  verifiedContact,
+  contactLoading,
+  cashLocation,
+  cashLocationRequired,
+  cashLocationRadiusMeters,
+  locationLoading,
   submitting,
   onDraft,
   onPaymentMethod,
+  onConfirmContact,
+  onConfirmCashLocation,
   onCalculate,
   onSubmit,
 }: {
@@ -585,9 +688,17 @@ function Checkout({
   locale: Locale;
   paymentMethod: Extract<PaymentMethod, "cash" | "crypto">;
   paymentMethods: Array<Extract<PaymentMethod, "cash" | "crypto">>;
+  verifiedContact: VerifiedContact | null;
+  contactLoading: boolean;
+  cashLocation: CashLocationChallenge | null;
+  cashLocationRequired: boolean;
+  cashLocationRadiusMeters: number;
+  locationLoading: boolean;
   submitting: boolean;
   onDraft: (patch: Partial<CheckoutDraft>) => void;
   onPaymentMethod: (method: Extract<PaymentMethod, "cash" | "crypto">) => void;
+  onConfirmContact: () => Promise<void>;
+  onConfirmCashLocation: () => Promise<void>;
   onCalculate: () => Promise<Calculation | null>;
   onSubmit: () => Promise<void>;
 }) {
@@ -595,16 +706,16 @@ function Checkout({
     if (lines.length) void onCalculate().catch(() => undefined);
   }, [lines.length]);
   if (!lines.length) return <div className="state">{t(locale, "emptyCart")}</div>;
+  const locationRequired = paymentMethod === "cash" && cashLocationRequired;
+  const locationVerified = !locationRequired || cashLocation?.status === "VERIFIED";
+  const contactVerified = Boolean(verifiedContact?.verified);
   return (
     <div className="page narrow checkout-page">
       <h1>{t(locale, "checkout")}</h1>
       <div className="form">
-        <button className={draft.phone ? "contact-share active-contact" : "contact-share"} onClick={async () => {
-          const phone = await requestTelegramContact();
-          if (phone) onDraft({ phone });
-        }}>
+        <button className={contactVerified ? "contact-share active-contact" : "contact-share"} onClick={() => void onConfirmContact()} disabled={contactLoading}>
           <Phone size={18} />
-          {draft.phone ? `Телефон получен: ${maskPhone(draft.phone)}` : "Поделиться телефоном для связи"}
+          {contactLoading ? "Ждём Telegram contact…" : contactVerified ? `Телефон подтверждён: ${verifiedContact?.masked || maskPhone(draft.phone)}` : "Поделиться телефоном для связи"}
         </button>
         <label>
           <span>{t(locale, "street")}</span>
@@ -640,12 +751,59 @@ function Checkout({
           </p>
         )}
       </div>
+      {locationRequired && (
+        <div className={`cash-location ${cashLocation?.status === "VERIFIED" ? "verified" : cashLocation?.status === "REJECTED" || cashLocation?.status === "EXPIRED" ? "rejected" : ""}`}>
+          <div>
+            <MapPin size={18} />
+            <div>
+              <strong>{cashLocationTitle(cashLocation)}</strong>
+              <p>{cashLocationText(cashLocation, cashLocationRadiusMeters)}</p>
+            </div>
+          </div>
+          <button className="secondary" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
+            {locationLoading ? "Открываем Telegram…" : cashLocation?.status === "VERIFIED" ? "Обновить" : "Подтвердить"}
+          </button>
+        </div>
+      )}
       <Totals subtotal={calculation?.subtotal_minor || subtotal} total={calculation?.subtotal_minor || total} locale={locale} />
-      <button className="primary full" disabled={!checkoutOpen || submitting} onClick={onSubmit}>
+      <button className="primary full" disabled={!checkoutOpen || submitting || !contactVerified || !locationVerified} onClick={onSubmit}>
         {submitting ? "..." : `${paymentMethod === "crypto" ? "ОПЛАТИТЬ TEST CRYPTO" : t(locale, "placeOrder")} · ${money(calculation?.subtotal_minor || total)}`}
       </button>
     </div>
   );
+}
+
+function cashLocationTitle(challenge: CashLocationChallenge | null): string {
+  switch (challenge?.status) {
+    case "VERIFIED":
+      return "Местоположение подтверждено";
+    case "PENDING":
+      return "Ожидаем геолокацию в Telegram";
+    case "REJECTED":
+      return "Местоположение не подтверждено";
+    case "EXPIRED":
+      return "Проверка истекла";
+    default:
+      return "Подтвердите местоположение";
+  }
+}
+
+function cashLocationText(challenge: CashLocationChallenge | null, radiusMeters: number): string {
+  if (challenge?.status === "VERIFIED") {
+    const distance = typeof challenge.distance_meters === "number" ? ` · ${formatDistance(challenge.distance_meters)} от ресторана` : "";
+    return `Для cash всё готово${distance}`;
+  }
+  if (challenge?.status === "PENDING") return "Нажмите кнопку в чате с ботом и вернитесь сюда.";
+  if (challenge?.status === "EXPIRED") return "Повторите проверку перед оформлением заказа.";
+  if (challenge?.rejection_reason === "OUTSIDE_CASH_AREA") return `Оплата наличными доступна в радиусе ${formatDistance(radiusMeters)} от ресторана.`;
+  if (challenge?.rejection_reason === "LOCATION_INACCURATE" || challenge?.rejection_reason === "LOCATION_ACCURACY_MISSING") return "GPS слишком неточный. Повторите рядом с окном или на улице.";
+  if (challenge?.rejection_reason === "LOCATION_NOT_CONFIGURED") return "Оплата наличными временно недоступна: ресторан ещё не настроил точку.";
+  return "Для оплаты наличными Telegram подтвердит, что вы рядом с рестораном. Точные координаты не сохраняются.";
+}
+
+function formatDistance(meters: number): string {
+  if (meters >= 1000) return `${(meters / 1000).toFixed(1).replace(".", ",")} км`;
+  return `${meters} м`;
 }
 
 function OrderScreen({ order, locale }: { order?: Order; locale: Locale }) {
@@ -883,9 +1041,21 @@ function errorText(err: unknown): string {
       return "Заказ уже отправляется. Проверьте статус";
     case "AUTH_INVALID":
       return "Telegram авторизация не прошла";
+    case "CONTACT_NOT_VERIFIED":
+      return "Для cash нужен телефон, подтверждённый через Telegram";
+    case "CASH_LOCATION_REQUIRED":
+      return "Для оплаты наличными подтвердите местоположение";
+    case "CASH_LOCATION_OUTSIDE":
+      return "Вы вне зоны доставки для оплаты наличными";
+    case "CASH_LOCATION_INACCURATE":
+      return "Геолокация слишком неточная. Повторите проверку";
     case "INVALID_INPUT":
       return "Поделитесь телефоном через Telegram и заполните адрес";
     default:
       return "Сервер недоступен. Попробуйте ещё раз";
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }

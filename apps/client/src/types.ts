@@ -54,6 +54,28 @@ export interface Calculation {
   expires_at: string;
 }
 
+export type CashLocationStatus = "PENDING" | "VERIFIED" | "REJECTED" | "EXPIRED" | "USED";
+
+export interface CashLocationChallenge {
+  id: string;
+  status: CashLocationStatus;
+  rejection_reason?: string;
+  distance_meters?: number;
+  accuracy_meters?: number;
+  expires_at: string;
+  verified_at?: string;
+  used_at?: string;
+  bot_url?: string;
+  dev_bypass?: boolean;
+}
+
+export interface VerifiedContact {
+  verified: boolean;
+  phone?: string;
+  masked?: string;
+  verified_at?: string;
+}
+
 export interface CheckoutDraft {
   phone: string;
   street: string;
@@ -67,6 +89,9 @@ export interface Api {
   runtime(): Promise<Runtime>;
   menu(locale: Locale): Promise<{ categories: Category[] }>;
   calculate(token: string, items: Array<{ item_id: string; quantity: number }>): Promise<Calculation>;
+  contact(token: string): Promise<VerifiedContact>;
+  createCashLocationChallenge(token: string, input: { calculation_token: string }): Promise<CashLocationChallenge>;
+  getCashLocationChallenge(token: string, id: string): Promise<CashLocationChallenge>;
   createOrder(token: string, input: CreateOrderInput, idempotencyKey: string): Promise<Order>;
   getOrder(token: string, id: string): Promise<Order>;
   listOrders(token: string): Promise<{ orders: Order[] }>;
@@ -74,6 +99,7 @@ export interface Api {
 
 export interface CreateOrderInput {
   calculation_token: string;
+  cash_location_challenge_id?: string;
   phone: string;
   address: string;
   comment: string;

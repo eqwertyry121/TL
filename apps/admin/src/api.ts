@@ -76,6 +76,12 @@ export interface SettingsInput {
   cash_enabled: boolean;
   card_enabled: boolean;
   crypto_enabled: boolean;
+  cash_location_required: boolean;
+  restaurant_latitude: number;
+  restaurant_longitude: number;
+  cash_location_radius_meters: number;
+  cash_location_ttl_seconds: number;
+  cash_location_max_accuracy_meters: number;
   version: number;
 }
 
@@ -627,6 +633,12 @@ function seedSettings(): Settings {
     cash_enabled: true,
     card_enabled: false,
     crypto_enabled: true,
+    cash_location_required: true,
+    restaurant_latitude: 45.24197,
+    restaurant_longitude: 19.808807,
+    cash_location_radius_meters: 12000,
+    cash_location_ttl_seconds: 180,
+    cash_location_max_accuracy_meters: 200,
     version: 1,
     schedule: defaultSchedule(),
   };
@@ -669,6 +681,8 @@ function runtimeFromSettings(settings: Settings) {
     ],
     supported_locales: ["ru" as const, "sr" as const, "en" as const],
     support_text: settings.support_text,
+    cash_location_required: settings.cash_location_required,
+    cash_location_radius_meters: settings.cash_location_radius_meters,
   };
 }
 
@@ -893,6 +907,12 @@ function loadSettings(): Settings {
     support_text: "@Tako_Lako",
     max_item_quantity: Math.max(settings.max_item_quantity || 0, 99),
     crypto_enabled: shouldEnableCryptoTest ? true : settings.crypto_enabled,
+    cash_location_required: settings.cash_location_required ?? true,
+    restaurant_latitude: settings.restaurant_latitude ?? 45.24197,
+    restaurant_longitude: settings.restaurant_longitude ?? 19.808807,
+    cash_location_radius_meters: settings.cash_location_radius_meters || 12000,
+    cash_location_ttl_seconds: settings.cash_location_ttl_seconds || 180,
+    cash_location_max_accuracy_meters: settings.cash_location_max_accuracy_meters || 200,
   };
   if (
     normalized.flat_delivery_fee_minor !== settings.flat_delivery_fee_minor ||

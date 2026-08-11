@@ -88,7 +88,9 @@ URL или скрытая кнопка не являются защитой. Bac
 
 1. Клиент собирает корзину.
 2. Backend заново проверяет блюда, количества и цены.
-3. Cash-заказ сразу создаётся как `NEW`.
+3. Cash-заказ создаётся как `NEW` только после подтверждения Telegram contact и
+   одноразовой Telegram-location проверки, если эта проверка включена в
+   настройках.
 4. Заказ с онлайн-оплатой становится `NEW` только после подтверждения оплаты
    сервером.
 5. `NEW` автоматически появляется в Kitchen Mini App. Кнопки «Принять» нет.
@@ -223,7 +225,9 @@ token, телефона, адреса и Telegram `initData`.
 
 - запрос Telegram contact;
 - принимается только contact, принадлежащий текущему Telegram user;
-- если пользователь отказал, разрешён простой ручной ввод телефона;
+- для cash-заказа телефон должен быть подтверждён Telegram contact;
+- ручной ввод телефона можно использовать только как текстовый fallback для
+  будущих online-заказов или ручной админской правки;
 - phone обязателен;
 - номер нормализуется и хранится защищённо.
 
@@ -237,8 +241,21 @@ SMS-подтверждения нет.
 - подъезд/этаж/квартира при необходимости;
 - ориентир или комментарий.
 
-Не нужны координаты, карта выбора, геокодер, зоны доставки и автоматическая
-проверка расстояния. Курьер получает введённый текст и телефон.
+Не нужны карта выбора, геокодер, зоны доставки и автоматическая маршрутизация.
+Курьер получает введённый текст и телефон.
+
+Исключение: для cash-заказа используется одноразовая Telegram-location проверка
+как антифрод перед созданием заказа. Это не карта и не delivery zone:
+
+- frontend не принимает и не отправляет произвольные координаты клиента;
+- клиент нажимает кнопку, backend создаёт короткоживущий challenge;
+- bot запрашивает native Telegram location через `request_location`;
+- backend принимает location только из Telegram webhook от того же user;
+- backend считает расстояние до ресторана и сравнивает с радиусом;
+- в PostgreSQL не хранится точная координата клиента — только status проверки,
+  distance/accuracy, время и причина отказа;
+- если проверка не пройдена, order физически не создаётся и Kitchen ничего не
+  видит.
 
 Стоимость доставки, если она есть, единая для всех заказов и задаётся ADMIN
 одним числом. Если доставка бесплатная, значение равно нулю. Нет minimum order
@@ -415,7 +432,8 @@ Backend считает итог самостоятельно. Если цена 
 
 ### Наличные
 
-- order сразу `NEW`;
+- order становится `NEW` только после подтверждённого Telegram contact и
+  successful cash-location challenge, если `cash_location_required=true`;
 - payment `CASH_PENDING`;
 - при `ДОСТАВЛЕНО` courier подтверждает сумму;
 - payment становится `PAID`.
@@ -472,8 +490,9 @@ Backend считает итог самостоятельно. Если цена 
 
 ### Инфраструктура
 
-- один Linux VPS;
-- Docker Compose: app, PostgreSQL, Nginx;
+- GitHub Pages для статического frontend на `takolako.site`;
+- один Linux VPS для backend/API/webhooks/media на `api.takolako.site`;
+- Docker Compose на VPS: app, PostgreSQL, Nginx;
 - TLS;
 - media в persistent volume вне эфемерного container;
 - ежедневный backup PostgreSQL и uploads во внешнее хранилище;
@@ -496,6 +515,8 @@ Backend считает итог самостоятельно. Если цена 
 - `order_items` — item ID + snapshot title/price/quantity/line total;
 - `order_events` — status/admin history;
 - `payment_attempts` — provider references/status;
+- `cash_location_challenges` — одноразовые проверки Telegram location для
+  cash-заказов: status, distance, accuracy, TTL, без хранения точных координат;
 - `notification_jobs` — template, order/recipient reference и retries; phone/
   address не копируются в job, worker читает их из order только при отправке;
 - `app_settings` — schedule, manual day off, flat delivery fee, support;
@@ -508,6 +529,7 @@ Backend считает итог самостоятельно. Если цена 
 - auth/session/me;
 - runtime settings/menu;
 - cart calculation/order create;
+- verified contact и cash-location challenge для наличных;
 - client orders/history;
 - kitchen new orders + `mark-ready`;
 - courier delivery orders + `mark-delivered`;
@@ -546,7 +568,8 @@ smoke проверяет 100 одновременных клиентов кат�
 - kitchen availability/stop-list;
 - размеры, варианты, sauces/options/modifiers;
 - склад, ингредиенты, остатки и списания;
-- координаты, геокодер, delivery zones;
+- координаты для маршрутизации, геокодер, delivery zones;
+- хранение точной координаты клиента после Telegram cash-location проверки;
 - автоматические маршруты и GPS tracking;
 - несколько курьеров и распределение заказов;
 - несколько ресторанов/филиалов;
@@ -561,6 +584,8 @@ smoke проверяет 100 одновременных клиентов кат�
 ## 18. Definition of Done
 
 - Client оформляет заказ без дублей.
+- Cash-заказ не создаётся и не попадает Kitchen без подтверждённого Telegram
+  contact и successful cash-location challenge, если geo-проверка включена.
 - Cash/paid order автоматически появляется Kitchen как `NEW`.
 - Kitchen одной кнопкой переводит его в `OUT_FOR_DELIVERY`.
 - Client и единственный courier получают Telegram-сообщение.

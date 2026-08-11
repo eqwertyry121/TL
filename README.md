@@ -9,8 +9,11 @@ Telegram Mini Apps.
 - [мастер-ТЗ](docs/00_MASTER_SPEC.md);
 - [этапы реализации](docs/stages).
 
-Временный GitHub Pages URL для Telegram Mini App preview:
-`https://eqwertyry121.github.io/TL/`.
+Production Mini App URL:
+`https://takolako.site/`.
+
+Production API/webhook host:
+`https://api.takolako.site/`.
 
 Client Mini App локально:
 
@@ -24,14 +27,14 @@ http://127.0.0.1:5173/
 pnpm client:dev
 ```
 
-GitHub Pages собирает `apps/client` в demo mode, пока production backend
-не перенесён на сервер.
+GitHub Pages собирает frontend под custom domain. Frontend в production ходит
+в backend `https://api.takolako.site`.
 
 Staff Mini Apps для этапа 3:
 
 ```text
-https://eqwertyry121.github.io/TL/kitchen/
-https://eqwertyry121.github.io/TL/courier/
+https://takolako.site/kitchen/
+https://takolako.site/courier/
 ```
 
 Локально:
@@ -44,7 +47,7 @@ pnpm courier:dev
 Admin Mini App для этапа 4:
 
 ```text
-https://eqwertyry121.github.io/TL/admin/
+https://takolako.site/admin/
 ```
 
 Локально:
@@ -54,8 +57,8 @@ pnpm admin:dev
 ```
 
 Admin управляет меню, графиком, ручным `ВЫХОДНОЙ`, заказами, staff,
-настройками и простой аналитикой. На GitHub Pages это demo mode без
-общей серверной БД.
+настройками и простой аналитикой. GitHub Pages хранит только статический
+frontend; база, Telegram webhooks и business logic работают на backend.
 
 `PLAN_v1.md` сохранён как исходный черновик. При противоречии приоритет имеют
 мастер-ТЗ, файл текущего этапа и `AGENTS.md`.

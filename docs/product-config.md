@@ -11,12 +11,13 @@
 | Public name SR-Latn | Tako Lako |
 | Public name EN | Tako Lako |
 | Репозиторий | `git@github.com:eqwertyry121/TL.git` |
-| Временный Mini App URL | `https://eqwertyry121.github.io/TL/` |
+| Production Mini App URL | `https://takolako.site/` |
+| Production API URL | `https://api.takolako.site/` |
 | Таймзона | `Europe/Belgrade` |
 | Валюта | `RSD` |
-| Адрес ресторана | test fixture: `Bulevar Kralja Aleksandra 100, Beograd` |
+| Координаты ресторана для cash geo-check | `45.241970, 19.808807` |
 | Support Telegram | `@Tako_Lako` |
-| Основные цвета | test fixture: orange food-delivery UI `#ff7a1a`, `#ff4b1f`, `#fff9f4`, `#171717` |
+| Основные цвета | wine/qvevri palette: `#6B1F2A`, `#43141B`, `#F8F1E5`, `#FFFDF8`, `#B95532` |
 | Ресторанов | 1 |
 | Курьеров | 1 |
 | Ожидаемая нагрузка | до 50 заказов в день |
@@ -38,7 +39,7 @@
 |---|---|---|
 | Логотип | владелец | позже заменить test placeholder |
 | Текст условий доставки | владелец | позже заменить production-текст |
-| Реальный адрес ресторана | владелец | позже заменить fixture |
+| Реальный текстовый адрес ресторана | владелец | позже добавить для контактов/документов |
 | Реальная стоимость доставки | владелец | зафиксировано: бесплатно |
 
 ## Секреты

@@ -50,19 +50,23 @@ const (
 )
 
 var (
-	ErrForbidden             = errors.New("forbidden")
-	ErrInvalidRole           = errors.New("invalid role")
-	ErrInvalidInput          = errors.New("invalid input")
-	ErrRestaurantClosed      = errors.New("restaurant closed")
-	ErrManualDayOff          = errors.New("manual day off")
-	ErrItemUnavailable       = errors.New("item unavailable")
-	ErrInvalidQuantity       = errors.New("invalid quantity")
-	ErrOrderStatusConflict   = errors.New("order status conflict")
-	ErrIdempotencyConflict   = errors.New("idempotency conflict")
-	ErrCalculationExpired    = errors.New("calculation expired")
-	ErrPaymentNotConfirmed   = errors.New("payment not confirmed")
-	ErrTermsRequired         = errors.New("terms acceptance required")
-	ErrProductionUnsafeValue = errors.New("unsafe production config")
+	ErrForbidden              = errors.New("forbidden")
+	ErrInvalidRole            = errors.New("invalid role")
+	ErrInvalidInput           = errors.New("invalid input")
+	ErrRestaurantClosed       = errors.New("restaurant closed")
+	ErrManualDayOff           = errors.New("manual day off")
+	ErrItemUnavailable        = errors.New("item unavailable")
+	ErrInvalidQuantity        = errors.New("invalid quantity")
+	ErrOrderStatusConflict    = errors.New("order status conflict")
+	ErrIdempotencyConflict    = errors.New("idempotency conflict")
+	ErrCalculationExpired     = errors.New("calculation expired")
+	ErrPaymentNotConfirmed    = errors.New("payment not confirmed")
+	ErrTermsRequired          = errors.New("terms acceptance required")
+	ErrContactNotVerified     = errors.New("contact not verified")
+	ErrCashLocationRequired   = errors.New("cash location verification required")
+	ErrCashLocationOutside    = errors.New("cash location outside delivery radius")
+	ErrCashLocationInaccurate = errors.New("cash location inaccurate")
+	ErrProductionUnsafeValue  = errors.New("unsafe production config")
 )
 
 type User struct {
@@ -88,35 +92,43 @@ type Session struct {
 }
 
 type Settings struct {
-	Timezone             string        `json:"timezone"`
-	Currency             string        `json:"currency"`
-	ManualDayOff         bool          `json:"manual_day_off"`
-	DayOffBanner         string        `json:"day_off_banner"`
-	FlatDeliveryFeeMinor int           `json:"flat_delivery_fee_minor"`
-	SupportText          string        `json:"support_text"`
-	SupportPhone         string        `json:"support_phone"`
-	TermsURL             string        `json:"terms_url"`
-	MaxItemQuantity      int           `json:"max_item_quantity"`
-	MaxCommentLength     int           `json:"max_comment_length"`
-	CashEnabled          bool          `json:"cash_enabled"`
-	CardEnabled          bool          `json:"card_enabled"`
-	CryptoEnabled        bool          `json:"crypto_enabled"`
-	Version              int           `json:"version"`
-	Schedule             []ScheduleDay `json:"schedule,omitempty"`
+	Timezone                      string        `json:"timezone"`
+	Currency                      string        `json:"currency"`
+	ManualDayOff                  bool          `json:"manual_day_off"`
+	DayOffBanner                  string        `json:"day_off_banner"`
+	FlatDeliveryFeeMinor          int           `json:"flat_delivery_fee_minor"`
+	SupportText                   string        `json:"support_text"`
+	SupportPhone                  string        `json:"support_phone"`
+	TermsURL                      string        `json:"terms_url"`
+	MaxItemQuantity               int           `json:"max_item_quantity"`
+	MaxCommentLength              int           `json:"max_comment_length"`
+	CashEnabled                   bool          `json:"cash_enabled"`
+	CardEnabled                   bool          `json:"card_enabled"`
+	CryptoEnabled                 bool          `json:"crypto_enabled"`
+	CashLocationRequired          bool          `json:"cash_location_required"`
+	RestaurantLatitude            float64       `json:"restaurant_latitude"`
+	RestaurantLongitude           float64       `json:"restaurant_longitude"`
+	CashLocationRadiusMeters      int           `json:"cash_location_radius_meters"`
+	CashLocationTTLSeconds        int           `json:"cash_location_ttl_seconds"`
+	CashLocationMaxAccuracyMeters int           `json:"cash_location_max_accuracy_meters"`
+	Version                       int           `json:"version"`
+	Schedule                      []ScheduleDay `json:"schedule,omitempty"`
 }
 
 type Runtime struct {
-	ServerTime           time.Time `json:"server_time"`
-	Timezone             string    `json:"timezone"`
-	AcceptingOrders      bool      `json:"accepting_orders"`
-	Reason               string    `json:"reason"`
-	NextOpening          time.Time `json:"next_opening"`
-	DayOffBanner         string    `json:"day_off_banner"`
-	FlatDeliveryFeeMinor int       `json:"flat_delivery_fee_minor"`
-	Currency             string    `json:"currency"`
-	EnabledPayments      []string  `json:"enabled_payments"`
-	SupportedLocales     []string  `json:"supported_locales"`
-	SupportText          string    `json:"support_text"`
+	ServerTime               time.Time `json:"server_time"`
+	Timezone                 string    `json:"timezone"`
+	AcceptingOrders          bool      `json:"accepting_orders"`
+	Reason                   string    `json:"reason"`
+	NextOpening              time.Time `json:"next_opening"`
+	DayOffBanner             string    `json:"day_off_banner"`
+	FlatDeliveryFeeMinor     int       `json:"flat_delivery_fee_minor"`
+	Currency                 string    `json:"currency"`
+	EnabledPayments          []string  `json:"enabled_payments"`
+	SupportedLocales         []string  `json:"supported_locales"`
+	SupportText              string    `json:"support_text"`
+	CashLocationRequired     bool      `json:"cash_location_required"`
+	CashLocationRadiusMeters int       `json:"cash_location_radius_meters"`
 }
 
 type Category struct {
@@ -214,31 +226,63 @@ type Calculation struct {
 	ExpiresAt        time.Time        `json:"expires_at"`
 }
 
+type CashLocationStatus string
+
+const (
+	CashLocationPending  CashLocationStatus = "PENDING"
+	CashLocationVerified CashLocationStatus = "VERIFIED"
+	CashLocationRejected CashLocationStatus = "REJECTED"
+	CashLocationExpired  CashLocationStatus = "EXPIRED"
+	CashLocationUsed     CashLocationStatus = "USED"
+)
+
+type CashLocationChallenge struct {
+	ID              uuid.UUID          `json:"id"`
+	Status          CashLocationStatus `json:"status"`
+	RejectionReason string             `json:"rejection_reason,omitempty"`
+	DistanceMeters  *int               `json:"distance_meters,omitempty"`
+	AccuracyMeters  *int               `json:"accuracy_meters,omitempty"`
+	ExpiresAt       time.Time          `json:"expires_at"`
+	VerifiedAt      *time.Time         `json:"verified_at,omitempty"`
+	UsedAt          *time.Time         `json:"used_at,omitempty"`
+	BotURL          string             `json:"bot_url,omitempty"`
+	DevBypass       bool               `json:"dev_bypass,omitempty"`
+}
+
+type VerifiedContact struct {
+	Verified   bool       `json:"verified"`
+	Phone      string     `json:"phone,omitempty"`
+	Masked     string     `json:"masked,omitempty"`
+	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+}
+
 type Order struct {
-	ID                uuid.UUID         `json:"id"`
-	PublicNumber      int               `json:"public_number"`
-	ClientUserID      uuid.UUID         `json:"client_user_id,omitempty"`
-	ClientUsername    string            `json:"client_username,omitempty"`
-	ClientFirstName   string            `json:"client_first_name,omitempty"`
-	ClientPhotoURL    string            `json:"client_photo_url,omitempty"`
-	FulfillmentStatus FulfillmentStatus `json:"fulfillment_status"`
-	PaymentMethod     PaymentMethod     `json:"payment_method"`
-	PaymentStatus     PaymentStatus     `json:"payment_status"`
-	SubtotalMinor     int               `json:"subtotal_minor"`
-	DeliveryFeeMinor  int               `json:"delivery_fee_minor"`
-	TotalMinor        int               `json:"total_minor"`
-	Currency          string            `json:"currency"`
-	Phone             string            `json:"phone,omitempty"`
-	Address           string            `json:"address,omitempty"`
-	CustomerComment   string            `json:"customer_comment"`
-	Locale            string            `json:"locale"`
-	Version           int               `json:"version"`
-	CreatedAt         time.Time         `json:"created_at"`
-	ReadyAt           *time.Time        `json:"ready_at,omitempty"`
-	DeliveredAt       *time.Time        `json:"delivered_at,omitempty"`
-	CancelledAt       *time.Time        `json:"cancelled_at,omitempty"`
-	Items             []OrderItem       `json:"items"`
-	Events            []OrderEvent      `json:"events,omitempty"`
+	ID                         uuid.UUID         `json:"id"`
+	PublicNumber               int               `json:"public_number"`
+	ClientUserID               uuid.UUID         `json:"client_user_id,omitempty"`
+	ClientUsername             string            `json:"client_username,omitempty"`
+	ClientFirstName            string            `json:"client_first_name,omitempty"`
+	ClientPhotoURL             string            `json:"client_photo_url,omitempty"`
+	FulfillmentStatus          FulfillmentStatus `json:"fulfillment_status"`
+	PaymentMethod              PaymentMethod     `json:"payment_method"`
+	PaymentStatus              PaymentStatus     `json:"payment_status"`
+	SubtotalMinor              int               `json:"subtotal_minor"`
+	DeliveryFeeMinor           int               `json:"delivery_fee_minor"`
+	TotalMinor                 int               `json:"total_minor"`
+	Currency                   string            `json:"currency"`
+	Phone                      string            `json:"phone,omitempty"`
+	Address                    string            `json:"address,omitempty"`
+	CustomerComment            string            `json:"customer_comment"`
+	Locale                     string            `json:"locale"`
+	Version                    int               `json:"version"`
+	CreatedAt                  time.Time         `json:"created_at"`
+	ReadyAt                    *time.Time        `json:"ready_at,omitempty"`
+	DeliveredAt                *time.Time        `json:"delivered_at,omitempty"`
+	CancelledAt                *time.Time        `json:"cancelled_at,omitempty"`
+	CashLocationVerifiedAt     *time.Time        `json:"cash_location_verified_at,omitempty"`
+	CashLocationDistanceMeters *int              `json:"cash_location_distance_meters,omitempty"`
+	Items                      []OrderItem       `json:"items"`
+	Events                     []OrderEvent      `json:"events,omitempty"`
 }
 
 type OrderItem struct {

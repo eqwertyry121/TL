@@ -405,6 +405,12 @@ function OrdersTab({ orders, token, onAction }: { orders: Order[]; token: string
             <span>Оплата</span>
             <strong>{adminPaymentText(order)}</strong>
           </div>
+          {order.payment_method === "cash" && order.cash_location_verified_at && (
+            <div className="order-info">
+              <span>Гео cash</span>
+              <strong>проверено{typeof order.cash_location_distance_meters === "number" ? ` · ${formatMeters(order.cash_location_distance_meters)}` : ""}</strong>
+            </div>
+          )}
           <div className="order-info">
             <span>Адрес</span>
             <strong>{order.address || "не указан"}</strong>
@@ -529,6 +535,15 @@ function SettingsTab({ settings, demoMode, onSave }: { settings: Settings; demoM
         <Text label="Ссылка на условия" value={form.terms_url} onChange={(terms_url) => setForm({ ...form, terms_url })} />
       </div>
       <label className="check"><input type="checkbox" checked={form.cash_enabled} onChange={(event) => setForm({ ...form, cash_enabled: event.target.checked })} /> Принимать оплату наличными</label>
+      <label className="check"><input type="checkbox" checked={form.cash_location_required} onChange={(event) => setForm({ ...form, cash_location_required: event.target.checked })} /> Требовать геопроверку для cash</label>
+      <div className="form-grid three">
+        <NumberInput label="Широта ресторана" value={form.restaurant_latitude} onChange={(restaurant_latitude) => setForm({ ...form, restaurant_latitude })} />
+        <NumberInput label="Долгота ресторана" value={form.restaurant_longitude} onChange={(restaurant_longitude) => setForm({ ...form, restaurant_longitude })} />
+        <NumberInput label="Радиус cash, м" value={form.cash_location_radius_meters} onChange={(cash_location_radius_meters) => setForm({ ...form, cash_location_radius_meters })} />
+        <NumberInput label="TTL проверки, сек" value={form.cash_location_ttl_seconds} onChange={(cash_location_ttl_seconds) => setForm({ ...form, cash_location_ttl_seconds })} />
+        <NumberInput label="Макс. погрешность GPS, м" value={form.cash_location_max_accuracy_meters} onChange={(cash_location_max_accuracy_meters) => setForm({ ...form, cash_location_max_accuracy_meters })} />
+      </div>
+      <div className="warn">Точные координаты клиента не сохраняются. Cash-заказ использует только одноразовый Telegram challenge.</div>
       <label className={demoMode ? "check" : "check disabled-check"}>
         <input
           type="checkbox"
@@ -727,6 +742,11 @@ function openTelegramLink(url: string): void {
 
 function createdText(value: string): string {
   return new Date(value).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatMeters(meters: number): string {
+  if (meters >= 1000) return `${(meters / 1000).toFixed(1).replace(".", ",")} км от ресторана`;
+  return `${meters} м от ресторана`;
 }
 
 function runtimeReason(reason: string): string {

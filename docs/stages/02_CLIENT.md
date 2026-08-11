@@ -110,28 +110,39 @@ backend отклоняет order.
 
 Одна страница/короткий flow:
 
-1. Telegram contact либо saved/manual phone.
+1. Telegram contact или уже сохранённый verified contact.
 2. Text address:
    - street/number;
    - apartment/access;
    - note.
 3. Общий комментарий к заказу.
 4. Server calculation.
-5. Состав, delivery fee, total.
-6. Cash payment.
-7. Условия доставки.
-8. `ОФОРМИТЬ • X RSD`.
+5. Cash-location confirmation через Telegram, если cash location включён.
+6. Состав, delivery fee, total.
+7. Cash payment.
+8. Условия доставки.
+9. `ОФОРМИТЬ • X RSD`.
 
-Не показывать карту, координаты, radius, zone и ETA.
+Не показывать карту, координаты, delivery zone и ETA. Радиус можно упоминать
+только простым текстом в контексте проверки наличного заказа.
 
 ### Телефон
 
 - `requestContact` вызывается только по user click;
 - bot/backend принимает контакт только текущего user;
-- manual fallback разрешён;
-- номер можно исправить;
+- для cash-заказа manual fallback не является verified contact и не позволяет
+  создать заказ;
 - в UI показывать masked saved value;
 - timeout/deny не оставляет endless spinner.
+
+### Cash-location
+
+- frontend создаёт challenge после успешного server calculation;
+- frontend не отправляет latitude/longitude;
+- Telegram bot запрашивает native `request_location`;
+- UI polling'ом показывает `PENDING`, `VERIFIED`, `REJECTED` или `EXPIRED`;
+- submit cash-заказа disabled, пока challenge не `VERIFIED`;
+- при смене корзины/calculation старый challenge не используется.
 
 ### Адрес
 

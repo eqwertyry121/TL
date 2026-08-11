@@ -42,26 +42,34 @@ jobs:
       - name: Build client Mini App
         run: pnpm --filter @tk-delivery/client build
         env:
-          VITE_APP_ENV: staging
-          VITE_DEMO_MODE: "true"
+          VITE_APP_ENV: production
+          VITE_DEMO_MODE: "false"
+          VITE_API_BASE_URL: https://api.takolako.site
+          VITE_BASE_PATH: "/"
 
       - name: Build kitchen Mini App
         run: pnpm --filter @tk-delivery/kitchen build
         env:
-          VITE_APP_ENV: staging
-          VITE_DEMO_MODE: "true"
+          VITE_APP_ENV: production
+          VITE_DEMO_MODE: "false"
+          VITE_API_BASE_URL: https://api.takolako.site
+          VITE_BASE_PATH: "/kitchen/"
 
       - name: Build courier Mini App
         run: pnpm --filter @tk-delivery/courier build
         env:
-          VITE_APP_ENV: staging
-          VITE_DEMO_MODE: "true"
+          VITE_APP_ENV: production
+          VITE_DEMO_MODE: "false"
+          VITE_API_BASE_URL: https://api.takolako.site
+          VITE_BASE_PATH: "/courier/"
 
       - name: Build admin Mini App
         run: pnpm --filter @tk-delivery/admin build
         env:
-          VITE_APP_ENV: staging
-          VITE_DEMO_MODE: "true"
+          VITE_APP_ENV: production
+          VITE_DEMO_MODE: "false"
+          VITE_API_BASE_URL: https://api.takolako.site
+          VITE_BASE_PATH: "/admin/"
 
       - name: Prepare Pages artifact
         run: |
