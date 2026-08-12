@@ -83,6 +83,12 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("%w: missing Telegram webhook secret", core.ErrProductionUnsafeValue)
 		}
 	}
+	if strings.TrimSpace(cfg.StaffBotToken) == "" {
+		cfg.StaffBotToken = cfg.ClientBotToken
+	}
+	if strings.TrimSpace(cfg.StaffBotUsername) == "" {
+		cfg.StaffBotUsername = cfg.ClientBotUsername
+	}
 	return cfg, nil
 }
 
