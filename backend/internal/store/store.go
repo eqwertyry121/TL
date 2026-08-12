@@ -2139,7 +2139,9 @@ func (s *Store) AdminDashboard(ctx context.Context, sess core.Session, now time.
 	localNow := now.In(loc)
 	startLocal := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, loc)
 	endLocal := startLocal.Add(24 * time.Hour)
-	var dashboard core.AdminDashboard
+	dashboard := core.AdminDashboard{
+		NotificationErrors: []string{},
+	}
 	err = s.pool.QueryRow(ctx, `
 		SELECT
 			COUNT(*) FILTER (WHERE fulfillment_status='NEW')::int,

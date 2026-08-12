@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -166,6 +167,28 @@ func TestOnlyOneActiveCourierAllowed(t *testing.T) {
 		Active:       true,
 	}); !errors.Is(err, core.ErrInvalidInput) {
 		t.Fatalf("expected active courier update conflict, got %v", err)
+	}
+}
+
+func TestAdminDashboardReturnsEmptyNotificationErrorsArray(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	dashboard, err := st.AdminDashboard(ctx, adminSession, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("admin dashboard: %v", err)
+	}
+	if dashboard.NotificationErrors == nil {
+		t.Fatal("expected non-nil notification errors slice")
+	}
+	payload, err := json.Marshal(dashboard)
+	if err != nil {
+		t.Fatalf("marshal dashboard: %v", err)
+	}
+	if !strings.Contains(string(payload), `"notification_errors":[]`) {
+		t.Fatalf("expected notification_errors to encode as [], got %s", payload)
 	}
 }
 

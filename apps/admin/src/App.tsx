@@ -285,6 +285,7 @@ function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
 
 function HomeTab({ dashboard, settings, onDayOff }: { dashboard: AdminDashboard; settings: Settings; onDayOff(enabled: boolean): Promise<void> }) {
   const accepting = dashboard.runtime.accepting_orders;
+  const notificationErrors = dashboard.notification_errors ?? [];
   return (
     <section className="grid">
       <div className={accepting ? "panel ok" : "panel danger"}>
@@ -300,7 +301,7 @@ function HomeTab({ dashboard, settings, onDayOff }: { dashboard: AdminDashboard;
       <Metric title="Выручка сегодня" value={money(dashboard.revenue_today_minor)} />
       <div className="panel wide">
         <h2>Ошибки уведомлений и оплат</h2>
-        {dashboard.notification_errors.length ? dashboard.notification_errors.map((item) => <p key={item}>{item}</p>) : <p className="muted">Ошибок нет</p>}
+        {notificationErrors.length ? notificationErrors.map((item) => <p key={item}>{item}</p>) : <p className="muted">Ошибок нет</p>}
       </div>
     </section>
   );
