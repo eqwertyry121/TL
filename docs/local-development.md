@@ -66,16 +66,15 @@ Demo mode also has `Crypto TEST`: it marks a demo order as paid without real
 money, provider, wallet or webhook. It is only for UI/staff-flow testing and is
 not a production payment integration.
 
-## Legacy static preview
+## Static preview
+
+The old root `public/` preview was removed. Use the Vite apps instead:
 
 ```powershell
-python -m http.server 4173 -d public
-```
-
-Open:
-
-```text
-http://127.0.0.1:4173/
+pnpm client:dev
+pnpm admin:dev
+pnpm kitchen:dev
+pnpm courier:dev
 ```
 
 ## Backend with PostgreSQL
@@ -85,6 +84,7 @@ Start only PostgreSQL:
 ```powershell
 docker compose up -d postgres
 $env:POSTGRES_DSN = "postgres://tk_delivery:tk_delivery@localhost:15432/tk_delivery?sslmode=disable"
+$env:PII_HASH_KEY = "change-me-local-dev-pii-hash-key"
 go run ./backend/cmd/app
 ```
 
@@ -143,6 +143,10 @@ bypass is disabled.
 Real Telegram contact/location confirmation requires the backend to be reachable
 from Telegram by public HTTPS. Local `127.0.0.1` is not enough; use the VPS or a
 temporary HTTPS tunnel during integration testing.
+
+Production cash-location verification accepts only native Telegram location
+sent to the bot. Browser or Mini App coordinates are accepted only in
+development/testing and must not be used for real cash orders.
 
 Set a secret in `.env.local` or deployment secrets:
 

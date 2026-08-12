@@ -3,7 +3,8 @@
   "private": true,
   "packageManager": "pnpm@11.16.0",
   "scripts": {
-    "check": "pnpm -r check",
+    "check": "pnpm openapi:check && pnpm -r check",
+    "openapi:check": "node scripts/check-openapi-routes.mjs",
     "build": "pnpm -r build",
     "client:dev": "pnpm --filter @tk-delivery/client dev",
     "client:build": "pnpm --filter @tk-delivery/client build",

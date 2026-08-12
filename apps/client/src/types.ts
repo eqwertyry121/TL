@@ -79,7 +79,10 @@ export interface VerifiedContact {
 export interface CheckoutDraft {
   phone: string;
   street: string;
-  details: string;
+  houseNumber: string;
+  entrance: string;
+  floor: string;
+  apartment: string;
   comment: string;
 }
 

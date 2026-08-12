@@ -11,6 +11,7 @@ export const demoRuntime: Runtime = {
   enabled_payments: ["cash"],
   supported_locales: ["ru", "sr", "en"],
   support_text: "@Tako_Lako",
+  terms_url: "",
   cash_location_required: true,
   cash_location_radius_meters: 12000,
 };

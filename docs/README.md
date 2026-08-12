@@ -7,6 +7,8 @@
 3. [Локальная разработка](local-development.md)
 4. [OpenAPI](openapi.yaml)
 5. [Domain architecture](domain-architecture.md)
+6. [Backup and restore](backup-restore.md)
+7. [Production alerts](production-alerts.md)
 
 ## Артефакты этапа 0
 

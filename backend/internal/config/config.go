@@ -30,6 +30,7 @@ type Config struct {
 	BootstrapOwnerTelegramID int64
 	LocalRoleSwitcherEnabled bool
 	EncryptionKey            []byte
+	PIIHashKey               []byte
 	SessionTTL               time.Duration
 	InitDataMaxAge           time.Duration
 	MaxItemQuantity          int
@@ -66,12 +67,17 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.EncryptionKey = key
+	piiHashKey, err := loadPIIHashKey(cfg.Env)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.PIIHashKey = piiHashKey
 	if cfg.Env == "production" {
+		if strings.TrimSpace(os.Getenv("PII_HASH_KEY")) == strings.TrimSpace(os.Getenv("APP_ENCRYPTION_KEY")) {
+			return Config{}, fmt.Errorf("%w: PII_HASH_KEY must be different from APP_ENCRYPTION_KEY", core.ErrProductionUnsafeValue)
+		}
 		if cfg.ClientBotToken == "" {
 			return Config{}, fmt.Errorf("%w: missing client bot token", core.ErrProductionUnsafeValue)
-		}
-		if cfg.StaffBotToken == "" {
-			return Config{}, fmt.Errorf("%w: missing staff bot token", core.ErrProductionUnsafeValue)
 		}
 		if cfg.TelegramWebhookSecret == "" {
 			return Config{}, fmt.Errorf("%w: missing Telegram webhook secret", core.ErrProductionUnsafeValue)
@@ -155,6 +161,28 @@ func loadEncryptionKey(env string) ([]byte, error) {
 	}
 	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) == 32 {
 		return decoded, nil
+	}
+	if env == "production" && len(raw) < 32 {
+		return nil, fmt.Errorf("%w: APP_ENCRYPTION_KEY must be 32-byte base64 or at least 32 characters", core.ErrProductionUnsafeValue)
+	}
+	sum := sha256.Sum256([]byte(raw))
+	return sum[:], nil
+}
+
+func loadPIIHashKey(env string) ([]byte, error) {
+	raw := strings.TrimSpace(os.Getenv("PII_HASH_KEY"))
+	if raw == "" {
+		if env == "production" {
+			return nil, fmt.Errorf("%w: missing PII_HASH_KEY", core.ErrProductionUnsafeValue)
+		}
+		sum := sha256.Sum256([]byte("tk-delivery-local-dev-pii-hash-key"))
+		return sum[:], nil
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) >= 32 {
+		return decoded, nil
+	}
+	if env == "production" && len(raw) < 32 {
+		return nil, fmt.Errorf("%w: PII_HASH_KEY must be at least 32 characters or 32-byte base64", core.ErrProductionUnsafeValue)
 	}
 	sum := sha256.Sum256([]byte(raw))
 	return sum[:], nil

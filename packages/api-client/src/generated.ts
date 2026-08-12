@@ -15,6 +15,7 @@ export interface Runtime {
   enabled_payments: PaymentMethod[];
   supported_locales: Array<"ru" | "sr" | "en">;
   support_text: string;
+  terms_url: string;
   cash_location_required: boolean;
   cash_location_radius_meters: number;
 }

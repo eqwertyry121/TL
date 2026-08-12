@@ -5,6 +5,7 @@ const CHECKOUT_KEY = "tk-client-checkout-v1";
 const CHECKOUT_PROGRESS_KEY = "tk-client-checkout-progress-v1";
 const LOCALE_KEY = "tk-client-locale";
 const IDEMPOTENCY_KEY = "tk-client-pending-intent";
+const CHECKOUT_DRAFT_TTL_MS = 12 * 60 * 60 * 1000;
 
 export interface CheckoutProgress {
   version: 1;
@@ -13,6 +14,22 @@ export interface CheckoutProgress {
   cashLocation: CashLocationChallenge | null;
   savedAt: string;
 }
+
+interface StoredCheckoutDraft {
+  version: 1;
+  draft: Partial<CheckoutDraft> & { details?: string };
+  savedAt: string;
+}
+
+const emptyCheckoutDraft = (): CheckoutDraft => ({
+  phone: "",
+  street: "",
+  houseNumber: "",
+  entrance: "",
+  floor: "",
+  apartment: "",
+  comment: "",
+});
 
 export function loadCart(): CartState {
   try {
@@ -46,20 +63,53 @@ export function upsertCartLine(cart: CartState, line: CartLine): CartState {
 
 export function loadCheckoutDraft(): CheckoutDraft {
   try {
-    return {
-      phone: "",
-      street: "",
-      details: "",
-      comment: "",
-      ...JSON.parse(localStorage.getItem(CHECKOUT_KEY) || "{}"),
-    };
+    const parsed = JSON.parse(localStorage.getItem(CHECKOUT_KEY) || "") as StoredCheckoutDraft;
+    if (parsed?.version === 1 && parsed.draft && isRecent(parsed.savedAt, CHECKOUT_DRAFT_TTL_MS)) {
+      return normalizeCheckoutDraft(parsed.draft);
+    }
+    localStorage.removeItem(CHECKOUT_KEY);
   } catch {
-    return { phone: "", street: "", details: "", comment: "" };
+    localStorage.removeItem(CHECKOUT_KEY);
   }
+  return emptyCheckoutDraft();
 }
 
 export function saveCheckoutDraft(draft: CheckoutDraft): void {
-  localStorage.setItem(CHECKOUT_KEY, JSON.stringify(draft));
+  localStorage.setItem(CHECKOUT_KEY, JSON.stringify({
+    version: 1,
+    draft,
+    savedAt: new Date().toISOString(),
+  } satisfies StoredCheckoutDraft));
+}
+
+function normalizeCheckoutDraft(draft: Partial<CheckoutDraft> & { details?: string }): CheckoutDraft {
+  const next = { ...emptyCheckoutDraft(), ...draft };
+  if (!next.houseNumber && next.street) {
+    const match = next.street.trim().match(/^(.+?)\s+([0-9][0-9A-Za-zА-Яа-я./-]*)$/u);
+    if (match) {
+      next.street = match[1].trim();
+      next.houseNumber = match[2].trim();
+    }
+  }
+
+  if (draft.details && !next.entrance && !next.floor && !next.apartment) {
+    const parts = draft.details
+      .split(/[,;]+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length >= 3) {
+      next.entrance = parts[0];
+      next.floor = parts[1];
+      next.apartment = parts.slice(2).join(", ");
+    } else if (parts.length === 2) {
+      next.entrance = parts[0];
+      next.apartment = parts[1];
+    } else if (parts.length === 1) {
+      next.apartment = parts[0];
+    }
+  }
+
+  return next;
 }
 
 export function checkoutCartSignature(lines: CartLine[]): string {
@@ -131,4 +181,10 @@ function isFuture(value: string | undefined): boolean {
   if (!value) return false;
   const expiresAt = new Date(value).getTime();
   return Number.isFinite(expiresAt) && expiresAt > Date.now() + 3000;
+}
+
+function isRecent(value: string | undefined, ttlMs: number): boolean {
+  if (!value) return false;
+  const savedAt = new Date(value).getTime();
+  return Number.isFinite(savedAt) && Date.now() - savedAt <= ttlMs;
 }

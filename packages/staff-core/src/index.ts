@@ -24,6 +24,11 @@ export interface StaffApi {
   markDelivered(token: string, id: string, idempotencyKey: string): Promise<Order>;
 }
 
+export interface StaffApiError extends Error {
+  code: string;
+  status?: number;
+}
+
 interface DemoOrder extends Order {
   __key?: string;
 }
@@ -116,6 +121,14 @@ export function openTelegramLink(url: string): void {
     return;
   }
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+export function isAuthError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; status?: unknown };
+  const code = typeof candidate.code === "string" ? candidate.code : "";
+  const status = typeof candidate.status === "number" ? candidate.status : 0;
+  return status === 401 || status === 403 || code === "AUTH_INVALID" || code === "FORBIDDEN";
 }
 
 function realApi(baseURL: string, appEnv: string): StaffApi {
@@ -228,7 +241,8 @@ async function post(url: string, body: unknown, token?: string, headers: Record<
 async function read(response: Response) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw Object.assign(new Error(payload?.error?.code || "SERVER_UNAVAILABLE"), { code: payload?.error?.code || "SERVER_UNAVAILABLE" });
+    const code = payload?.error?.code || "SERVER_UNAVAILABLE";
+    throw Object.assign(new Error(code), { code, status: response.status } satisfies Pick<StaffApiError, "code" | "status">);
   }
   return payload;
 }

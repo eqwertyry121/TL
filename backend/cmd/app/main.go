@@ -51,7 +51,10 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	st := store.New(pool, box)
+	st := store.New(pool, box, cfg.PIIHashKey)
+	if err := st.MigrateLegacyPhoneHashes(ctx); err != nil {
+		return err
+	}
 	if err := st.BootstrapOwner(ctx, cfg.BootstrapOwnerTelegramID); err != nil {
 		return err
 	}

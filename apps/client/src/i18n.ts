@@ -11,13 +11,18 @@ type Key =
   | "orders"
   | "support"
   | "terms"
+  | "acceptTerms"
+  | "termsRequired"
   | "add"
   | "goCheckout"
   | "emptyCart"
   | "noAvailableItems"
   | "phone"
   | "street"
-  | "details"
+  | "houseNumber"
+  | "entrance"
+  | "floor"
+  | "apartment"
   | "comment"
   | "cash"
   | "placeOrder"
@@ -41,13 +46,18 @@ const dict: Record<Locale, Record<Key, string>> = {
     orders: "История",
     support: "Поддержка",
     terms: "Условия",
+    acceptTerms: "Принимаю",
+    termsRequired: "Примите условия доставки",
     add: "Добавить",
     goCheckout: "Оформить",
     emptyCart: "Корзина пуста",
     noAvailableItems: "Нет доступных блюд",
     phone: "Телефон",
-    street: "Улица и номер",
-    details: "Подъезд, этаж, квартира",
+    street: "Улица",
+    houseNumber: "Дом",
+    entrance: "Подъезд",
+    floor: "Этаж",
+    apartment: "Квартира",
     comment: "Комментарий к заказу",
     cash: "Наличными",
     placeOrder: "ОФОРМИТЬ",
@@ -70,13 +80,18 @@ const dict: Record<Locale, Record<Key, string>> = {
     orders: "Istorija",
     support: "Podrška",
     terms: "Uslovi",
+    acceptTerms: "Prihvatam",
+    termsRequired: "Prihvatite uslove dostave",
     add: "Dodaj",
     goCheckout: "Naruči",
     emptyCart: "Korpa je prazna",
     noAvailableItems: "Nema dostupnih jela",
     phone: "Telefon",
-    street: "Ulica i broj",
-    details: "Ulaz, sprat, stan",
+    street: "Ulica",
+    houseNumber: "Broj",
+    entrance: "Ulaz",
+    floor: "Sprat",
+    apartment: "Stan",
     comment: "Komentar uz porudžbinu",
     cash: "Gotovina",
     placeOrder: "NARUČI",
@@ -99,13 +114,18 @@ const dict: Record<Locale, Record<Key, string>> = {
     orders: "History",
     support: "Support",
     terms: "Terms",
+    acceptTerms: "I accept",
+    termsRequired: "Accept the delivery terms",
     add: "Add",
     goCheckout: "Checkout",
     emptyCart: "Cart is empty",
     noAvailableItems: "No available items",
     phone: "Phone",
-    street: "Street and number",
-    details: "Entrance, floor, apartment",
+    street: "Street",
+    houseNumber: "No.",
+    entrance: "Entrance",
+    floor: "Floor",
+    apartment: "Apartment",
     comment: "Order comment",
     cash: "Cash",
     placeOrder: "PLACE ORDER",

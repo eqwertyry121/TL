@@ -134,6 +134,10 @@ type verifyCashLocationRequest struct {
 }
 
 func (s *Server) verifyCashLocationChallenge(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.Env == "production" {
+		writeError(w, core.ErrForbidden)
+		return
+	}
 	id, err := parseUUIDParam(r, "id")
 	if err != nil {
 		writeError(w, err)
@@ -259,7 +263,8 @@ func (s *Server) sendClientBotMessage(ctx context.Context, chatID int64, text st
 		return 0, err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	response, err := http.DefaultClient.Do(request)
+	client := &http.Client{Timeout: 8 * time.Second}
+	response, err := client.Do(request)
 	if err != nil {
 		return 0, fmt.Errorf("telegram_network_error")
 	}

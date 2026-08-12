@@ -1,6 +1,6 @@
 import type { Order, Role } from "@tk-delivery/api-client/generated";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
-import { clientLabel, courierEtaLink, courierTimeText, createStaffApi, mapLink, money, openTelegramLink, paymentText, problemLink, telegramUserLink } from "@tk-delivery/staff-core";
+import { clientLabel, courierEtaLink, courierTimeText, createStaffApi, isAuthError, mapLink, money, openTelegramLink, paymentText, problemLink, telegramUserLink } from "@tk-delivery/staff-core";
 import { Check, Copy, MapPin, MoreVertical, Phone, RefreshCw, WifiOff } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -16,6 +16,7 @@ export function App() {
   const [busy, setBusy] = useState("");
   const [etaBusy, setEtaBusy] = useState("");
   const seenIdsRef = useRef(loadSeenOrderIds(courierSeenOrdersKey));
+  const authRefreshRef = useRef<Promise<string> | null>(null);
   const [seenIds, setSeenIds] = useState<Set<string>>(() => new Set(seenIdsRef.current));
 
   const sortedOrders = useMemo(() => [...orders].sort((a, b) => new Date(a.ready_at || a.created_at).getTime() - new Date(b.ready_at || b.created_at).getTime()), [orders]);
@@ -29,10 +30,40 @@ export function App() {
     saveSeenOrderIds(courierSeenOrdersKey, next);
   }
 
-  async function refresh(authToken = token) {
-    if (!authToken) return;
+  function applySession(session: Awaited<ReturnType<typeof api.authenticate>>) {
+    setToken(session.token);
+    setTelegramUserId(session.telegram_user_id);
+    setOffline(false);
+    return session.token;
+  }
+
+  async function authenticate() {
+    return applySession(await api.authenticate("COURIER"));
+  }
+
+  async function refreshAuth() {
+    if (!authRefreshRef.current) {
+      authRefreshRef.current = authenticate().finally(() => {
+        authRefreshRef.current = null;
+      });
+    }
+    return authRefreshRef.current;
+  }
+
+  async function withAuth<T>(action: (authToken: string) => Promise<T>, authToken = token): Promise<T> {
+    const currentToken = authToken || (await refreshAuth());
     try {
-      const response = await api.listCourierOrders(authToken);
+      return await action(currentToken);
+    } catch (error) {
+      if (!isAuthError(error)) throw error;
+      const freshToken = await refreshAuth();
+      return action(freshToken);
+    }
+  }
+
+  async function refresh(authToken = token) {
+    try {
+      const response = await withAuth((currentToken) => api.listCourierOrders(currentToken), authToken);
       setOrders(response.orders);
       setLastUpdated(new Date());
       setOffline(false);
@@ -45,9 +76,8 @@ export function App() {
     let stopped = false;
     api.authenticate("COURIER").then((session) => {
       if (stopped) return;
-      setToken(session.token);
-      setTelegramUserId(session.telegram_user_id);
-      void refresh(session.token);
+      const nextToken = applySession(session);
+      void refresh(nextToken);
     }).catch(() => setOffline(true));
     return () => {
       stopped = true;
@@ -71,7 +101,7 @@ export function App() {
     markSeen(order.id);
     setBusy(order.id);
     try {
-      await api.markDelivered(token, order.id, `delivered-${order.id}-${order.version}`);
+      await withAuth((authToken) => api.markDelivered(authToken, order.id, `delivered-${order.id}-${order.version}`));
       setOrders((current) => current.filter((entry) => entry.id !== order.id));
     } catch {
       await refresh();
@@ -91,7 +121,7 @@ export function App() {
     const key = `${order.id}:${minutes}`;
     setEtaBusy(key);
     try {
-      await api.sendCourierETA(token, order.id, minutes);
+      await withAuth((authToken) => api.sendCourierETA(authToken, order.id, minutes));
     } catch {
       await refresh();
     } finally {

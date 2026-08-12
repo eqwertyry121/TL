@@ -32,6 +32,12 @@ services:
       - "127.0.0.1:${APP_HOST_PORT:-18080}:8080"
     volumes:
       - tk_delivery_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
 
 volumes:
   tk_delivery_pg:

@@ -41,8 +41,6 @@ import {
   openTelegramLink,
   rawInitData,
   requestTelegramContact,
-  requestTelegramLocation,
-  shouldRequestLocationInMiniApp,
   syncBackButton,
 } from "./telegram";
 import type { Api, AppData, Calculation, CashLocationChallenge, CartLine, CartState, CheckoutDraft, Locale, Route, Session, VerifiedContact } from "./types";
@@ -70,6 +68,7 @@ function ClientMiniApp() {
   const [paymentMethod, setPaymentMethod] = useState<Extract<PaymentMethod, "cash" | "crypto">>("cash");
   const [contactLoading, setContactLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [restoredCheckoutSignature, setRestoredCheckoutSignature] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -133,6 +132,31 @@ function ClientMiniApp() {
       alive = false;
     };
   }, [refresh]);
+
+  useEffect(() => {
+    let stopped = false;
+    const refreshRuntime = () => {
+      api.runtime()
+        .then((runtime) => {
+          if (!stopped) setData((current) => ({ ...current, runtime }));
+        })
+        .catch(() => undefined);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "hidden") refreshRuntime();
+    };
+    const timer = window.setInterval(refreshRuntime, 10000);
+    window.addEventListener("focus", refreshRuntime);
+    window.addEventListener("pageshow", refreshRuntime);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshRuntime);
+      window.removeEventListener("pageshow", refreshRuntime);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     const onHash = () => setRoute(currentRoute());
@@ -250,6 +274,8 @@ function ClientMiniApp() {
     setCart(next);
     saveCart(next);
     setCalculation(null);
+    setCashLocation(null);
+    clearCheckoutProgress();
     haptic();
   }
 
@@ -260,6 +286,8 @@ function ClientMiniApp() {
     setCart(next);
     saveCart(next);
     setCalculation(null);
+    setCashLocation(null);
+    clearCheckoutProgress();
     haptic();
   }
 
@@ -288,12 +316,18 @@ function ClientMiniApp() {
         changed = true;
       }
     }
-    if (hasUnavailableLine) setCalculation(null);
+    if (hasUnavailableLine) {
+      setCalculation(null);
+      setCashLocation(null);
+      clearCheckoutProgress();
+    }
     if (!changed) return;
     const next = { version: 1, lines: nextLines } satisfies CartState;
     setCart(next);
     saveCart(next);
     setCalculation(null);
+    setCashLocation(null);
+    clearCheckoutProgress();
   }, [cart.lines, itemLookup]);
 
   function updateDraft(patch: Partial<CheckoutDraft>) {
@@ -350,40 +384,15 @@ function ClientMiniApp() {
     if (!token || locationLoading) return;
     setLocationLoading(true);
     setError("");
-    const inAppLocation = shouldRequestLocationInMiniApp();
-    const inAppLocationRequest = inAppLocation ? requestTelegramLocation() : null;
     try {
       const calc = calculation || (await calculate());
       if (!calc) throw new Error("EMPTY_CART");
       const challenge = await api.createCashLocationChallenge(token, {
         calculation_token: calc.calculation_token,
-        send_prompt: !inAppLocation,
+        send_prompt: true,
       });
       setCashLocation(challenge);
       if (challenge.status !== "PENDING") return;
-
-      if (inAppLocationRequest) {
-        const location = await inAppLocationRequest;
-        if (location) {
-          const verified = await api.verifyCashLocationChallenge(token, challenge.id, {
-            latitude: location.latitude,
-            longitude: location.longitude,
-            horizontal_accuracy: location.horizontal_accuracy ?? null,
-          });
-          setCashLocation(verified);
-          return;
-        }
-        const promptedChallenge = await api.createCashLocationChallenge(token, {
-          calculation_token: calc.calculation_token,
-          send_prompt: true,
-        });
-        setCashLocation(promptedChallenge);
-        if (promptedChallenge.status === "PENDING" && promptedChallenge.bot_url) {
-          openTelegramLink(promptedChallenge.bot_url);
-        }
-        return;
-      }
-
       if (challenge.bot_url) {
         openTelegramLink(challenge.bot_url);
       }
@@ -396,7 +405,7 @@ function ClientMiniApp() {
 
   async function submitOrder() {
     if (!token || submitting) return;
-    if (!verifiedContact?.verified || !draft.phone.trim() || !draft.street.trim()) {
+    if (!verifiedContact?.verified || !draft.phone.trim() || !draft.street.trim() || !draft.houseNumber.trim()) {
       setError("Поделитесь телефоном через Telegram и заполните адрес");
       return;
     }
@@ -409,17 +418,21 @@ function ClientMiniApp() {
         setError("Для оплаты наличными подтвердите местоположение");
         return;
       }
+      if (!termsAccepted) {
+        setError(t(locale, "termsRequired"));
+        return;
+      }
       if (paymentMethod === "crypto" && !window.confirm(`Тестовая crypto-оплата ${money(calc.total_minor)} будет сразу отмечена как PAID. Реальные деньги не списываются.`)) return;
       const order = await api.createOrder(
         token,
         {
           calculation_token: calc.calculation_token,
           phone: draft.phone.trim(),
-          address: [draft.street, draft.details].filter(Boolean).join(", "),
+          address: buildCheckoutAddress(draft),
           comment: draft.comment.trim(),
           payment_method: paymentMethod,
           cash_location_challenge_id: paymentMethod === "cash" ? cashLocation?.id : undefined,
-          terms_accepted: true,
+          terms_accepted: termsAccepted,
           locale,
         },
         pendingIdempotencyKey(),
@@ -430,6 +443,7 @@ function ClientMiniApp() {
       setCart(loadCart());
       setCalculation(null);
       setCashLocation(null);
+      setTermsAccepted(false);
       mergeOrder(order);
       replaceRoute({ name: "order", id: order.id });
     } catch (err) {
@@ -479,10 +493,13 @@ function ClientMiniApp() {
         cashLocation={cashLocation}
         cashLocationRequired={cashLocationRequired}
         cashLocationRadiusMeters={data.runtime?.cash_location_radius_meters || 12000}
+        termsUrl={data.runtime?.terms_url || ""}
+        termsAccepted={termsAccepted}
         locationLoading={locationLoading}
         submitting={submitting}
         onDraft={updateDraft}
         onPaymentMethod={setPaymentMethod}
+        onTermsAccepted={setTermsAccepted}
         onConfirmContact={confirmContact}
         onConfirmCashLocation={confirmCashLocation}
         onCalculate={calculate}
@@ -748,10 +765,7 @@ function Menu({ categories, cart, onSetLine }: { categories: AppData["categories
             const minQuantity = itemMinQuantity(item);
             return (
               <article className={qty > 0 ? "dish-card in-cart" : "dish-card"} key={item.id}>
-                <button className={`dish-art art-${visualIndex % 6}`} onClick={() => navigate({ name: "dish", id: item.id })}>
-                  <span className="dish-emoji">{foodVisual(item.title)}</span>
-                  <small className="dish-badge">{item.weight_text}</small>
-                </button>
+                <DishVisual item={item} visualIndex={visualIndex} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
                 <div className="dish-body">
                   <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
                     {item.title}
@@ -785,10 +799,7 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
   const minQuantity = itemMinQuantity(item);
   return (
     <div className="page narrow dish-page">
-      <div className="hero-art art-2">
-        <span className="dish-emoji">{foodVisual(item.title)}</span>
-        <small className="dish-badge">{item.weight_text}</small>
-      </div>
+      <DishVisual item={item} visualIndex={2} hero />
       <span className="eyebrow">Tako Lako special</span>
       <h1>{item.title}</h1>
       <p className="lead">{item.description}</p>
@@ -809,6 +820,50 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
       </div>
     </div>
   );
+}
+
+function DishVisual({
+  item,
+  visualIndex,
+  hero = false,
+  asButton = false,
+  onClick,
+}: {
+  item: MenuItem;
+  visualIndex: number;
+  hero?: boolean;
+  asButton?: boolean;
+  onClick?: () => void;
+}) {
+  const src = menuPhotoURL(item.photo_path);
+  const className = `${hero ? "hero-art" : "dish-art"} art-${visualIndex % 6}${src ? " has-photo" : ""}`;
+  const content = (
+    <>
+      {src && (
+        <img
+          className="dish-photo"
+          src={src}
+          alt=""
+          loading={hero ? "eager" : "lazy"}
+          decoding="async"
+          onError={(event) => {
+            event.currentTarget.hidden = true;
+            event.currentTarget.parentElement?.classList.add("photo-failed");
+          }}
+        />
+      )}
+      <span className="dish-emoji">{foodVisual(item.title)}</span>
+      {item.weight_text && <small className="dish-badge">{item.weight_text}</small>}
+    </>
+  );
+  if (asButton) {
+    return (
+      <button className={className} type="button" onClick={onClick}>
+        {content}
+      </button>
+    );
+  }
+  return <div className={className}>{content}</div>;
 }
 
 function Cart({
@@ -880,10 +935,13 @@ function Checkout({
   cashLocation,
   cashLocationRequired,
   cashLocationRadiusMeters,
+  termsUrl,
+  termsAccepted,
   locationLoading,
   submitting,
   onDraft,
   onPaymentMethod,
+  onTermsAccepted,
   onConfirmContact,
   onConfirmCashLocation,
   onCalculate,
@@ -903,10 +961,13 @@ function Checkout({
   cashLocation: CashLocationChallenge | null;
   cashLocationRequired: boolean;
   cashLocationRadiusMeters: number;
+  termsUrl: string;
+  termsAccepted: boolean;
   locationLoading: boolean;
   submitting: boolean;
   onDraft: (patch: Partial<CheckoutDraft>) => void;
   onPaymentMethod: (method: Extract<PaymentMethod, "cash" | "crypto">) => void;
+  onTermsAccepted: (accepted: boolean) => void;
   onConfirmContact: () => Promise<void>;
   onConfirmCashLocation: () => Promise<void>;
   onCalculate: () => Promise<Calculation | null>;
@@ -919,6 +980,8 @@ function Checkout({
   const locationRequired = paymentMethod === "cash" && cashLocationRequired;
   const locationVerified = !locationRequired || cashLocation?.status === "VERIFIED";
   const contactVerified = Boolean(verifiedContact?.verified);
+  const termsHref = termsUrl.trim() || routeToHash({ name: "terms" });
+  const termsExternal = /^https?:\/\//i.test(termsHref);
   return (
     <div className="page narrow checkout-page">
       <h1>{t(locale, "checkout")}</h1>
@@ -927,14 +990,30 @@ function Checkout({
           <Phone size={18} />
           {contactLoading ? "Ждём Telegram contact…" : contactVerified ? `Телефон подтверждён: ${verifiedContact?.masked || maskPhone(draft.phone)}` : "Поделиться телефоном для связи"}
         </button>
-        <label>
-          <span>{t(locale, "street")}</span>
-          <input value={draft.street} maxLength={120} onChange={(event) => onDraft({ street: event.target.value })} />
-        </label>
-        <label>
-          <span>{t(locale, "details")}</span>
-          <input value={draft.details} maxLength={120} onChange={(event) => onDraft({ details: event.target.value })} />
-        </label>
+        <div className="address-grid main-address-grid">
+          <label>
+            <span>{t(locale, "street")}</span>
+            <input value={draft.street} maxLength={90} autoComplete="street-address" onChange={(event) => onDraft({ street: event.target.value })} />
+          </label>
+          <label>
+            <span>{t(locale, "houseNumber")}</span>
+            <input value={draft.houseNumber} maxLength={16} autoComplete="address-line2" onChange={(event) => onDraft({ houseNumber: event.target.value })} />
+          </label>
+        </div>
+        <div className="address-grid details-address-grid">
+          <label>
+            <span>{t(locale, "entrance")}</span>
+            <input value={draft.entrance} maxLength={24} inputMode="text" onChange={(event) => onDraft({ entrance: event.target.value })} />
+          </label>
+          <label>
+            <span>{t(locale, "floor")}</span>
+            <input value={draft.floor} maxLength={16} inputMode="text" onChange={(event) => onDraft({ floor: event.target.value })} />
+          </label>
+          <label>
+            <span>{t(locale, "apartment")}</span>
+            <input value={draft.apartment} maxLength={24} inputMode="text" onChange={(event) => onDraft({ apartment: event.target.value })} />
+          </label>
+        </div>
         <label>
           <span>{t(locale, "comment")}</span>
           <textarea value={draft.comment} maxLength={300} onChange={(event) => onDraft({ comment: event.target.value })} />
@@ -971,12 +1050,36 @@ function Checkout({
           </button>
         </div>
       )}
-      <Totals subtotal={calculation?.subtotal_minor || subtotal} total={calculation?.subtotal_minor || total} locale={locale} />
-      <button className="primary full" disabled={!checkoutOpen || submitting || !contactVerified || !locationVerified} onClick={onSubmit}>
-        {submitting ? "..." : `${paymentMethod === "crypto" ? "ОПЛАТИТЬ TEST CRYPTO" : t(locale, "placeOrder")} · ${money(calculation?.subtotal_minor || total)}`}
+      <Totals subtotal={calculation?.subtotal_minor || subtotal} total={calculation?.total_minor || total} locale={locale} />
+      <label className="terms-check">
+        <input type="checkbox" checked={termsAccepted} onChange={(event) => onTermsAccepted(event.target.checked)} />
+        <span>
+          {t(locale, "acceptTerms")}{" "}
+          <a href={termsHref} target={termsExternal ? "_blank" : undefined} rel={termsExternal ? "noreferrer" : undefined}>
+            {t(locale, "terms")}
+          </a>
+        </span>
+      </label>
+      <button className="primary full" disabled={!checkoutOpen || submitting || !contactVerified || !locationVerified || !termsAccepted} onClick={onSubmit}>
+        {submitting ? "..." : `${paymentMethod === "crypto" ? "ОПЛАТИТЬ TEST CRYPTO" : t(locale, "placeOrder")} · ${money(calculation?.total_minor || total)}`}
       </button>
     </div>
   );
+}
+
+function buildCheckoutAddress(draft: CheckoutDraft): string {
+  const main = [draft.street.trim(), draft.houseNumber.trim()].filter(Boolean).join(" ");
+  const details = [
+    addressPart("подъезд", draft.entrance),
+    addressPart("этаж", draft.floor),
+    addressPart("кв.", draft.apartment),
+  ].filter(Boolean);
+  return [main, ...details].filter(Boolean).join(", ");
+}
+
+function addressPart(label: string, value: string): string {
+  const trimmed = value.trim();
+  return trimmed ? `${label} ${trimmed}` : "";
 }
 
 function cashLocationTitle(challenge: CashLocationChallenge | null): string {
@@ -1033,7 +1136,7 @@ function OrderScreen({ order, locale }: { order?: Order; locale: Locale }) {
           </div>
         ))}
       </div>
-      <Totals subtotal={order.subtotal_minor} total={order.subtotal_minor} locale={locale} />
+      <Totals subtotal={order.subtotal_minor} total={order.total_minor} locale={locale} />
       <div className="panel-list">
         <div className="split"><span>{t(locale, "phone")}</span><strong>{maskPhone(order.phone)}</strong></div>
         <div className="split"><span>Оплата</span><strong>{paymentStatusLabel(order)}</strong></div>
@@ -1146,6 +1249,18 @@ function foodVisual(title: string): string {
   if (lower.includes("лимонад")) return "🥤";
   if (lower.includes("морс")) return "🍓";
   return "🍽️";
+}
+
+function menuPhotoURL(path: string): string {
+  const value = path.trim();
+  if (!value) return "";
+  if (/^(https?:|blob:|data:)/i.test(value)) return value;
+  if (value.startsWith("/media/")) {
+    const apiBase = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+    return apiBase ? `${apiBase}${value}` : value;
+  }
+  if (value.startsWith("/")) return value;
+  return `/${value.replace(/^\/+/, "")}`;
 }
 
 function itemMinQuantity(item: MenuItem): number {

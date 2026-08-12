@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,7 @@ func (s *Server) Routes() http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	r.Use(s.withSecurityHeaders)
 	r.Use(s.withCORS)
 	r.Get("/health", s.health)
 	if s.cfg.MediaDir != "" {
@@ -122,6 +124,12 @@ func (s *Server) Routes() http.Handler {
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.store.Ping(ctx); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "service": "tk-delivery", "database": "unavailable"})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "service": "tk-delivery"})
 }
 
@@ -155,6 +163,7 @@ func (s *Server) runtime(w http.ResponseWriter, r *http.Request) {
 		EnabledPayments:          payments,
 		SupportedLocales:         []string{"ru", "sr", "en"},
 		SupportText:              settings.SupportText,
+		TermsURL:                 settings.TermsURL,
 		CashLocationRequired:     settings.CashLocationRequired,
 		CashLocationRadiusMeters: settings.CashLocationRadiusMeters,
 	})
@@ -232,6 +241,9 @@ func (s *Server) telegramAuth(w http.ResponseWriter, r *http.Request) {
 	token := s.cfg.ClientBotToken
 	if req.Audience == core.AudienceStaff || req.Role != core.RoleClient {
 		token = s.cfg.StaffBotToken
+		if strings.TrimSpace(token) == "" {
+			token = s.cfg.ClientBotToken
+		}
 	}
 	tgUser, err := tgauth.VerifyTelegramInitData(req.InitData, token, s.cfg.InitDataMaxAge, s.now())
 	if err != nil {
@@ -364,16 +376,28 @@ func (s *Server) courierETA(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminOrders(w http.ResponseWriter, r *http.Request) {
-	orders, err := s.store.AdminOrders(r.Context(), mustSession(r), store.AdminOrderFilter{
+	limit, err := parsePositiveIntQuery(r, "limit", 100, 20, 100)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	offset, err := parsePositiveIntQuery(r, "offset", 0, 0, 10000)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	page, err := s.store.AdminOrders(r.Context(), mustSession(r), store.AdminOrderFilter{
 		Status: r.URL.Query().Get("status"),
 		Query:  r.URL.Query().Get("q"),
 		Date:   r.URL.Query().Get("date"),
+		Limit:  limit,
+		Offset: offset,
 	})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"orders": orders})
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (s *Server) adminOrder(w http.ResponseWriter, r *http.Request) {
@@ -1001,12 +1025,37 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		if s.cfg.Env == "production" {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func mustSession(r *http.Request) core.Session {
 	return r.Context().Value(sessionKey).(core.Session)
 }
 
 func parseUUIDParam(r *http.Request, name string) (uuid.UUID, error) {
 	return uuid.Parse(chi.URLParam(r, name))
+}
+
+func parsePositiveIntQuery(r *http.Request, name string, fallback, minValue, maxValue int) (int, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get(name))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < minValue || value > maxValue {
+		return 0, core.ErrInvalidInput
+	}
+	return value, nil
 }
 
 func (s *Server) analyticsRange(r *http.Request) (time.Time, time.Time, error) {

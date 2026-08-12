@@ -264,11 +264,11 @@ SMS-подтверждения нет.
 - если Telegram скрывает кнопку, команда `/share` повторно показывает
   `request_location`; команда не может сама отправить GPS за пользователя;
 - на desktop/web Telegram, где bot-кнопка может отправляться как обычный текст,
-  frontend запрашивает геолокацию прямо внутри Mini App через Telegram
-  LocationManager/browser geolocation и отправляет результат на backend для той
-  же одноразовой проверки;
-- backend принимает location только от того же Telegram user: либо из
-  авторизованной Mini App session, либо из Telegram webhook;
+  пользователь открывает заказ на телефоне и отправляет native Telegram
+  location из bot-чата;
+- production backend принимает cash-location только из Telegram webhook от того
+  же Telegram user; session-protected WebApp/browser endpoint допустим только в
+  development/testing и не считается защитой для реальных заказов;
 - backend считает расстояние до ресторана и сравнивает с радиусом;
 - в PostgreSQL не хранится точная координата клиента — только status проверки,
   distance/accuracy, время и причина отказа;
@@ -569,6 +569,8 @@ Backend считает итог самостоятельно. Если цена 
 - параметризованный SQL и schema validation;
 - HTTPS, закрытый порт PostgreSQL, firewall;
 - redacted logs без телефона/адреса/token;
+- search hash телефона — HMAC-SHA256 с отдельным `PII_HASH_KEY`, не простой
+  SHA-256;
 - audit ADMIN-действий;
 - payment signature/amount/currency check;
 - notification retry из PostgreSQL;

@@ -38,6 +38,11 @@ paths:
       responses:
         "200":
           description: Telegram initData session
+  /me:
+    get:
+      responses:
+        "200":
+          description: Current Telegram-authenticated user, active role and allowed roles
   /telegram/client/webhook:
     post:
       security: []
@@ -67,7 +72,7 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200":
-          description: Verifies Telegram Mini App LocationManager coordinates without storing exact client coordinates
+          description: Development-only browser fallback. Production returns 403; cash orders must be verified by native Telegram location through /telegram/client/webhook.
   /orders/calculate:
     post:
       responses:
@@ -240,9 +245,38 @@ paths:
           description: Weekly restaurant schedule replaced after validation
   /admin/orders:
     get:
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [NEW, OUT_FOR_DELIVERY, DELIVERED, CANCELLED]
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 80
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 20
+            maximum: 100
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
       responses:
         "200":
-          description: Admin order console with status/date/search filters
+          description: Admin order console page with status/date/search filters and has_more pagination metadata
   /admin/orders/{id}:
     get:
       parameters:
@@ -277,7 +311,7 @@ paths:
         - $ref: "#/components/parameters/orderId"
       responses:
         "200":
-          description: Admin creates a notification retry job
+          description: Admin creates a notification retry job. Courier resend is allowed only while order is OUT_FOR_DELIVERY.
   /admin/orders/{id}/note:
     post:
       parameters:

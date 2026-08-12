@@ -58,6 +58,7 @@ APP_PUBLIC_BASE_URL=https://api.takolako.site
 APP_ALLOWED_ORIGINS=https://takolako.site,https://www.takolako.site
 POSTGRES_DSN=postgres://...
 APP_ENCRYPTION_KEY=<32-byte-base64-or-long-secret>
+PII_HASH_KEY=<different-32-byte-base64-or-long-secret>
 TELEGRAM_CLIENT_BOT_USERNAME=TakoLako_main_bot
 TELEGRAM_CLIENT_BOT_TOKEN=<secret>
 TELEGRAM_STAFF_BOT_USERNAME=<staff_bot_username>
@@ -102,11 +103,12 @@ Do not paste real bot token into docs, screenshots or commits.
 10. If Telegram hides the keyboard, user can send `/share` to show it again.
     `/share` does not send GPS by itself.
 11. On Telegram desktop/web, where the bot keyboard may send plain text instead
-    of a location object, frontend asks for geolocation inside Mini App via
-    Telegram LocationManager/browser geolocation and posts it to the challenge
-    endpoint.
-12. Telegram sends native location to client bot webhook, or Mini App sends the
-    approved geolocation to the session-protected endpoint.
-13. Backend checks distance to `45.241970, 19.808807` within configured radius.
-14. Backend stores only status/distance/accuracy, not exact client coordinates.
-15. Only then `/orders` can create cash order `NEW`.
+    of a location object, user must open the order on a phone and send native
+    Telegram location from the bot chat.
+12. Production backend does not accept browser/Mini App coordinates for cash
+    verification. The session-protected WebApp location endpoint is development
+    only.
+13. Telegram sends native location to client bot webhook.
+14. Backend checks distance to `45.241970, 19.808807` within configured radius.
+15. Backend stores only status/distance/accuracy, not exact client coordinates.
+16. Only then `/orders` can create cash order `NEW`.

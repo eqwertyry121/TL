@@ -128,6 +128,7 @@ type Runtime struct {
 	EnabledPayments          []string  `json:"enabled_payments"`
 	SupportedLocales         []string  `json:"supported_locales"`
 	SupportText              string    `json:"support_text"`
+	TermsURL                 string    `json:"terms_url"`
 	CashLocationRequired     bool      `json:"cash_location_required"`
 	CashLocationRadiusMeters int       `json:"cash_location_radius_meters"`
 }

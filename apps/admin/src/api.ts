@@ -32,9 +32,21 @@ export interface AdminSession {
   expires_at: string;
 }
 
+export interface AdminApiError extends Error {
+  code: string;
+  status?: number;
+}
+
 export interface AdminMenuResponse {
   categories: AdminCategory[];
   items: AdminMenuItem[];
+}
+
+export interface AdminOrdersResponse {
+  orders: Order[];
+  limit?: number;
+  offset?: number;
+  has_more?: boolean;
 }
 
 export interface CategoryInput {
@@ -112,7 +124,8 @@ export interface AdminApi {
   setManualDayOff(token: string, enabled: boolean): Promise<Settings>;
   schedule(token: string): Promise<{ schedule: ScheduleDay[] }>;
   updateSchedule(token: string, schedule: ScheduleDay[]): Promise<{ schedule: ScheduleDay[] }>;
-  orders(token: string, filter?: { status?: string; q?: string; date?: string }): Promise<{ orders: Order[] }>;
+  orders(token: string, filter?: { status?: string; q?: string; date?: string; limit?: number; offset?: number }): Promise<AdminOrdersResponse>;
+  order(token: string, id: string): Promise<Order>;
   cancelOrder(token: string, id: string, reason: string): Promise<Order>;
   returnOrderToNew(token: string, id: string, reason: string): Promise<Order>;
   updateOrderContact(token: string, id: string, input: { phone: string; address: string; reason: string }): Promise<Order>;
@@ -122,6 +135,7 @@ export interface AdminApi {
   addStaff(token: string, input: StaffInput & { telegram_user_id: number }): Promise<StaffMember>;
   updateStaff(token: string, id: string, input: StaffInput): Promise<StaffMember>;
   analytics(token: string, range: AnalyticsRange): Promise<AdminAnalytics>;
+  analyticsCSV(token: string, range: AnalyticsRange): Promise<Blob>;
   audit(token: string): Promise<{ entries: AuditEntry[] }>;
   uploadMenuPhoto(token: string, file: File): Promise<{ photo_path: string }>;
 }
@@ -151,6 +165,14 @@ export function statusText(status: Order["fulfillment_status"]): string {
     case "CANCELLED":
       return "Отменён";
   }
+}
+
+export function isAuthError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; status?: unknown };
+  const code = typeof candidate.code === "string" ? candidate.code : "";
+  const status = typeof candidate.status === "number" ? candidate.status : 0;
+  return status === 401 || status === 403 || code === "AUTH_INVALID" || code === "FORBIDDEN";
 }
 
 function realApi(baseURL: string, appEnv: string): AdminApi {
@@ -185,6 +207,7 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
     schedule: (token) => get(`${baseURL}/api/v1/admin/schedule`, token),
     updateSchedule: (token, schedule) => put(`${baseURL}/api/v1/admin/schedule`, { schedule }, token),
     orders: (token, filter = {}) => get(`${baseURL}/api/v1/admin/orders?${new URLSearchParams(clean(filter))}`, token),
+    order: (token, id) => get(`${baseURL}/api/v1/admin/orders/${id}`, token),
     cancelOrder: (token, id, reason) => post(`${baseURL}/api/v1/admin/orders/${id}/cancel`, { reason }, token),
     returnOrderToNew: (token, id, reason) => post(`${baseURL}/api/v1/admin/orders/${id}/return-to-new`, { reason }, token),
     updateOrderContact: (token, id, input) => put(`${baseURL}/api/v1/admin/orders/${id}/contact`, input, token),
@@ -194,6 +217,7 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
     addStaff: (token, input) => post(`${baseURL}/api/v1/admin/staff`, input, token),
     updateStaff: (token, id, input) => put(`${baseURL}/api/v1/admin/staff/${id}`, input, token),
     analytics: (token, range) => get(`${baseURL}/api/v1/admin/analytics?range=${range}`, token),
+    analyticsCSV: (token, range) => getBlob(`${baseURL}/api/v1/admin/analytics.csv?range=${range}`, token),
     audit: (token) => get(`${baseURL}/api/v1/admin/audit`, token),
     async uploadMenuPhoto(token, file) {
       const form = new FormData();
@@ -399,7 +423,28 @@ function demoApi(): AdminApi {
       if (filter.status) orders = orders.filter((order) => order.fulfillment_status === filter.status);
       if (filter.q) orders = orders.filter((order) => String(order.public_number).includes(filter.q || "") || (order.phone || "").includes(filter.q || ""));
       if (filter.date) orders = orders.filter((order) => order.created_at.slice(0, 10) === filter.date);
-      return { orders };
+      const offset = filter.offset || 0;
+      const limit = filter.limit || 100;
+      return { orders: orders.slice(offset, offset + limit), limit, offset, has_more: orders.length > offset + limit };
+    },
+    async order(_token, id) {
+      const order = loadOrders().find((entry) => entry.id === id);
+      if (!order) throw apiError("INVALID_INPUT", 404);
+      return {
+        ...order,
+        events: [
+          {
+            id: `${id}-event-created`,
+            order_id: id,
+            from_status: "",
+            to_status: order.fulfillment_status,
+            action: "order.demo_snapshot",
+            actor_role: "ADMIN",
+            reason: "demo",
+            created_at: order.created_at,
+          },
+        ],
+      };
     },
     async cancelOrder(_token, id, reason) {
       return mutateOrder(id, reason, (order) => ({ ...order, fulfillment_status: "CANCELLED", payment_status: order.payment_status === "CASH_PENDING" ? "FAILED" : order.payment_status, cancelled_at: nowISO(), version: order.version + 1 }));
@@ -445,6 +490,14 @@ function demoApi(): AdminApi {
     async analytics(_token, range) {
       return calculateAnalytics(range);
     },
+    async analyticsCSV(_token, range) {
+      const analytics = calculateAnalytics(range);
+      const rows = [
+        "day,orders,delivered,cancelled,revenue_minor",
+        ...analytics.daily_rows.map((row) => `${row.day},${row.orders},${row.delivered},${row.cancelled},${row.revenue_minor}`),
+      ];
+      return new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
+    },
     async audit() {
       return { entries: loadAudit() };
     },
@@ -479,6 +532,7 @@ function unconfiguredApi(): AdminApi {
     schedule: fail,
     updateSchedule: fail,
     orders: fail,
+    order: fail,
     cancelOrder: fail,
     returnOrderToNew: fail,
     updateOrderContact: fail,
@@ -488,6 +542,7 @@ function unconfiguredApi(): AdminApi {
     addStaff: fail,
     updateStaff: fail,
     analytics: fail,
+    analyticsCSV: fail,
     audit: fail,
     uploadMenuPhoto: fail,
   };
@@ -496,6 +551,15 @@ function unconfiguredApi(): AdminApi {
 async function get(url: string, token?: string) {
   const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
   return read(response);
+}
+
+async function getBlob(url: string, token?: string) {
+  const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw apiError(payload?.error?.code || "SERVER_UNAVAILABLE", response.status);
+  }
+  return response.blob();
 }
 
 async function post(url: string, body: unknown, token?: string) {
@@ -529,7 +593,7 @@ async function del(url: string, token?: string) {
 
 async function read(response: Response) {
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw apiError(payload?.error?.code || "SERVER_UNAVAILABLE");
+  if (!response.ok) throw apiError(payload?.error?.code || "SERVER_UNAVAILABLE", response.status);
   return payload;
 }
 
@@ -681,6 +745,7 @@ function runtimeFromSettings(settings: Settings) {
     ],
     supported_locales: ["ru" as const, "sr" as const, "en" as const],
     support_text: settings.support_text,
+    terms_url: settings.terms_url,
     cash_location_required: settings.cash_location_required,
     cash_location_radius_meters: settings.cash_location_radius_meters,
   };
@@ -981,8 +1046,12 @@ function saveJSON(key: string, value: unknown): void {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function clean(filter: Record<string, string | undefined>): Record<string, string> {
-  return Object.fromEntries(Object.entries(filter).filter(([, value]) => value)) as Record<string, string>;
+function clean(filter: Record<string, string | number | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(filter)
+      .filter(([, value]) => value !== undefined && value !== "")
+      .map(([key, value]) => [key, String(value)]),
+  );
 }
 
 function isToday(value: string): boolean {
@@ -993,6 +1062,6 @@ function nowISO(): string {
   return new Date().toISOString();
 }
 
-function apiError(code: string) {
-  return Object.assign(new Error(code), { code });
+function apiError(code: string, status?: number) {
+  return Object.assign(new Error(code), { code, status } satisfies Pick<AdminApiError, "code" | "status">);
 }

@@ -76,7 +76,8 @@ func (w *Worker) ProcessOnce(ctx context.Context) error {
 		SET status='sent', attempts=attempts+1, updated_at=now()
 		WHERE id IN (
 			SELECT id FROM notification_jobs
-			WHERE status='pending' AND next_attempt_at <= now()
+			WHERE (status='pending' AND next_attempt_at <= now())
+				OR (status='processing' AND updated_at < now() - interval '5 minutes')
 			ORDER BY created_at
 			LIMIT 20
 			FOR UPDATE SKIP LOCKED
@@ -86,28 +87,8 @@ func (w *Worker) ProcessOnce(ctx context.Context) error {
 }
 
 func (w *Worker) processTelegram(ctx context.Context) error {
-	rows, err := w.pool.Query(ctx, `
-		SELECT id, order_id, recipient_kind, template, attempts
-		FROM notification_jobs
-		WHERE status='pending' AND next_attempt_at <= now()
-		ORDER BY created_at
-		LIMIT 20
-		FOR UPDATE SKIP LOCKED
-	`)
+	jobs, err := w.claimJobs(ctx)
 	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	jobs := []job{}
-	for rows.Next() {
-		var current job
-		if err := rows.Scan(&current.id, &current.orderID, &current.recipientKind, &current.template, &current.attempts); err != nil {
-			return err
-		}
-		jobs = append(jobs, current)
-	}
-	if err := rows.Err(); err != nil {
 		return err
 	}
 
@@ -117,6 +98,53 @@ func (w *Worker) processTelegram(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (w *Worker) claimJobs(ctx context.Context) ([]job, error) {
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	rows, err := tx.Query(ctx, `
+		WITH candidates AS (
+			SELECT id
+			FROM notification_jobs
+			WHERE (status='pending' AND next_attempt_at <= now())
+				OR (status='processing' AND updated_at < now() - interval '5 minutes')
+			ORDER BY created_at
+			LIMIT 20
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE notification_jobs j
+		SET status='processing', attempts=attempts+1, last_error_code='', updated_at=now()
+		FROM candidates
+		WHERE j.id=candidates.id
+		RETURNING j.id, j.order_id, j.recipient_kind, j.template, j.attempts
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	jobs := []job{}
+	for rows.Next() {
+		var current job
+		if err := rows.Scan(&current.id, &current.orderID, &current.recipientKind, &current.template, &current.attempts); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, current)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return jobs, nil
 }
 
 func (w *Worker) processJob(ctx context.Context, current job) error {
@@ -131,8 +159,8 @@ func (w *Worker) processJob(ctx context.Context, current job) error {
 	}
 	_, err = w.pool.Exec(ctx, `
 		UPDATE notification_jobs
-		SET status='sent', attempts=attempts+1, last_error_code='', updated_at=now()
-		WHERE id=$1
+		SET status='sent', last_error_code='', updated_at=now()
+		WHERE id=$1 AND status='processing'
 	`, current.id)
 	return err
 }
@@ -322,7 +350,7 @@ func (w *Worker) sendMessage(ctx context.Context, token string, chatID int64, te
 }
 
 func (w *Worker) markFailed(ctx context.Context, current job, cause error) {
-	nextAttempts := current.attempts + 1
+	nextAttempts := current.attempts
 	status := "pending"
 	if nextAttempts >= 5 {
 		status = "failed"
@@ -330,8 +358,8 @@ func (w *Worker) markFailed(ctx context.Context, current job, cause error) {
 	nextAttemptAt := time.Now().UTC().Add(time.Duration(nextAttempts) * time.Minute)
 	_, _ = w.pool.Exec(ctx, `
 		UPDATE notification_jobs
-		SET status=$2, attempts=attempts+1, next_attempt_at=$3, last_error_code=$4, updated_at=now()
-		WHERE id=$1
+		SET status=$2, next_attempt_at=$3, last_error_code=$4, updated_at=now()
+		WHERE id=$1 AND status='processing'
 	`, current.id, status, nextAttemptAt, redactedError(cause))
 }
 

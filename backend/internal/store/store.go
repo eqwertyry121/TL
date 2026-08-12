@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -25,9 +26,26 @@ import (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
-	box  *cryptobox.Box
+	pool       *pgxpool.Pool
+	box        *cryptobox.Box
+	piiHashKey []byte
 }
+
+const (
+	phoneHashHMACPrefix       = "hmac-sha256:"
+	maxPhoneLength            = 32
+	maxAddressLength          = 240
+	maxCustomerCommentLength  = 300
+	maxTitleLength            = 80
+	maxDescriptionLength      = 700
+	maxShortTextLength        = 120
+	maxSupportTextLength      = 700
+	maxURLLength              = 300
+	maxReasonLength           = 300
+	maxAdminSearchLength      = 80
+	maxStaffDisplayLabelLimit = 80
+	maxItemQuantityHardLimit  = 99
+)
 
 type CreateOrderInput struct {
 	CalculationToken        string             `json:"calculation_token"`
@@ -97,6 +115,15 @@ type AdminOrderFilter struct {
 	Status string
 	Query  string
 	Date   string
+	Limit  int
+	Offset int
+}
+
+type AdminOrdersPage struct {
+	Orders  []core.Order `json:"orders"`
+	Limit   int          `json:"limit"`
+	Offset  int          `json:"offset"`
+	HasMore bool         `json:"has_more"`
 }
 
 type AddStaffInput struct {
@@ -112,8 +139,70 @@ type UpdateStaffInput struct {
 	Active       bool      `json:"active"`
 }
 
-func New(pool *pgxpool.Pool, box *cryptobox.Box) *Store {
-	return &Store{pool: pool, box: box}
+func New(pool *pgxpool.Pool, box *cryptobox.Box, piiHashKey []byte) *Store {
+	key := append([]byte(nil), piiHashKey...)
+	if len(key) == 0 {
+		sum := sha256.Sum256([]byte("tk-delivery-local-dev-pii-hash-key"))
+		key = append([]byte(nil), sum[:]...)
+	}
+	return &Store{pool: pool, box: box, piiHashKey: key}
+}
+
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
+
+func (s *Store) MigrateLegacyPhoneHashes(ctx context.Context) error {
+	if err := s.migrateLegacyPhoneHashesForTable(ctx, "users"); err != nil {
+		return err
+	}
+	return s.migrateLegacyPhoneHashesForTable(ctx, "orders")
+}
+
+func (s *Store) migrateLegacyPhoneHashesForTable(ctx context.Context, table string) error {
+	if table != "users" && table != "orders" {
+		return core.ErrInvalidInput
+	}
+	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, phone_ciphertext
+		FROM %s
+		WHERE phone_ciphertext <> ''
+			AND (phone_hash = '' OR phone_hash NOT LIKE $1)
+	`, table), phoneHashHMACPrefix+"%")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type legacyPhoneRow struct {
+		id         uuid.UUID
+		ciphertext string
+	}
+	pending := []legacyPhoneRow{}
+	for rows.Next() {
+		var current legacyPhoneRow
+		if err := rows.Scan(&current.id, &current.ciphertext); err != nil {
+			return err
+		}
+		pending = append(pending, current)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, current := range pending {
+		phone, err := s.box.Decrypt(current.ciphertext)
+		if err != nil {
+			return fmt.Errorf("migrate legacy phone hash %s %s: %w", table, current.id, err)
+		}
+		if _, err := s.pool.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s
+			SET phone_hash=$2, updated_at=now()
+			WHERE id=$1 AND (phone_hash = '' OR phone_hash NOT LIKE $3)
+		`, table), current.id, s.phoneHash(phone), phoneHashHMACPrefix+"%"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) BootstrapOwner(ctx context.Context, telegramUserID int64) error {
@@ -227,6 +316,16 @@ func (s *Store) SessionByToken(ctx context.Context, token string) (core.Session,
 		FROM sessions s
 		JOIN users u ON u.id=s.user_id
 		WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at > now()
+			AND (
+				s.active_role='CLIENT'
+				OR EXISTS (
+					SELECT 1
+					FROM staff st
+					WHERE st.telegram_user_id=s.telegram_user_id
+						AND st.role=s.active_role
+						AND st.active=true
+				)
+			)
 	`, hash).Scan(
 		&sess.TokenHash,
 		&sess.UserID,
@@ -346,7 +445,12 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 	if input.CashLocationMaxAccuracyMeters == 0 {
 		input.CashLocationMaxAccuracyMeters = 200
 	}
-	if input.FlatDeliveryFeeMinor < 0 || input.MaxItemQuantity <= 0 || input.MaxCommentLength <= 0 || !input.CashEnabled {
+	if input.FlatDeliveryFeeMinor < 0 || input.MaxItemQuantity <= 0 || input.MaxItemQuantity > maxItemQuantityHardLimit ||
+		input.MaxCommentLength <= 0 || input.MaxCommentLength > maxCustomerCommentLength || !input.CashEnabled {
+		return core.Settings{}, core.ErrInvalidInput
+	}
+	if !optionalText(input.SupportText, maxSupportTextLength) || !optionalText(input.SupportPhone, maxPhoneLength) ||
+		!validOptionalURL(input.TermsURL) {
 		return core.Settings{}, core.ErrInvalidInput
 	}
 	if input.CashLocationRadiusMeters <= 0 || input.CashLocationTTLSeconds < 30 || input.CashLocationTTLSeconds > 900 ||
@@ -566,7 +670,7 @@ func (s *Store) CreateCategory(ctx context.Context, sess core.Session, input Ups
 	if sess.ActiveRole != core.RoleAdmin {
 		return core.AdminCategory{}, core.ErrForbidden
 	}
-	if strings.TrimSpace(input.TitleRU) == "" {
+	if !validCategoryInput(input) {
 		return core.AdminCategory{}, core.ErrInvalidInput
 	}
 	var id uuid.UUID
@@ -586,7 +690,7 @@ func (s *Store) UpdateCategory(ctx context.Context, sess core.Session, id uuid.U
 	if sess.ActiveRole != core.RoleAdmin {
 		return core.AdminCategory{}, core.ErrForbidden
 	}
-	if strings.TrimSpace(input.TitleRU) == "" || input.Version <= 0 {
+	if !validCategoryInput(input) || input.Version <= 0 {
 		return core.AdminCategory{}, core.ErrInvalidInput
 	}
 	before, err := s.adminCategoryByID(ctx, id)
@@ -688,7 +792,7 @@ func (s *Store) CreateMenuItem(ctx context.Context, sess core.Session, input Ups
 	if sess.ActiveRole != core.RoleAdmin {
 		return core.AdminMenuItem{}, core.ErrForbidden
 	}
-	if strings.TrimSpace(input.TitleRU) == "" || input.PriceMinor < 0 || input.CategoryID == uuid.Nil || input.MinQuantity <= 0 {
+	if !validMenuItemInput(input) {
 		return core.AdminMenuItem{}, core.ErrInvalidInput
 	}
 	var id uuid.UUID
@@ -714,7 +818,7 @@ func (s *Store) UpdateMenuItem(ctx context.Context, sess core.Session, id uuid.U
 	if sess.ActiveRole != core.RoleAdmin {
 		return core.AdminMenuItem{}, core.ErrForbidden
 	}
-	if strings.TrimSpace(input.TitleRU) == "" || input.PriceMinor < 0 || input.CategoryID == uuid.Nil || input.MinQuantity <= 0 || input.Version <= 0 {
+	if !validMenuItemInput(input) || input.Version <= 0 {
 		return core.AdminMenuItem{}, core.ErrInvalidInput
 	}
 	before, err := s.adminMenuItemByID(ctx, id)
@@ -902,6 +1006,78 @@ func (s *Store) Calculate(ctx context.Context, sess core.Session, input []core.C
 	return calc, nil
 }
 
+func (s *Store) revalidateCalculationTx(ctx context.Context, tx pgx.Tx, items []core.CalculatedItem, storedSubtotal, storedDelivery, storedTotal int, storedCurrency string) ([]core.CalculatedItem, int, int, int, string, error) {
+	if len(items) == 0 {
+		return nil, 0, 0, 0, "", core.ErrInvalidQuantity
+	}
+
+	var currentCurrency string
+	var currentDelivery, maxItemQuantity int
+	if err := tx.QueryRow(ctx, `
+		SELECT currency, flat_delivery_fee_minor, max_item_quantity
+		FROM app_settings
+		WHERE id=true
+	`).Scan(&currentCurrency, &currentDelivery, &maxItemQuantity); err != nil {
+		return nil, 0, 0, 0, "", err
+	}
+	if storedCurrency != currentCurrency || storedDelivery != currentDelivery {
+		return nil, 0, 0, 0, "", core.ErrCalculationExpired
+	}
+
+	seen := map[uuid.UUID]bool{}
+	revalidated := make([]core.CalculatedItem, 0, len(items))
+	subtotal := 0
+	for _, item := range items {
+		if item.ItemID == uuid.Nil || seen[item.ItemID] || item.Quantity <= 0 || item.Quantity > maxItemQuantity {
+			return nil, 0, 0, 0, "", core.ErrInvalidQuantity
+		}
+		seen[item.ItemID] = true
+
+		var title string
+		var price, version, minQuantity int
+		err := tx.QueryRow(ctx, `
+			SELECT mi.title_ru, mi.price_minor, mi.version, mi.min_quantity
+			FROM menu_items mi
+			JOIN categories c ON c.id=mi.category_id
+			WHERE mi.id=$1
+				AND mi.visible=true
+				AND mi.archived=false
+				AND c.visible=true
+				AND c.archived=false
+		`, item.ItemID).Scan(&title, &price, &version, &minQuantity)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, 0, 0, 0, "", core.ErrItemUnavailable
+		}
+		if err != nil {
+			return nil, 0, 0, 0, "", err
+		}
+		if item.Quantity < minQuantity {
+			return nil, 0, 0, 0, "", core.ErrInvalidQuantity
+		}
+		if item.Title != title || item.UnitPriceMinor != price || item.Version != version {
+			return nil, 0, 0, 0, "", core.ErrCalculationExpired
+		}
+		line := price * item.Quantity
+		if item.LineTotalMinor != line {
+			return nil, 0, 0, 0, "", core.ErrCalculationExpired
+		}
+		subtotal += line
+		revalidated = append(revalidated, core.CalculatedItem{
+			ItemID:         item.ItemID,
+			Title:          title,
+			UnitPriceMinor: price,
+			Quantity:       item.Quantity,
+			LineTotalMinor: line,
+			Version:        version,
+		})
+	}
+	total := subtotal + currentDelivery
+	if subtotal != storedSubtotal || total != storedTotal {
+		return nil, 0, 0, 0, "", core.ErrCalculationExpired
+	}
+	return revalidated, subtotal, currentDelivery, total, currentCurrency, nil
+}
+
 func (s *Store) VerifiedContact(ctx context.Context, sess core.Session) (core.VerifiedContact, error) {
 	if sess.ActiveRole != core.RoleClient {
 		return core.VerifiedContact{}, core.ErrForbidden
@@ -933,7 +1109,7 @@ func (s *Store) VerifiedContact(ctx context.Context, sess core.Session) (core.Ve
 
 func (s *Store) VerifyTelegramContact(ctx context.Context, telegramUserID, contactUserID int64, phone string) error {
 	phone = safe(phone)
-	if telegramUserID <= 0 || telegramUserID != contactUserID || phone == "" {
+	if telegramUserID <= 0 || telegramUserID != contactUserID || !requiredText(phone, maxPhoneLength) {
 		return core.ErrInvalidInput
 	}
 	phoneCipher, err := s.box.Encrypt(phone)
@@ -946,7 +1122,7 @@ func (s *Store) VerifyTelegramContact(ctx context.Context, telegramUserID, conta
 		ON CONFLICT (telegram_user_id)
 		DO UPDATE SET phone_ciphertext=EXCLUDED.phone_ciphertext, phone_hash=EXCLUDED.phone_hash,
 			phone_verified_at=now(), updated_at=now()
-	`, telegramUserID, phoneCipher, hashPII(phone))
+	`, telegramUserID, phoneCipher, s.phoneHash(phone))
 	return err
 }
 
@@ -1231,10 +1407,10 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	}
 	address := safe(input.Address)
 	comment := safe(input.Comment)
-	if address == "" {
+	if !requiredText(address, maxAddressLength) {
 		return core.Order{}, core.ErrInvalidInput
 	}
-	if len([]rune(comment)) > settings.MaxCommentLength {
+	if len([]rune(comment)) > settings.MaxCommentLength || !optionalText(comment, maxCustomerCommentLength) {
 		return core.Order{}, core.ErrInvalidInput
 	}
 
@@ -1286,6 +1462,10 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if err := json.Unmarshal(rawItems, &items); err != nil {
 		return core.Order{}, err
 	}
+	items, subtotal, delivery, total, currency, err = s.revalidateCalculationTx(ctx, tx, items, subtotal, delivery, total, currency)
+	if err != nil {
+		return core.Order{}, err
+	}
 	phone, err := s.verifiedPhoneForCashOrder(ctx, tx, sess.UserID, input.Phone)
 	if err != nil {
 		return core.Order{}, err
@@ -1302,7 +1482,7 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if err != nil {
 		return core.Order{}, err
 	}
-	phoneHash := hashPII(phone)
+	phoneHash := s.phoneHash(phone)
 	var orderID uuid.UUID
 	var publicNumber int
 	var createdAt time.Time
@@ -1440,37 +1620,86 @@ func (s *Store) ClientOrderByID(ctx context.Context, sess core.Session, orderID 
 	return s.OrderByID(ctx, orderID, true)
 }
 
-func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter AdminOrderFilter) ([]core.Order, error) {
+func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter AdminOrderFilter) (AdminOrdersPage, error) {
 	if sess.ActiveRole != core.RoleAdmin {
-		return nil, core.ErrForbidden
+		return AdminOrdersPage{}, core.ErrForbidden
+	}
+	limit := filter.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
 	}
 	where := []string{"true"}
 	args := []any{}
 	if filter.Status != "" {
+		if !validFulfillmentStatus(filter.Status) {
+			return AdminOrdersPage{}, core.ErrInvalidInput
+		}
 		where = append(where, fmt.Sprintf("fulfillment_status=$%d", len(args)+1))
 		args = append(args, filter.Status)
 	}
 	if filter.Date != "" {
+		if _, err := time.Parse("2006-01-02", filter.Date); err != nil {
+			return AdminOrdersPage{}, core.ErrInvalidInput
+		}
 		where = append(where, fmt.Sprintf("to_char(created_at AT TIME ZONE 'Europe/Belgrade', 'YYYY-MM-DD')=$%d", len(args)+1))
 		args = append(args, filter.Date)
 	}
 	query := strings.TrimSpace(filter.Query)
 	if query != "" {
+		if !optionalText(query, maxAdminSearchLength) {
+			return AdminOrdersPage{}, core.ErrInvalidInput
+		}
+		phoneHashes := s.phoneHashCandidates(query)
+		phoneHashPlaceholders := make([]string, 0, len(phoneHashes))
+		for _, hash := range phoneHashes {
+			args = append(args, hash)
+			phoneHashPlaceholders = append(phoneHashPlaceholders, fmt.Sprintf("$%d", len(args)))
+		}
+		likePlaceholder := len(args) + 1
+		args = append(args, "%"+strings.ToLower(query)+"%")
+		profilePredicate := fmt.Sprintf(`EXISTS (
+			SELECT 1 FROM users u
+			WHERE u.id=orders.client_user_id
+				AND (lower(u.username) LIKE $%d OR lower(u.first_name) LIKE $%d)
+		)`, likePlaceholder, likePlaceholder)
 		if publicNumber, err := strconv.Atoi(query); err == nil {
-			where = append(where, fmt.Sprintf("(public_number=$%d OR phone_hash=$%d)", len(args)+1, len(args)+2))
-			args = append(args, publicNumber, hashPII(query))
+			publicNumberPlaceholder := len(args) + 1
+			args = append(args, publicNumber)
+			where = append(where, fmt.Sprintf("(public_number=$%d OR phone_hash IN (%s) OR %s)", publicNumberPlaceholder, strings.Join(phoneHashPlaceholders, ","), profilePredicate))
 		} else {
-			where = append(where, fmt.Sprintf("phone_hash=$%d", len(args)+1))
-			args = append(args, hashPII(query))
+			where = append(where, fmt.Sprintf("(phone_hash IN (%s) OR %s)", strings.Join(phoneHashPlaceholders, ","), profilePredicate))
 		}
 	}
-	sqlQuery := fmt.Sprintf(`SELECT id FROM orders WHERE %s ORDER BY created_at DESC LIMIT 100`, strings.Join(where, " AND "))
+	args = append(args, limit+1, offset)
+	sqlQuery := fmt.Sprintf(
+		`SELECT id FROM orders WHERE %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`,
+		strings.Join(where, " AND "),
+		len(args)-1,
+		len(args),
+	)
 	rows, err := s.pool.Query(ctx, sqlQuery, args...)
 	if err != nil {
-		return nil, err
+		return AdminOrdersPage{}, err
 	}
 	defer rows.Close()
-	return s.ordersFromIDRows(ctx, rows, true)
+	orders, err := s.ordersFromIDRows(ctx, rows, true)
+	if err != nil {
+		return AdminOrdersPage{}, err
+	}
+	hasMore := len(orders) > limit
+	if hasMore {
+		orders = orders[:limit]
+	}
+	return AdminOrdersPage{
+		Orders:  orders,
+		Limit:   limit,
+		Offset:  offset,
+		HasMore: hasMore,
+	}, nil
 }
 
 func (s *Store) AdminOrderByID(ctx context.Context, sess core.Session, orderID uuid.UUID) (core.Order, error) {
@@ -1490,7 +1719,7 @@ func (s *Store) CancelOrder(ctx context.Context, sess core.Session, orderID uuid
 		return core.Order{}, core.ErrForbidden
 	}
 	reason = safe(reason)
-	if reason == "" {
+	if !requiredText(reason, maxReasonLength) {
 		return core.Order{}, core.ErrInvalidInput
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -1542,7 +1771,7 @@ func (s *Store) ReturnOrderToNew(ctx context.Context, sess core.Session, orderID
 		return core.Order{}, core.ErrForbidden
 	}
 	reason = safe(reason)
-	if reason == "" {
+	if !requiredText(reason, maxReasonLength) {
 		return core.Order{}, core.ErrInvalidInput
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -1583,7 +1812,7 @@ func (s *Store) UpdateOrderContact(ctx context.Context, sess core.Session, order
 	phone = safe(phone)
 	address = safe(address)
 	reason = safe(reason)
-	if phone == "" || address == "" || reason == "" {
+	if !requiredText(phone, maxPhoneLength) || !requiredText(address, maxAddressLength) || !requiredText(reason, maxReasonLength) {
 		return core.Order{}, core.ErrInvalidInput
 	}
 	phoneCipher, err := s.box.Encrypt(phone)
@@ -1602,7 +1831,7 @@ func (s *Store) UpdateOrderContact(ctx context.Context, sess core.Session, order
 	tag, err := tx.Exec(ctx, `
 		UPDATE orders SET phone_ciphertext=$1, phone_hash=$2, address_ciphertext=$3, updated_at=now(), version=version+1
 		WHERE id=$4 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY')
-	`, phoneCipher, hashPII(phone), addressCipher, orderID)
+	`, phoneCipher, s.phoneHash(phone), addressCipher, orderID)
 	if err != nil {
 		return core.Order{}, err
 	}
@@ -1636,6 +1865,20 @@ func (s *Store) ResendOrderNotification(ctx context.Context, sess core.Session, 
 	if recipient == "courier" {
 		template = "courier_ready_order"
 	}
+	reason = safe(reason)
+	if !optionalText(reason, maxReasonLength) {
+		return core.ErrInvalidInput
+	}
+	var status core.FulfillmentStatus
+	if err := s.pool.QueryRow(ctx, `SELECT fulfillment_status FROM orders WHERE id=$1`, orderID).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return core.ErrInvalidInput
+		}
+		return err
+	}
+	if recipient == "courier" && status != core.StatusOutForDelivery {
+		return core.ErrOrderStatusConflict
+	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
 		VALUES ($1, $2, $3, $4)
@@ -1643,7 +1886,7 @@ func (s *Store) ResendOrderNotification(ctx context.Context, sess core.Session, 
 	if err != nil {
 		return err
 	}
-	return s.insertAudit(ctx, sess, "order.resend_notification", "order", &orderID, safe(reason), nil, map[string]any{"recipient": recipient})
+	return s.insertAudit(ctx, sess, "order.resend_notification", "order", &orderID, reason, nil, map[string]any{"recipient": recipient})
 }
 
 func (s *Store) AddOrderNote(ctx context.Context, sess core.Session, orderID uuid.UUID, reason string) error {
@@ -1651,7 +1894,7 @@ func (s *Store) AddOrderNote(ctx context.Context, sess core.Session, orderID uui
 		return core.ErrForbidden
 	}
 	reason = safe(reason)
-	if reason == "" {
+	if !requiredText(reason, maxReasonLength) {
 		return core.ErrInvalidInput
 	}
 	_, err := s.pool.Exec(ctx, `
@@ -1698,36 +1941,81 @@ func (s *Store) AddStaff(ctx context.Context, sess core.Session, input AddStaffI
 	if input.DisplayLabel == "" {
 		input.DisplayLabel = fmt.Sprintf("%d", input.TelegramUserID)
 	}
-	if input.Active && input.Role == core.RoleCourier {
-		if err := s.ensureNoOtherActiveCourier(ctx, uuid.Nil); err != nil {
-			return core.StaffMember{}, err
-		}
+	if !requiredText(input.DisplayLabel, maxStaffDisplayLabelLimit) {
+		return core.StaffMember{}, core.ErrInvalidInput
 	}
-	user, err := s.UpsertTelegramUser(ctx, core.User{
+
+	user := core.User{
 		TelegramUserID: input.TelegramUserID,
 		FirstName:      safe(input.DisplayLabel),
 		LanguageCode:   "ru",
-	})
+	}
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return core.StaffMember{}, err
 	}
-	var id uuid.UUID
-	err = s.pool.QueryRow(ctx, `
+	defer rollback(ctx, tx)
+
+	err = tx.QueryRow(ctx, `
+		INSERT INTO users (telegram_user_id, username, first_name, photo_url, language_code)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (telegram_user_id)
+		DO UPDATE SET username=EXCLUDED.username, first_name=EXCLUDED.first_name, photo_url=EXCLUDED.photo_url,
+			language_code=EXCLUDED.language_code, updated_at=now()
+		RETURNING id, telegram_user_id, username, first_name, photo_url, language_code
+	`, user.TelegramUserID, "", safe(user.FirstName), "", safe(user.LanguageCode)).
+		Scan(&user.ID, &user.TelegramUserID, &user.Username, &user.FirstName, &user.PhotoURL, &user.LanguageCode)
+	if err != nil {
+		return core.StaffMember{}, err
+	}
+
+	var existingID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		SELECT id
+		FROM staff
+		WHERE telegram_user_id=$1 AND role=$2
+		FOR UPDATE
+	`, input.TelegramUserID, string(input.Role)).Scan(&existingID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		existingID = uuid.Nil
+	} else if err != nil {
+		return core.StaffMember{}, err
+	}
+	if input.Active && input.Role == core.RoleCourier {
+		if err := s.ensureNoOtherActiveCourier(ctx, tx, existingID); err != nil {
+			return core.StaffMember{}, err
+		}
+	}
+
+	var member core.StaffMember
+	err = tx.QueryRow(ctx, `
 		INSERT INTO staff (user_id, telegram_user_id, role, display_label, active, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (telegram_user_id, role)
 		DO UPDATE SET user_id=EXCLUDED.user_id, display_label=EXCLUDED.display_label,
 			active=EXCLUDED.active, updated_at=now()
-		RETURNING id
-	`, user.ID, input.TelegramUserID, string(input.Role), safe(input.DisplayLabel), input.Active, sess.UserID).Scan(&id)
+		RETURNING id, telegram_user_id, display_label, role, active, created_at, updated_at
+	`, user.ID, input.TelegramUserID, string(input.Role), safe(input.DisplayLabel), input.Active, sess.UserID).Scan(
+		&member.ID,
+		&member.TelegramUserID,
+		&member.DisplayLabel,
+		&member.Role,
+		&member.Active,
+		&member.CreatedAt,
+		&member.UpdatedAt,
+	)
 	if err != nil {
+		if isUniqueViolation(err, "uniq_staff_one_active_courier") {
+			return core.StaffMember{}, core.ErrInvalidInput
+		}
 		return core.StaffMember{}, err
 	}
-	member, err := s.staffByID(ctx, id)
-	if err != nil {
+	if err := s.insertAuditTx(ctx, tx, sess, "staff.upsert", "staff", &member.ID, "", nil, staffAudit(member)); err != nil {
 		return core.StaffMember{}, err
 	}
-	_ = s.insertAudit(ctx, sess, "staff.upsert", "staff", &id, "", nil, staffAudit(member))
+	if err := tx.Commit(ctx); err != nil {
+		return core.StaffMember{}, err
+	}
 	return member, nil
 }
 
@@ -1738,44 +2026,75 @@ func (s *Store) UpdateStaff(ctx context.Context, sess core.Session, id uuid.UUID
 	if !validStaffRole(input.Role) {
 		return core.StaffMember{}, core.ErrInvalidInput
 	}
-	before, err := s.staffByID(ctx, id)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return core.StaffMember{}, err
 	}
-	if before.Role == core.RoleAdmin && before.Active && !input.Active {
-		if err := s.ensureNotLastAdmin(ctx, id); err != nil {
+	defer rollback(ctx, tx)
+
+	var before core.StaffMember
+	err = tx.QueryRow(ctx, `
+		SELECT id, telegram_user_id, display_label, role, active, created_at, updated_at
+		FROM staff
+		WHERE id=$1
+		FOR UPDATE
+	`, id).Scan(&before.ID, &before.TelegramUserID, &before.DisplayLabel, &before.Role, &before.Active, &before.CreatedAt, &before.UpdatedAt)
+	if err != nil {
+		return core.StaffMember{}, err
+	}
+	if before.Role == core.RoleAdmin && before.Active && (!input.Active || input.Role != core.RoleAdmin) {
+		if err := s.ensureNotLastAdmin(ctx, tx, id); err != nil {
 			return core.StaffMember{}, err
 		}
 	}
 	if input.Active && input.Role == core.RoleCourier {
-		if err := s.ensureNoOtherActiveCourier(ctx, id); err != nil {
+		if err := s.ensureNoOtherActiveCourier(ctx, tx, id); err != nil {
 			return core.StaffMember{}, err
 		}
 	}
 	if input.DisplayLabel == "" {
 		input.DisplayLabel = before.DisplayLabel
 	}
-	result, err := s.pool.Exec(ctx, `
-		UPDATE staff SET role=$1, display_label=$2, active=$3, updated_at=now()
-		WHERE id=$4
-	`, string(input.Role), safe(input.DisplayLabel), input.Active, id)
-	if err != nil {
-		return core.StaffMember{}, err
-	}
-	if result.RowsAffected() == 0 {
+	if !requiredText(input.DisplayLabel, maxStaffDisplayLabelLimit) {
 		return core.StaffMember{}, core.ErrInvalidInput
 	}
-	after, err := s.staffByID(ctx, id)
+	var after core.StaffMember
+	err = tx.QueryRow(ctx, `
+		UPDATE staff SET role=$1, display_label=$2, active=$3, updated_at=now()
+		WHERE id=$4
+		RETURNING id, telegram_user_id, display_label, role, active, created_at, updated_at
+	`, string(input.Role), safe(input.DisplayLabel), input.Active, id).Scan(
+		&after.ID,
+		&after.TelegramUserID,
+		&after.DisplayLabel,
+		&after.Role,
+		&after.Active,
+		&after.CreatedAt,
+		&after.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return core.StaffMember{}, core.ErrInvalidInput
+	}
 	if err != nil {
+		if isUniqueViolation(err, "uniq_staff_one_active_courier") {
+			return core.StaffMember{}, core.ErrInvalidInput
+		}
 		return core.StaffMember{}, err
 	}
-	if before.Active && !after.Active {
-		_, _ = s.pool.Exec(ctx, `
+	if before.Active && (!after.Active || before.Role != after.Role) {
+		if _, err := tx.Exec(ctx, `
 			UPDATE sessions SET revoked_at=now()
 			WHERE telegram_user_id=$1 AND active_role=$2 AND revoked_at IS NULL
-		`, after.TelegramUserID, string(after.Role))
+		`, before.TelegramUserID, string(before.Role)); err != nil {
+			return core.StaffMember{}, err
+		}
 	}
-	_ = s.insertAudit(ctx, sess, "staff.update", "staff", &id, "", staffAudit(before), staffAudit(after))
+	if err := s.insertAuditTx(ctx, tx, sess, "staff.update", "staff", &id, "", staffAudit(before), staffAudit(after)); err != nil {
+		return core.StaffMember{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.StaffMember{}, err
+	}
 	return after, nil
 }
 
@@ -2096,22 +2415,23 @@ func (s *Store) transition(ctx context.Context, sess core.Session, orderID uuid.
 	var updatedID uuid.UUID
 	var previous string
 	var action string
+	var orderVersion int
 	if to == core.StatusOutForDelivery {
 		action = "mark_ready"
 		err = tx.QueryRow(ctx, `
 			UPDATE orders
 			SET fulfillment_status='OUT_FOR_DELIVERY', ready_at=now(), updated_at=now(), version=version+1
 			WHERE id=$1 AND fulfillment_status='NEW'
-			RETURNING id, 'NEW'
-		`, orderID).Scan(&updatedID, &previous)
+			RETURNING id, 'NEW', version
+		`, orderID).Scan(&updatedID, &previous, &orderVersion)
 	} else {
 		action = "mark_delivered"
 		err = tx.QueryRow(ctx, `
 			UPDATE orders
 			SET fulfillment_status='DELIVERED', payment_status='PAID', delivered_at=now(), updated_at=now(), version=version+1
 			WHERE id=$1 AND fulfillment_status='OUT_FOR_DELIVERY'
-			RETURNING id, 'OUT_FOR_DELIVERY'
-		`, orderID).Scan(&updatedID, &previous)
+			RETURNING id, 'OUT_FOR_DELIVERY', version
+		`, orderID).Scan(&updatedID, &previous, &orderVersion)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.Order{}, core.ErrOrderStatusConflict
@@ -2133,7 +2453,7 @@ func (s *Store) transition(ctx context.Context, sess core.Session, orderID uuid.
 				($1, 'client', 'client_order_out_for_delivery', $2),
 				($1, 'courier', 'courier_ready_order', $2)
 			ON CONFLICT (event_key, recipient_kind) DO NOTHING
-		`, orderID, fmt.Sprintf("order:%s:ready", orderID)); err != nil {
+		`, orderID, fmt.Sprintf("order:%s:ready:%d", orderID, orderVersion)); err != nil {
 			return core.Order{}, err
 		}
 	} else {
@@ -2373,9 +2693,17 @@ func (s *Store) staffByID(ctx context.Context, id uuid.UUID) (core.StaffMember, 
 	return member, err
 }
 
-func (s *Store) ensureNotLastAdmin(ctx context.Context, id uuid.UUID) error {
+type staffQueryer interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func (s *Store) ensureNotLastAdmin(ctx context.Context, q staffQueryer, id uuid.UUID) error {
+	if err := lockActiveStaffRole(ctx, q, core.RoleAdmin); err != nil {
+		return err
+	}
 	var count int
-	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM staff WHERE role='ADMIN' AND active=true AND id<>$1`, id).Scan(&count); err != nil {
+	if err := q.QueryRow(ctx, `SELECT COUNT(*) FROM staff WHERE role='ADMIN' AND active=true AND id<>$1`, id).Scan(&count); err != nil {
 		return err
 	}
 	if count == 0 {
@@ -2384,15 +2712,34 @@ func (s *Store) ensureNotLastAdmin(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (s *Store) ensureNoOtherActiveCourier(ctx context.Context, id uuid.UUID) error {
+func (s *Store) ensureNoOtherActiveCourier(ctx context.Context, q staffQueryer, id uuid.UUID) error {
+	if err := lockActiveStaffRole(ctx, q, core.RoleCourier); err != nil {
+		return err
+	}
 	var count int
-	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM staff WHERE role='COURIER' AND active=true AND id<>$1`, id).Scan(&count); err != nil {
+	if err := q.QueryRow(ctx, `SELECT COUNT(*) FROM staff WHERE role='COURIER' AND active=true AND id<>$1`, id).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
 		return core.ErrInvalidInput
 	}
 	return nil
+}
+
+func lockActiveStaffRole(ctx context.Context, q staffQueryer, role core.Role) error {
+	rows, err := q.Query(ctx, `
+		SELECT id
+		FROM staff
+		WHERE role=$1 AND active=true
+		FOR UPDATE
+	`, string(role))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+	}
+	return rows.Err()
 }
 
 func (s *Store) insertAudit(ctx context.Context, sess core.Session, action, targetType string, targetID *uuid.UUID, reason string, before, after map[string]any) error {
@@ -2499,7 +2846,7 @@ func (s *Store) verifiedPhoneForCashOrder(ctx context.Context, tx pgx.Tx, userID
 	if err != nil {
 		return "", err
 	}
-	if trimmed := safe(inputPhone); trimmed != "" && hashPII(trimmed) != phoneHash {
+	if trimmed := safe(inputPhone); trimmed != "" && !s.phoneHashMatches(trimmed, phoneHash) {
 		return "", core.ErrContactNotVerified
 	}
 	return phone, nil
@@ -2664,6 +3011,15 @@ func validStaffRole(role core.Role) bool {
 	return role == core.RoleKitchen || role == core.RoleCourier || role == core.RoleAdmin
 }
 
+func validFulfillmentStatus(status string) bool {
+	switch core.FulfillmentStatus(status) {
+	case core.StatusNew, core.StatusOutForDelivery, core.StatusDelivered, core.StatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
 func roleAllowed(role core.Role, roles []core.Role) bool {
 	for _, allowed := range roles {
 		if role == allowed {
@@ -2687,9 +3043,87 @@ func hashString(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func hashPII(value string) string {
-	normalized := strings.ToLower(strings.TrimSpace(value))
-	return hashString(normalized)
+func (s *Store) phoneHash(value string) string {
+	normalized := normalizePII(value)
+	mac := hmac.New(sha256.New, s.piiHashKey)
+	_, _ = mac.Write([]byte("phone:v1:"))
+	_, _ = mac.Write([]byte(normalized))
+	return phoneHashHMACPrefix + hex.EncodeToString(mac.Sum(nil))
+}
+
+func (s *Store) phoneHashCandidates(value string) []string {
+	current := s.phoneHash(value)
+	legacy := legacyPhoneHash(value)
+	if legacy == current {
+		return []string{current}
+	}
+	return []string{current, legacy}
+}
+
+func (s *Store) phoneHashMatches(phone, storedHash string) bool {
+	storedHash = strings.TrimSpace(storedHash)
+	if storedHash == "" {
+		return false
+	}
+	if strings.HasPrefix(storedHash, phoneHashHMACPrefix) {
+		return hmac.Equal([]byte(s.phoneHash(phone)), []byte(storedHash))
+	}
+	return hmac.Equal([]byte(legacyPhoneHash(phone)), []byte(storedHash))
+}
+
+func legacyPhoneHash(value string) string {
+	return hashString(normalizePII(value))
+}
+
+func normalizePII(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func validCategoryInput(input UpsertCategoryInput) bool {
+	return requiredText(input.TitleRU, maxTitleLength) &&
+		optionalText(input.TitleSR, maxTitleLength) &&
+		optionalText(input.TitleEN, maxTitleLength)
+}
+
+func validMenuItemInput(input UpsertMenuItemInput) bool {
+	return input.CategoryID != uuid.Nil &&
+		input.PriceMinor >= 0 &&
+		input.MinQuantity > 0 &&
+		input.MinQuantity <= maxItemQuantityHardLimit &&
+		requiredText(input.TitleRU, maxTitleLength) &&
+		optionalText(input.TitleSR, maxTitleLength) &&
+		optionalText(input.TitleEN, maxTitleLength) &&
+		optionalText(input.DescriptionRU, maxDescriptionLength) &&
+		optionalText(input.DescriptionSR, maxDescriptionLength) &&
+		optionalText(input.DescriptionEN, maxDescriptionLength) &&
+		optionalText(input.PhotoPath, maxURLLength) &&
+		optionalText(input.WeightText, maxShortTextLength) &&
+		optionalText(input.AllergenTextRU, maxDescriptionLength) &&
+		optionalText(input.AllergenTextSR, maxDescriptionLength) &&
+		optionalText(input.AllergenTextEN, maxDescriptionLength)
+}
+
+func requiredText(value string, maxRunes int) bool {
+	value = safe(value)
+	return value != "" && optionalText(value, maxRunes)
+}
+
+func optionalText(value string, maxRunes int) bool {
+	if maxRunes <= 0 {
+		return false
+	}
+	return len([]rune(safe(value))) <= maxRunes
+}
+
+func validOptionalURL(value string) bool {
+	value = safe(value)
+	if value == "" {
+		return true
+	}
+	if !optionalText(value, maxURLLength) {
+		return false
+	}
+	return strings.HasPrefix(value, "https://") || strings.HasPrefix(value, "http://")
 }
 
 func safe(value string) string {
