@@ -16,50 +16,91 @@ import {
   type SettingsInput,
   type StaffInput,
 } from "./api";
-import { AlertTriangle, Archive, BarChart3, CalendarDays, ClipboardList, Eye, EyeOff, Home, Menu as MenuIcon, RefreshCw, Save, Settings as SettingsIcon, Shield, Trash2, Upload, Users } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Archive, ArrowLeft, Ban, BarChart3, CalendarDays, ChevronRight, ClipboardList, Copy, Eye, EyeOff, Home, Menu as MenuIcon, MessageCircle, MoreHorizontal, Phone, RefreshCw, RotateCcw, Save, Search, Send, Settings as SettingsIcon, Shield, SlidersHorizontal, StickyNote, Trash2, Upload, Users, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type FormEvent, type ReactNode } from "react";
 
 const api = createAdminApi();
-const tabs: Array<{ id: AdminTab; label: string; icon: typeof Home }> = [
+type AdminNavItem = { id: AdminTab; label: string; shortLabel: string; icon: LucideIcon };
+type AdminNavGroup = { title: string; items: AdminNavItem[] };
+
+const tabs: AdminNavItem[] = ([
   { id: "home", label: "Главная", icon: Home },
-  { id: "menu", label: "Меню", icon: MenuIcon },
   { id: "orders", label: "Заказы", icon: ClipboardList },
-  { id: "staff", label: "Сотрудники", icon: Users },
+  { id: "menu", label: "Меню", icon: MenuIcon },
   { id: "schedule", label: "График", icon: CalendarDays },
   { id: "analytics", label: "Аналитика", icon: BarChart3 },
   { id: "settings", label: "Настройки", icon: SettingsIcon },
-  { id: "audit", label: "Журнал", icon: Shield },
-];
+  { id: "audit", label: "Журнал действий", shortLabel: "Журнал", icon: Shield },
+  { id: "staff", label: "Сотрудники", icon: Users },
+] satisfies Array<Omit<AdminNavItem, "shortLabel"> & { shortLabel?: string }>).map((entry) => ({ shortLabel: entry.label, ...entry }));
 
-const statusOptions: Array<{ value: "" | Order["fulfillment_status"]; label: string }> = [
-  { value: "", label: "Все заказы" },
-  { value: "NEW", label: "Новые" },
-  { value: "OUT_FOR_DELIVERY", label: "В доставке" },
-  { value: "DELIVERED", label: "Доставлены" },
-  { value: "CANCELLED", label: "Отменены" },
+const navGroups: AdminNavGroup[] = [
+  { title: "Работа", items: navItems(["home", "orders", "menu"]) },
+  { title: "Управление", items: navItems(["schedule", "analytics"]) },
+  { title: "Система", items: navItems(["settings", "audit", "staff"]) },
 ];
+const mobileTabs = navItems(["home", "orders", "menu"]);
+const moreTabs = navItems(["schedule", "analytics", "settings", "audit", "staff"]);
+const moreTabIds = new Set<AdminTab>(moreTabs.map((entry) => entry.id));
 
 const quickSchedule = { open_time: "13:00", order_cutoff_time: "21:00", close_time: "22:00" };
 type AdminActionRunner = <T>(action: (authToken: string) => Promise<T>) => Promise<T | undefined>;
 type AdminLoadKey = "dashboard" | "menu" | "settings" | "schedule" | "orders" | "staff" | "analytics" | "audit";
+type OrdersView = "active" | "new" | "delivery" | "history";
+type ConfirmDialogState = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  variant?: "primary" | "danger";
+  resolve(confirmed: boolean): void;
+};
+type OrderDialogState =
+  | {
+    kind: "reason";
+    title: string;
+    label: string;
+    confirmLabel: string;
+    variant?: "primary" | "danger";
+    onSubmit(reason: string): Promise<void>;
+  }
+  | {
+    kind: "contact";
+    order: Order;
+    onSubmit(input: { phone: string; address: string; reason: string }): Promise<void>;
+  };
+const orderViewOptions: Array<{ id: OrdersView; label: string }> = [
+  { id: "active", label: "Активные" },
+  { id: "new", label: "Кухня" },
+  { id: "delivery", label: "Доставка" },
+  { id: "history", label: "История" },
+];
 
 export function App() {
   const [token, setToken] = useState("");
   const [session, setSession] = useState<AdminSession | null>(null);
-  const [tab, setTab] = useState<AdminTab>("home");
+  const [tab, setTabState] = useState<AdminTab>(() => initialAdminTab());
   const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
   const [menu, setMenu] = useState<AdminMenuResponse>({ categories: [], items: [] });
   const [settings, setSettings] = useState<Settings | null>(null);
   const [schedule, setSchedule] = useState<ScheduleDay[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [ordersPage, setOrdersPage] = useState<Pick<AdminOrdersResponse, "limit" | "offset" | "has_more">>({ limit: 100, offset: 0, has_more: false });
+  const [ordersInitialView, setOrdersInitialView] = useState<OrdersView>("active");
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [range, setRange] = useState<AnalyticsRange>("today");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [toast, setToast] = useState("");
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const authRefreshRef = useRef<Promise<string> | null>(null);
+  const activeItem = navItem(tab);
+  const activeOrdersCount = (dashboard?.new_orders || 0) + (dashboard?.out_for_delivery || 0);
+  const ownerAccess = isOwnerTelegramId(session?.telegram_user_id);
 
   function applySession(nextSession: AdminSession) {
     setSession(nextSession);
@@ -144,6 +185,30 @@ export function App() {
     }
   }
 
+  function openTab(nextTab: AdminTab) {
+    setTabState(nextTab);
+    setMoreOpen(false);
+    updateAdminHash(nextTab);
+  }
+
+  function openOrdersView(view: OrdersView) {
+    setOrdersInitialView(view);
+    openTab("orders");
+  }
+
+  function askConfirm(input: Omit<ConfirmDialogState, "resolve">): Promise<boolean> {
+    return new Promise((resolve) => setConfirmDialog({ ...input, resolve }));
+  }
+
+  function closeConfirm(confirmed: boolean) {
+    confirmDialog?.resolve(confirmed);
+    setConfirmDialog(null);
+  }
+
+  function showToast(message: string) {
+    setToast(message);
+  }
+
   async function loadAdminSections(authToken: string, analyticsRange: AnalyticsRange) {
     const sections: Array<readonly [AdminLoadKey, Promise<unknown>]> = [
       ["dashboard", api.dashboard(authToken)],
@@ -164,6 +229,49 @@ export function App() {
     }));
   }
 
+  async function refreshHomeSection(authToken = token) {
+    setError("");
+    try {
+      const currentToken = authToken || (await refreshAuth());
+      const [nextDashboard, nextSettings] = await Promise.all([
+        withAuth((nextToken) => api.dashboard(nextToken), currentToken),
+        withAuth((nextToken) => api.settings(nextToken), currentToken),
+      ]);
+      setDashboard(nextDashboard);
+      setSettings(nextSettings);
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
+
+  async function refreshOrdersSection(authToken = token) {
+    setError("");
+    try {
+      const currentToken = authToken || (await refreshAuth());
+      const [page, nextDashboard] = await Promise.all([
+        withAuth((nextToken) => api.orders(nextToken, { limit: 100, offset: 0 }), currentToken),
+        withAuth((nextToken) => api.dashboard(nextToken), currentToken),
+      ]);
+      setOrders(page.orders);
+      setOrdersPage(orderPageMeta(page));
+      setDashboard(nextDashboard);
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
+
+  async function refreshVisibleSection() {
+    if (tab === "home") {
+      await refreshHomeSection();
+      return;
+    }
+    if (tab === "orders") {
+      await refreshOrdersSection();
+      return;
+    }
+    await load();
+  }
+
   useEffect(() => {
     let stopped = false;
     api.authenticate().then((session) => {
@@ -179,11 +287,39 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const onRouteChange = () => {
+      setTabState(tabFromHash());
+      setMoreOpen(false);
+    };
+    window.addEventListener("hashchange", onRouteChange);
+    window.addEventListener("popstate", onRouteChange);
+    return () => {
+      window.removeEventListener("hashchange", onRouteChange);
+      window.removeEventListener("popstate", onRouteChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timer = window.setTimeout(() => setToast(""), 2200);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  useEffect(() => {
+    if (!token || tab !== "home") return undefined;
+    const timer = window.setInterval(() => {
+      void refreshHomeSection();
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [tab, token]);
+
   async function run<T>(action: (authToken: string) => Promise<T>): Promise<T | undefined> {
     setError("");
     try {
       const result = await withAuth(action);
       await load();
+      showToast("Сохранено");
       return result;
     } catch (err) {
       setError(errorText(err));
@@ -225,49 +361,262 @@ export function App() {
   }
 
   async function setDayOff(enabled: boolean) {
-    if (enabled && !window.confirm("Новые заказы будут остановлены. Уже созданные заказы останутся активны.")) return;
+    if (enabled) {
+      const confirmed = await askConfirm({
+        title: "Остановить приём?",
+        message: "Новые заказы будут недоступны. Активные заказы останутся в работе.",
+        confirmLabel: "Остановить",
+        variant: "danger",
+      });
+      if (!confirmed) return;
+    }
     await run((authToken) => api.setManualDayOff(authToken, enabled));
+  }
+
+  function renderActiveTab() {
+    if (tab === "home") {
+      return dashboard && settings ? (
+        <HomeTab
+          dashboard={dashboard}
+          settings={settings}
+          onDayOff={setDayOff}
+          onOpenOrders={openOrdersView}
+          onOpenMenu={() => openTab("menu")}
+          onOpenSchedule={() => openTab("schedule")}
+          onOpenAnalytics={() => openTab("analytics")}
+        />
+      ) : <SectionSkeleton title="Главная" />;
+    }
+    if (tab === "orders") return <OrdersTab orders={orders} page={ordersPage} initialView={ordersInitialView} onLoad={loadOrders} onLoadOrder={loadOrderDetail} onAction={run} />;
+    if (tab === "menu") return <MenuTab menu={menu} onAction={run} />;
+    if (tab === "schedule") {
+      return schedule.length ? <ScheduleTab schedule={schedule} onSave={(next) => run((authToken) => api.updateSchedule(authToken, next)).then(() => undefined)} /> : <SectionSkeleton title="График" />;
+    }
+    if (tab === "analytics") {
+      return analytics ? <AnalyticsTab analytics={analytics} range={range} onRange={(next) => { setRange(next); void load(token, next); }} onExport={() => void exportAnalyticsCSV(range)} /> : <SectionSkeleton title="Аналитика" />;
+    }
+    if (tab === "settings") {
+      return settings ? <SettingsTab settings={settings} demoMode={api.mode === "demo"} onSave={(input) => run((authToken) => api.updateSettings(authToken, input)).then(() => undefined)} /> : <SectionSkeleton title="Настройки" />;
+    }
+    if (tab === "audit") return <AuditTab entries={audit} />;
+    return <StaffTab staff={staff} onAction={run} />;
   }
 
   return (
     <div className="admin">
-      <aside className="sidebar">
+      <aside className="sidebar" aria-label="Навигация админки">
         <div className="brand">
           <strong>Tako Lako</strong>
-          <span>админ панель</span>
+          <span>админка</span>
         </div>
-        <nav>
-          {tabs.map((entry) => {
+        <SidebarNav activeTab={tab} onSelect={openTab} />
+      </aside>
+      <main className="admin-main">
+        <header className="topbar">
+          <div className="topbar-title">
+            <h1>{activeItem.label}</h1>
+          </div>
+          <div className="topbar-actions">
+            <RestaurantStatus dashboard={dashboard} loading={loading} />
+            <button className="profile-button" type="button" onClick={() => setMoreOpen(true)} aria-label="Открыть меню">
+              <AdminAvatar session={session} />
+              <MoreHorizontal size={18} />
+            </button>
+          </div>
+        </header>
+        {error && <div className="error"><AlertTriangle size={18} /> {error}</div>}
+        <SectionErrorBoundary resetKey={tab}>
+          {renderActiveTab()}
+        </SectionErrorBoundary>
+      </main>
+      <MobileNav activeTab={tab} activeOrdersCount={activeOrdersCount} onSelect={openTab} onMore={() => setMoreOpen(true)} />
+      {moreOpen && (
+        <MoreSheet
+          activeTab={tab}
+          loading={loading}
+          session={session}
+          ownerAccess={ownerAccess}
+          onClose={() => setMoreOpen(false)}
+          onRefresh={() => {
+            setMoreOpen(false);
+            void refreshVisibleSection();
+          }}
+          onSelect={openTab}
+        />
+      )}
+      <ConfirmDialog dialog={confirmDialog} onClose={closeConfirm} />
+      {toast && <div className="toast" role="status">{toast}</div>}
+    </div>
+  );
+}
+
+class SectionErrorBoundary extends Component<{ children: ReactNode; resetKey: string }, { error: Error | null }> {
+  state = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Admin section render error", { error, info });
+  }
+
+  componentDidUpdate(previous: { resetKey: string }) {
+    if (previous.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <section className="panel section-error">
+        <AlertTriangle size={18} />
+        <div>
+          <h2>Раздел не загрузился</h2>
+          <p className="muted">Обновите раздел или откройте другую вкладку.</p>
+        </div>
+      </section>
+    );
+  }
+}
+
+function SidebarNav({ activeTab, onSelect }: { activeTab: AdminTab; onSelect(tab: AdminTab): void }) {
+  return (
+    <nav className="side-nav">
+      {navGroups.map((group) => (
+        <div className="side-nav-group" key={group.title}>
+          <span className="side-nav-title">{group.title}</span>
+          {group.items.map((entry) => <NavButton key={entry.id} item={entry} active={activeTab === entry.id} onSelect={onSelect} />)}
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+function MobileNav({ activeTab, activeOrdersCount, onSelect, onMore }: { activeTab: AdminTab; activeOrdersCount: number; onSelect(tab: AdminTab): void; onMore(): void }) {
+  const moreActive = moreTabIds.has(activeTab);
+  return (
+    <nav className="mobile-nav" aria-label="Основные разделы">
+      {mobileTabs.map((entry) => (
+        <NavButton
+          key={entry.id}
+          item={entry}
+          active={activeTab === entry.id}
+          badge={entry.id === "orders" && activeOrdersCount > 0 ? activeOrdersCount : 0}
+          mobile
+          onSelect={onSelect}
+        />
+      ))}
+      <button className={moreActive ? "active" : ""} type="button" onClick={onMore}>
+        <MoreHorizontal size={19} />
+        <span>Ещё</span>
+      </button>
+    </nav>
+  );
+}
+
+function NavButton({ item, active, badge = 0, mobile = false, onSelect }: { item: AdminNavItem; active: boolean; badge?: number; mobile?: boolean; onSelect(tab: AdminTab): void }) {
+  const Icon = item.icon;
+  return (
+    <button className={active ? "active" : ""} type="button" onClick={() => onSelect(item.id)} title={item.label}>
+      <Icon size={mobile ? 19 : 18} />
+      <span>{mobile ? item.shortLabel : item.label}</span>
+      {badge > 0 && <span className="nav-badge">{badge}</span>}
+    </button>
+  );
+}
+
+function MoreSheet({
+  activeTab,
+  loading,
+  session,
+  ownerAccess,
+  onClose,
+  onRefresh,
+  onSelect,
+}: {
+  activeTab: AdminTab;
+  loading: boolean;
+  session: AdminSession | null;
+  ownerAccess: boolean;
+  onClose(): void;
+  onRefresh(): void;
+  onSelect(tab: AdminTab): void;
+}) {
+  return (
+    <div className="sheet-backdrop" role="presentation" onClick={onClose}>
+      <section className="more-sheet" role="dialog" aria-modal="true" aria-label="Ещё" onClick={(event) => event.stopPropagation()}>
+        <div className="sheet-handle" aria-hidden="true" />
+        <div className="sheet-head">
+          <div>
+            <h2>Ещё</h2>
+            {ownerAccess && session?.telegram_user_id && <p className="muted">ID {session.telegram_user_id}</p>}
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Закрыть"><X size={18} /></button>
+        </div>
+        <div className="more-list">
+          {moreTabs.map((entry) => {
             const Icon = entry.icon;
             return (
-              <button key={entry.id} className={tab === entry.id ? "active" : ""} onClick={() => setTab(entry.id)}>
-                <Icon size={18} /> {entry.label}
+              <button key={entry.id} className={activeTab === entry.id ? "active" : ""} type="button" onClick={() => onSelect(entry.id)}>
+                <Icon size={18} />
+                <span>{entry.label}</span>
+                <ChevronRight size={17} />
               </button>
             );
           })}
-        </nav>
-      </aside>
-      <main>
-        <header className="topbar">
-          <div>
-            <h1>{tabs.find((entry) => entry.id === tab)?.label}</h1>
-            <p>ID создателя: 1048084234</p>
-            {isOwnerTelegramId(session?.telegram_user_id) && <OwnerRoleSwitch activeRole="ADMIN" />}
+        </div>
+        <div className="sheet-section">
+          <button type="button" onClick={onRefresh} disabled={loading}><RefreshCw size={17} /> Обновить</button>
+        </div>
+        {ownerAccess && (
+          <div className="sheet-section">
+            <span className="sheet-caption">Роли owner</span>
+            <OwnerRoleSwitch activeRole="ADMIN" />
           </div>
-          <button className="secondary" onClick={() => void load()} disabled={!token || loading}><RefreshCw size={18} /> Обновить</button>
-        </header>
-        {error && <div className="error"><AlertTriangle size={18} /> {error}</div>}
-        {loading && <div className="muted">Загрузка…</div>}
-        {tab === "home" && dashboard && settings && <HomeTab dashboard={dashboard} settings={settings} onDayOff={setDayOff} />}
-        {tab === "menu" && <MenuTab menu={menu} onAction={run} />}
-        {tab === "orders" && <OrdersTab orders={orders} page={ordersPage} onLoad={loadOrders} onLoadOrder={loadOrderDetail} onAction={run} />}
-        {tab === "staff" && <StaffTab staff={staff} onAction={run} />}
-        {tab === "schedule" && <ScheduleTab schedule={schedule} onSave={(next) => run((authToken) => api.updateSchedule(authToken, next)).then(() => undefined)} />}
-        {tab === "analytics" && analytics && <AnalyticsTab analytics={analytics} range={range} onRange={(next) => { setRange(next); void load(token, next); }} onExport={() => void exportAnalyticsCSV(range)} />}
-        {tab === "settings" && settings && <SettingsTab settings={settings} demoMode={api.mode === "demo"} onSave={(input) => run((authToken) => api.updateSettings(authToken, input)).then(() => undefined)} />}
-        {tab === "audit" && <AuditTab entries={audit} />}
-      </main>
+        )}
+      </section>
     </div>
+  );
+}
+
+function RestaurantStatus({ dashboard, loading }: { dashboard: AdminDashboard | null; loading: boolean }) {
+  if (!dashboard) return <span className="restaurant-status is-pending">{loading ? "Загрузка" : "Статус"}</span>;
+  const accepting = dashboard.runtime.accepting_orders;
+  return <span className={accepting ? "restaurant-status is-open" : "restaurant-status is-closed"}>{accepting ? "Принимаем заказы" : "Приём остановлен"}</span>;
+}
+
+function AdminAvatar({ session }: { session: AdminSession | null }) {
+  if (session?.photo_url) return <img className="admin-avatar" src={session.photo_url} alt="" />;
+  const initial = (session?.first_name || session?.username || "A").trim().slice(0, 1).toUpperCase() || "A";
+  return <span className="admin-avatar" aria-hidden="true">{initial}</span>;
+}
+
+function ConfirmDialog({ dialog, onClose }: { dialog: ConfirmDialogState | null; onClose(confirmed: boolean): void }) {
+  if (!dialog) return null;
+  return (
+    <div className="dialog-backdrop" role="presentation" onClick={() => onClose(false)}>
+      <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={(event) => event.stopPropagation()}>
+        <h2 id="confirm-title">{dialog.title}</h2>
+        <p>{dialog.message}</p>
+        <div className="dialog-actions">
+          <button type="button" onClick={() => onClose(false)}>{dialog.cancelLabel || "Отмена"}</button>
+          <button className={dialog.variant === "danger" ? "danger-button" : "primary"} type="button" onClick={() => onClose(true)}>{dialog.confirmLabel}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SectionSkeleton({ title }: { title: string }) {
+  return (
+    <section className="panel section-skeleton" aria-busy="true">
+      <h2>{title}</h2>
+      <div className="skeleton-line wide-line" />
+      <div className="skeleton-line" />
+      <div className="skeleton-line short-line" />
+    </section>
   );
 }
 
@@ -283,25 +632,79 @@ function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
   );
 }
 
-function HomeTab({ dashboard, settings, onDayOff }: { dashboard: AdminDashboard; settings: Settings; onDayOff(enabled: boolean): Promise<void> }) {
+function HomeTab({
+  dashboard,
+  settings,
+  onDayOff,
+  onOpenOrders,
+  onOpenMenu,
+  onOpenSchedule,
+  onOpenAnalytics,
+}: {
+  dashboard: AdminDashboard;
+  settings: Settings;
+  onDayOff(enabled: boolean): Promise<void>;
+  onOpenOrders(view: OrdersView): void;
+  onOpenMenu(): void;
+  onOpenSchedule(): void;
+  onOpenAnalytics(): void;
+}) {
   const accepting = dashboard.runtime.accepting_orders;
   const notificationErrors = dashboard.notification_errors ?? [];
+  const activeOrders = dashboard.new_orders + dashboard.out_for_delivery;
   return (
-    <section className="grid">
-      <div className={accepting ? "panel ok" : "panel danger"}>
-        <h2>{accepting ? "Заказы принимаются" : "Приём заказов остановлен"}</h2>
-        <p>{runtimeReason(dashboard.runtime.reason)}</p>
+    <section className="home-dashboard">
+      <div className={`panel home-status ${accepting ? "is-open" : "is-closed"}`}>
+        <div>
+          <span className="status-dot-label"><span className="status-dot" /> {accepting ? "Приём открыт" : "Приём закрыт"}</span>
+          <h2>{accepting ? "Работаем" : "Заказы не принимаются"}</h2>
+          <p>{compactRuntimeReason(dashboard.runtime.reason)}</p>
+        </div>
         <button className={settings.manual_day_off ? "primary" : "danger-button"} onClick={() => void onDayOff(!settings.manual_day_off)}>
-          {settings.manual_day_off ? "Включить приём" : "Остановить приём заказов"}
+          {settings.manual_day_off ? "Возобновить" : "Стоп приём"}
         </button>
       </div>
-      <Metric title="Новые" value={dashboard.new_orders} />
-      <Metric title="В доставке" value={dashboard.out_for_delivery} />
-      <Metric title="Заказов сегодня" value={dashboard.orders_today} />
-      <Metric title="Выручка сегодня" value={money(dashboard.revenue_today_minor)} />
-      <div className="panel wide">
-        <h2>Ошибки уведомлений и оплат</h2>
-        {notificationErrors.length ? notificationErrors.map((item) => <p key={item}>{item}</p>) : <p className="muted">Ошибок нет</p>}
+
+      <div className="home-section">
+        <div className="home-section-head">
+          <div>
+            <h2>Активные заказы</h2>
+            <p className="muted">{activeOrders ? "Нужно контролировать сейчас" : "Очередь пустая"}</p>
+          </div>
+          <button type="button" onClick={() => onOpenOrders("active")}>Открыть</button>
+        </div>
+        <div className="home-counters">
+          <button className="home-counter" type="button" onClick={() => onOpenOrders("new")}>
+            <span>На кухне</span>
+            <strong>{dashboard.new_orders}</strong>
+          </button>
+          <button className="home-counter" type="button" onClick={() => onOpenOrders("delivery")}>
+            <span>В доставке</span>
+            <strong>{dashboard.out_for_delivery}</strong>
+          </button>
+        </div>
+      </div>
+
+      <div className="panel today-card">
+        <h2>Сегодня</h2>
+        <div className="today-metrics">
+          <div><span>Заказы</span><strong>{dashboard.orders_today}</strong></div>
+          <div><span>Выручка</span><strong>{money(dashboard.revenue_today_minor)}</strong></div>
+        </div>
+      </div>
+
+      {notificationErrors.length > 0 && (
+        <div className="panel attention-card">
+          <h2>Нужно проверить</h2>
+          {notificationErrors.slice(0, 3).map((item) => <p key={item}>{item}</p>)}
+          {notificationErrors.length > 3 && <p className="muted">+ ещё {notificationErrors.length - 3}</p>}
+        </div>
+      )}
+
+      <div className="quick-actions">
+        <button type="button" onClick={onOpenMenu}>Меню</button>
+        <button type="button" onClick={onOpenSchedule}>График</button>
+        <button type="button" onClick={onOpenAnalytics}>Аналитика</button>
       </div>
     </section>
   );
@@ -500,132 +903,80 @@ function DishForm({
   );
 }
 
-function OrdersTabLegacy({ orders, onAction }: { orders: Order[]; onAction: AdminActionRunner }) {
-  const [status, setStatus] = useState<"" | Order["fulfillment_status"]>("");
-  const [query, setQuery] = useState("");
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return orders.filter((order) => {
-      if (status && order.fulfillment_status !== status) return false;
-      if (!q) return true;
-      return [
-        String(order.public_number),
-        order.phone || "",
-        order.address || "",
-        order.client_username || "",
-        order.client_first_name || "",
-      ].some((value) => value.toLowerCase().includes(q));
-    });
-  }, [orders, query, status]);
-  return (
-    <section className="stack">
-      <div className="panel toolbar">
-        <input placeholder="Поиск: номер, телефон, адрес, username" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <select value={status} onChange={(event) => setStatus(event.target.value as "" | Order["fulfillment_status"])}>
-          {statusOptions.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
-        </select>
-      </div>
-      {visible.length === 0 ? <div className="panel"><p className="muted">Заказов нет</p></div> : visible.map((order) => (
-        <article className="order" key={order.id}>
-          <div className="order-head">
-            <div>
-              <strong>Заказ #{order.public_number}</strong>
-              <span>{createdText(order.created_at)}</span>
-            </div>
-            <StatusBadge status={order.fulfillment_status} />
-            <strong>{money(order.total_minor)}</strong>
-          </div>
-          <div className="order-info">
-            <span>Клиент</span>
-            <strong><OrderClientLink order={order} /></strong>
-          </div>
-          <div className="order-info">
-            <span>Телефон</span>
-            <strong>{order.phone || "не указан"}</strong>
-          </div>
-          <div className="order-info">
-            <span>Оплата</span>
-            <strong>{adminPaymentText(order)}</strong>
-          </div>
-          {order.payment_method === "cash" && order.cash_location_verified_at && (
-            <div className="order-info">
-              <span>Гео cash</span>
-              <strong>проверено{typeof order.cash_location_distance_meters === "number" ? ` · ${formatMeters(order.cash_location_distance_meters)}` : ""}</strong>
-            </div>
-          )}
-          <div className="order-info">
-            <span>Адрес</span>
-            <strong>{order.address || "не указан"}</strong>
-          </div>
-          {order.customer_comment && <div className="warn"><AlertTriangle size={16} /> {order.customer_comment}</div>}
-          <ul>{order.items.map((item) => <li key={item.menu_item_id}>{item.quantity} × {item.snapshot_title}<span>{money(item.line_total_minor)}</span></li>)}</ul>
-          <div className="actions wrap">
-            {order.fulfillment_status !== "CANCELLED" && order.fulfillment_status !== "DELIVERED" && <button className="danger-button" onClick={() => void promptAction("Причина отмены", (reason) => onAction((authToken) => api.cancelOrder(authToken, order.id, reason)))}>Отменить заказ</button>}
-            {order.fulfillment_status === "OUT_FOR_DELIVERY" && <button onClick={() => void promptAction("Почему вернуть на кухню?", (reason) => onAction((authToken) => api.returnOrderToNew(authToken, order.id, reason)))}>Вернуть на кухню</button>}
-            <button onClick={() => void editContact(order, (input) => onAction((authToken) => api.updateOrderContact(authToken, order.id, input)))}>Исправить контакт</button>
-            <button onClick={() => void promptAction("Внутренняя заметка", (reason) => onAction((authToken) => api.addOrderNote(authToken, order.id, reason)))}>Добавить заметку</button>
-          </div>
-        </article>
-      ))}
-    </section>
-  );
-}
-
 function OrdersTab({
   orders,
   page,
+  initialView,
   onLoad,
   onLoadOrder,
   onAction,
 }: {
   orders: Order[];
   page: Pick<AdminOrdersResponse, "limit" | "offset" | "has_more">;
+  initialView: OrdersView;
   onLoad(filter: { status?: string; q?: string; date?: string; limit?: number; offset?: number }): Promise<AdminOrdersResponse | undefined>;
   onLoadOrder(id: string): Promise<Order | undefined>;
   onAction: AdminActionRunner;
 }) {
-  const [status, setStatus] = useState<"" | Order["fulfillment_status"]>("");
+  const [view, setView] = useState<OrdersView>(initialView);
   const [query, setQuery] = useState("");
   const [date, setDate] = useState("");
-  const [expandedID, setExpandedID] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [selectedID, setSelectedID] = useState("");
   const [detail, setDetail] = useState<Order | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [actionMenuID, setActionMenuID] = useState("");
+  const [dialog, setDialog] = useState<OrderDialogState | null>(null);
   const limit = page.limit || 100;
   const offset = page.offset || 0;
+  const counts = useMemo(() => ({
+    active: orders.filter((order) => orderMatchesView(order, "active")).length,
+    new: orders.filter((order) => order.fulfillment_status === "NEW").length,
+    delivery: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").length,
+    history: orders.filter((order) => orderMatchesView(order, "history")).length,
+  }), [orders]);
+  const visibleOrders = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return orders.filter((order) => orderMatchesView(order, view) && orderSearchMatch(order, q) && orderDateMatch(order, date));
+  }, [date, orders, query, view]);
+  const selectedOrder = detail || orders.find((order) => order.id === selectedID) || null;
 
-  function currentFilter(nextOffset = 0) {
-    return {
-      status: status || undefined,
-      q: query.trim() || undefined,
-      date: date || undefined,
-      limit,
-      offset: nextOffset,
-    };
-  }
+  useEffect(() => {
+    setView(initialView);
+    setSelectedID("");
+    setDetail(null);
+    setActionMenuID("");
+  }, [initialView]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void onLoad(ordersLoadFilter(view, query, date, limit, 0));
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [date, limit, onLoad, query, view]);
 
   async function applyFilter(nextOffset = 0) {
-    setExpandedID("");
+    setSelectedID("");
     setDetail(null);
-    await onLoad(currentFilter(nextOffset));
+    setActionMenuID("");
+    await onLoad(ordersLoadFilter(view, query, date, limit, nextOffset));
   }
 
   async function resetFilter() {
-    setStatus("");
+    setView("active");
     setQuery("");
     setDate("");
-    setExpandedID("");
+    setFiltersOpen(false);
+    setSelectedID("");
     setDetail(null);
+    setActionMenuID("");
     await onLoad({ limit, offset: 0 });
   }
 
-  async function toggleDetails(order: Order) {
-    if (expandedID === order.id) {
-      setExpandedID("");
-      setDetail(null);
-      return;
-    }
-    setExpandedID(order.id);
-    setDetail(null);
+  async function selectOrder(order: Order) {
+    setSelectedID(order.id);
+    setDetail(order);
+    setActionMenuID("");
     setDetailLoading(true);
     try {
       const loaded = await onLoadOrder(order.id);
@@ -635,85 +986,396 @@ function OrdersTab({
     }
   }
 
+  async function executeOrderAction<T>(action: (authToken: string) => Promise<T>) {
+    const result = await onAction(action);
+    if (isOrderResponse(result)) {
+      setDetail(result);
+      setSelectedID(result.id);
+    }
+    setActionMenuID("");
+  }
+
+  function openReasonDialog(input: Omit<Extract<OrderDialogState, { kind: "reason" }>, "kind">) {
+    setDialog({ kind: "reason", ...input });
+    setActionMenuID("");
+  }
+
+  function openContactDialog(order: Order) {
+    setDialog({
+      kind: "contact",
+      order,
+      onSubmit: (input) => executeOrderAction((authToken) => api.updateOrderContact(authToken, order.id, input)).then(() => undefined),
+    });
+    setActionMenuID("");
+  }
+
   return (
-    <section className="stack">
-      <div className="panel toolbar">
-        <input placeholder="Поиск: номер, телефон, username" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <select value={status} onChange={(event) => setStatus(event.target.value as "" | Order["fulfillment_status"])}>
-          {statusOptions.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
-        </select>
-        <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
-        <button className="primary" onClick={() => void applyFilter(0)}>Применить</button>
-        <button onClick={() => void resetFilter()}>Сброс</button>
+    <section className={`orders-workspace ${selectedOrder ? "has-detail" : ""}`}>
+      <div className="orders-list-panel">
+        <div className="order-segments" role="tablist" aria-label="Фильтр заказов">
+          {orderViewOptions.map((entry) => (
+            <button
+              key={entry.id}
+              className={view === entry.id ? "active" : ""}
+              type="button"
+              onClick={() => {
+                setView(entry.id);
+                setSelectedID("");
+                setDetail(null);
+                void onLoad(ordersLoadFilter(entry.id, query, date, limit, 0));
+              }}
+            >
+              <span>{entry.label}</span>
+              <strong>{counts[entry.id]}</strong>
+            </button>
+          ))}
+        </div>
+
+        <div className="order-filter-bar">
+          <label className="order-search">
+            <Search size={17} />
+            <input placeholder="№, телефон, @username" value={query} onChange={(event) => setQuery(event.target.value)} />
+          </label>
+          <button type="button" onClick={() => setFiltersOpen((value) => !value)} aria-expanded={filtersOpen}>
+            <SlidersHorizontal size={17} />
+          </button>
+        </div>
+
+        {filtersOpen && (
+          <div className="order-filter-drawer">
+            <label><span>Дата</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+            <div className="actions">
+              <button className="primary" type="button" onClick={() => void applyFilter(0)}>Применить</button>
+              <button type="button" onClick={() => void resetFilter()}>Сбросить</button>
+            </div>
+          </div>
+        )}
+
+        <div className="orders-list" role="list">
+          {visibleOrders.length === 0 ? (
+            <div className="empty compact-empty">
+              <strong>Заказов нет</strong>
+              <span>{view === "active" ? "Активная очередь пустая" : "По фильтру ничего не найдено"}</span>
+            </div>
+          ) : visibleOrders.map((order) => (
+            <OrderRow
+              key={order.id}
+              order={order}
+              selected={selectedID === order.id}
+              onSelect={() => void selectOrder(order)}
+            />
+          ))}
+        </div>
+
+        {(offset > 0 || page.has_more) && (
+          <div className="orders-pagination">
+            <button disabled={offset === 0} onClick={() => void applyFilter(Math.max(0, offset - limit))}>Назад</button>
+            <span>{orders.length ? `${offset + 1}–${offset + orders.length}` : "0"}</span>
+            <button disabled={!page.has_more} onClick={() => void applyFilter(offset + limit)}>Дальше</button>
+          </div>
+        )}
       </div>
-      <div className="panel toolbar">
-        <button disabled={offset === 0} onClick={() => void applyFilter(Math.max(0, offset - limit))}>Назад</button>
-        <span className="muted">Показаны {orders.length ? `${offset + 1}–${offset + orders.length}` : "0"}</span>
-        <button disabled={!page.has_more} onClick={() => void applyFilter(offset + limit)}>Дальше</button>
-      </div>
-      {orders.length === 0 ? <div className="panel"><p className="muted">Заказов нет</p></div> : orders.map((order) => {
-        const currentDetail = expandedID === order.id ? (detail || order) : null;
-        return (
-          <article className="order" key={order.id}>
-            <div className="order-head">
-              <div>
-                <strong>Заказ #{order.public_number}</strong>
-                <span>{createdText(order.created_at)}</span>
-              </div>
-              <StatusBadge status={order.fulfillment_status} />
-              <strong>{money(order.total_minor)}</strong>
-            </div>
-            <div className="order-info">
-              <span>Клиент</span>
-              <strong><OrderClientLink order={order} /></strong>
-            </div>
-            <div className="order-info">
-              <span>Телефон</span>
-              <strong>{order.phone || "не указан"}</strong>
-            </div>
-            <div className="order-info">
-              <span>Оплата</span>
-              <strong>{adminPaymentText(order)}</strong>
-            </div>
-            {order.payment_method === "cash" && order.cash_location_verified_at && (
-              <div className="order-info">
-                <span>Гео cash</span>
-                <strong>проверено{typeof order.cash_location_distance_meters === "number" ? ` · ${formatMeters(order.cash_location_distance_meters)}` : ""}</strong>
-              </div>
-            )}
-            <div className="order-info">
-              <span>Адрес</span>
-              <strong>{order.address || "не указан"}</strong>
-            </div>
-            {order.customer_comment && <div className="warn"><AlertTriangle size={16} /> {order.customer_comment}</div>}
-            <ul>{order.items.map((item) => <li key={item.menu_item_id}>{item.quantity} × {item.snapshot_title}<span>{money(item.line_total_minor)}</span></li>)}</ul>
-            <div className="actions wrap">
-              {order.fulfillment_status !== "CANCELLED" && order.fulfillment_status !== "DELIVERED" && <button className="danger-button" onClick={() => void promptAction("Причина отмены", (reason) => onAction((authToken) => api.cancelOrder(authToken, order.id, reason)))}>Отменить заказ</button>}
-              {order.fulfillment_status === "OUT_FOR_DELIVERY" && <button onClick={() => void promptAction("Почему вернуть на кухню?", (reason) => onAction((authToken) => api.returnOrderToNew(authToken, order.id, reason)))}>Вернуть на кухню</button>}
-              <button onClick={() => void editContact(order, (input) => onAction((authToken) => api.updateOrderContact(authToken, order.id, input)))}>Исправить контакт</button>
-              <button onClick={() => void promptAction("Внутренняя заметка", (reason) => onAction((authToken) => api.addOrderNote(authToken, order.id, reason)))}>Добавить заметку</button>
-              <button onClick={() => void promptAction("Причина повторной отправки клиенту", (reason) => onAction((authToken) => api.resendOrder(authToken, order.id, "client", reason)))}>Повтор клиенту</button>
-              {order.fulfillment_status === "OUT_FOR_DELIVERY" && <button onClick={() => void promptAction("Причина повторной отправки курьеру", (reason) => onAction((authToken) => api.resendOrder(authToken, order.id, "courier", reason)))}>Повтор курьеру</button>}
-              <button onClick={() => void toggleDetails(order)}>{expandedID === order.id ? "Скрыть события" : "События"}</button>
-            </div>
-            {expandedID === order.id && (
-              <div className="order-events">
-                {detailLoading && <p className="muted">Загружаем события…</p>}
-                {!detailLoading && !currentDetail?.events?.length && <p className="muted">Событий пока нет</p>}
-                {!detailLoading && currentDetail?.events?.map((event) => (
-                  <div className="event-line" key={event.id}>
-                    <span>{createdText(event.created_at)}</span>
-                    <strong>{orderEventText(event.action)}</strong>
-                    <small>{orderEventStatusText(event.from_status, event.to_status)}</small>
-                    {event.reason && <p>{event.reason}</p>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </article>
-        );
-      })}
+
+      <OrderDetailPanel
+        order={selectedOrder}
+        loading={detailLoading}
+        actionMenuOpen={Boolean(selectedOrder && actionMenuID === selectedOrder.id)}
+        onClose={() => {
+          setSelectedID("");
+          setDetail(null);
+          setActionMenuID("");
+        }}
+        onToggleActions={(order) => setActionMenuID((current) => current === order.id ? "" : order.id)}
+        onCancel={(order) => openReasonDialog({
+          title: `Отменить заказ #${order.public_number}`,
+          label: "Причина отмены",
+          confirmLabel: "Отменить",
+          variant: "danger",
+          onSubmit: (reason) => executeOrderAction((authToken) => api.cancelOrder(authToken, order.id, reason)).then(() => undefined),
+        })}
+        onReturn={(order) => openReasonDialog({
+          title: `Вернуть заказ #${order.public_number} на кухню`,
+          label: "Почему возвращаем",
+          confirmLabel: "Вернуть",
+          onSubmit: (reason) => executeOrderAction((authToken) => api.returnOrderToNew(authToken, order.id, reason)).then(() => undefined),
+        })}
+        onEditContact={openContactDialog}
+        onNote={(order) => openReasonDialog({
+          title: `Заметка к заказу #${order.public_number}`,
+          label: "Текст заметки",
+          confirmLabel: "Сохранить",
+          onSubmit: (reason) => executeOrderAction((authToken) => api.addOrderNote(authToken, order.id, reason)).then(() => undefined),
+        })}
+        onResendClient={(order) => openReasonDialog({
+          title: `Повторить сообщение клиенту #${order.public_number}`,
+          label: "Причина повторной отправки",
+          confirmLabel: "Отправить",
+          onSubmit: (reason) => executeOrderAction((authToken) => api.resendOrder(authToken, order.id, "client", reason)).then(() => undefined),
+        })}
+        onResendCourier={(order) => openReasonDialog({
+          title: `Повторить сообщение курьеру #${order.public_number}`,
+          label: "Причина повторной отправки",
+          confirmLabel: "Отправить",
+          onSubmit: (reason) => executeOrderAction((authToken) => api.resendOrder(authToken, order.id, "courier", reason)).then(() => undefined),
+        })}
+      />
+
+      {dialog && <OrderActionDialog dialog={dialog} onClose={() => setDialog(null)} />}
     </section>
+  );
+}
+
+function OrderRow({ order, selected, onSelect }: { order: Order; selected: boolean; onSelect(): void }) {
+  return (
+    <button className={`order-row ${selected ? "is-selected" : ""} ${order.fulfillment_status === "NEW" ? "is-new" : ""}`} type="button" onClick={onSelect}>
+      <span className="order-avatar" aria-hidden="true">
+        {order.client_photo_url ? <img src={order.client_photo_url} alt="" /> : orderAvatarLetters(order)}
+      </span>
+      <span className="order-row-main">
+        <span className="order-row-title">
+          <strong>#{order.public_number}</strong>
+          <span>{createdText(order.created_at)}</span>
+        </span>
+        <span className="order-row-client">{orderClientLabel(order)}</span>
+        <span className="order-row-items">{orderItemsSummary(order)}</span>
+      </span>
+      <span className="order-row-side">
+        <StatusBadge status={order.fulfillment_status} />
+        <strong>{money(order.total_minor)}</strong>
+      </span>
+    </button>
+  );
+}
+
+function OrderDetailPanel({
+  order,
+  loading,
+  actionMenuOpen,
+  onClose,
+  onToggleActions,
+  onCancel,
+  onReturn,
+  onEditContact,
+  onNote,
+  onResendClient,
+  onResendCourier,
+}: {
+  order: Order | null;
+  loading: boolean;
+  actionMenuOpen: boolean;
+  onClose(): void;
+  onToggleActions(order: Order): void;
+  onCancel(order: Order): void;
+  onReturn(order: Order): void;
+  onEditContact(order: Order): void;
+  onNote(order: Order): void;
+  onResendClient(order: Order): void;
+  onResendCourier(order: Order): void;
+}) {
+  const [eventsOpen, setEventsOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setEventsOpen(false);
+    setCopied(false);
+  }, [order?.id]);
+
+  if (!order) {
+    return (
+      <aside className="order-detail empty-detail">
+        <ClipboardList size={32} />
+        <strong>Выберите заказ</strong>
+        <span>Детали и действия откроются здесь.</span>
+      </aside>
+    );
+  }
+
+  async function copyAddress() {
+    if (!order?.address) return;
+    try {
+      if (!navigator.clipboard) return;
+      await navigator.clipboard.writeText(order.address);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  const canCancel = order.fulfillment_status !== "CANCELLED" && order.fulfillment_status !== "DELIVERED";
+  const canReturn = order.fulfillment_status === "OUT_FOR_DELIVERY";
+
+  return (
+    <aside className="order-detail">
+      <div className="order-detail-head">
+        <button className="detail-back" type="button" onClick={onClose} aria-label="К списку заказов">
+          <ArrowLeft size={18} />
+        </button>
+        <div>
+          <h2>Заказ #{order.public_number}</h2>
+          <span>{createdText(order.created_at)}</span>
+        </div>
+        <div className="order-detail-actions">
+          <StatusBadge status={order.fulfillment_status} />
+          <button type="button" onClick={() => onToggleActions(order)} aria-label="Действия с заказом"><MoreHorizontal size={18} /></button>
+          {actionMenuOpen && (
+            <div className="order-action-menu">
+              {canCancel && <button type="button" onClick={() => onCancel(order)}><Ban size={16} /> Отменить</button>}
+              {canReturn && <button type="button" onClick={() => onReturn(order)}><RotateCcw size={16} /> На кухню</button>}
+              <button type="button" onClick={() => onEditContact(order)}><Phone size={16} /> Контакт</button>
+              <button type="button" onClick={() => onNote(order)}><StickyNote size={16} /> Заметка</button>
+              <button type="button" onClick={() => onResendClient(order)}><MessageCircle size={16} /> Клиенту</button>
+              {canReturn && <button type="button" onClick={() => onResendCourier(order)}><Send size={16} /> Курьеру</button>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="detail-total">
+        <span>Сумма</span>
+        <strong>{money(order.total_minor)}</strong>
+      </div>
+
+      <div className="detail-section">
+        <h3>Клиент</h3>
+        <div className="detail-row">
+          <span>Telegram</span>
+          <strong><OrderClientLink order={order} /></strong>
+        </div>
+        <div className="detail-row">
+          <span>Телефон</span>
+          <strong>{order.phone ? <a className="telegram-link" href={`tel:${order.phone}`}>{order.phone}</a> : "не указан"}</strong>
+        </div>
+        <div className="detail-row">
+          <span>Оплата</span>
+          <strong>{adminPaymentText(order)}</strong>
+        </div>
+        {order.payment_method === "cash" && (
+          <div className="detail-row">
+            <span>Гео</span>
+            <strong>{order.cash_location_verified_at ? `проверено${typeof order.cash_location_distance_meters === "number" ? ` · ${formatMeters(order.cash_location_distance_meters)}` : ""}` : "не проверено"}</strong>
+          </div>
+        )}
+      </div>
+
+      <div className="detail-section">
+        <h3>Адрес</h3>
+        <div className="address-card">
+          <span>{order.address || "не указан"}</span>
+          {order.address && <button type="button" onClick={() => void copyAddress()}><Copy size={16} /> {copied ? "Скопировано" : "Копировать"}</button>}
+        </div>
+      </div>
+
+      {order.customer_comment && <div className="warn"><AlertTriangle size={16} /> {order.customer_comment}</div>}
+
+      <div className="detail-section">
+        <h3>Состав</h3>
+        <ul className="order-items-list">
+          {order.items.map((item, index) => (
+            <li key={`${item.menu_item_id}-${index}`}>
+              <span>{item.quantity} × {item.snapshot_title}</span>
+              <strong>{money(item.line_total_minor)}</strong>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <button className="events-toggle" type="button" onClick={() => setEventsOpen((value) => !value)}>
+        {eventsOpen ? "Скрыть историю" : "Показать историю"}
+      </button>
+      {eventsOpen && (
+        <div className="order-events">
+          {loading && <p className="muted">Загружаем события…</p>}
+          {!loading && !order.events?.length && <p className="muted">Событий пока нет</p>}
+          {!loading && order.events?.map((event) => (
+            <div className="event-line" key={event.id}>
+              <span>{createdText(event.created_at)}</span>
+              <strong>{orderEventText(event.action)}</strong>
+              <small>{orderEventStatusText(event.from_status, event.to_status)}</small>
+              {event.reason && <p>{event.reason}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function OrderActionDialog({ dialog, onClose }: { dialog: OrderDialogState; onClose(): void }) {
+  if (dialog.kind === "contact") return <OrderContactDialog dialog={dialog} onClose={onClose} />;
+  return <OrderReasonDialog dialog={dialog} onClose={onClose} />;
+}
+
+function OrderReasonDialog({ dialog, onClose }: { dialog: Extract<OrderDialogState, { kind: "reason" }>; onClose(): void }) {
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const value = reason.trim();
+    if (!value) return;
+    setSaving(true);
+    try {
+      await dialog.onSubmit(value);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="dialog-backdrop">
+      <form className="dialog order-dialog" onSubmit={(event) => void submit(event)}>
+        <h2>{dialog.title}</h2>
+        <label>
+          <span>{dialog.label}</span>
+          <textarea autoFocus value={reason} onChange={(event) => setReason(event.target.value)} />
+        </label>
+        <div className="dialog-actions">
+          <button type="button" onClick={onClose}>Отмена</button>
+          <button className={dialog.variant === "danger" ? "danger-button" : "primary"} type="submit" disabled={saving || !reason.trim()}>
+            {saving ? "Сохраняем…" : dialog.confirmLabel}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function OrderContactDialog({ dialog, onClose }: { dialog: Extract<OrderDialogState, { kind: "contact" }>; onClose(): void }) {
+  const [phone, setPhone] = useState(dialog.order.phone || "");
+  const [address, setAddress] = useState(dialog.order.address || "");
+  const [reason, setReason] = useState("исправление контакта");
+  const [saving, setSaving] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const input = { phone: phone.trim(), address: address.trim(), reason: reason.trim() };
+    if (!input.phone || !input.address || !input.reason) return;
+    setSaving(true);
+    try {
+      await dialog.onSubmit(input);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="dialog-backdrop">
+      <form className="dialog order-dialog" onSubmit={(event) => void submit(event)}>
+        <h2>Контакт заказа #{dialog.order.public_number}</h2>
+        <Text label="Телефон" value={phone} onChange={setPhone} />
+        <Textarea label="Адрес" value={address} onChange={setAddress} />
+        <Text label="Причина" value={reason} onChange={setReason} />
+        <div className="dialog-actions">
+          <button type="button" onClick={onClose}>Отмена</button>
+          <button className="primary" type="submit" disabled={saving || !phone.trim() || !address.trim() || !reason.trim()}>
+            {saving ? "Сохраняем…" : "Сохранить"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -921,6 +1583,35 @@ function RoleSelect({ value, onChange }: { value: StaffInput["role"]; onChange(r
   return <select value={value} onChange={(event) => onChange(event.target.value as StaffInput["role"])}><option value="KITCHEN">Кухня</option><option value="COURIER">Курьер</option><option value="ADMIN">Админ</option></select>;
 }
 
+function navItems(ids: AdminTab[]): AdminNavItem[] {
+  return ids.map((id) => navItem(id));
+}
+
+function navItem(id: AdminTab): AdminNavItem {
+  return tabs.find((entry) => entry.id === id) || tabs[0];
+}
+
+function initialAdminTab(): AdminTab {
+  return tabFromHash();
+}
+
+function tabFromHash(): AdminTab {
+  const value = window.location.hash.replace(/^#\/?/, "");
+  return isAdminTab(value) ? value : "home";
+}
+
+function isAdminTab(value: string): value is AdminTab {
+  return tabs.some((entry) => entry.id === value);
+}
+
+function updateAdminHash(tab: AdminTab): void {
+  const hash = tab === "home" ? "" : `#${tab}`;
+  const nextURL = `${window.location.pathname}${window.location.search}${hash}`;
+  if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextURL) {
+    window.history.pushState(null, "", nextURL);
+  }
+}
+
 function emptyCategory(): AdminCategory {
   const now = new Date().toISOString();
   return { id: "", title_ru: "", title_sr: "", title_en: "", sort_order: 100, visible: true, archived: false, item_count: 0, version: 1, created_at: now, updated_at: now };
@@ -967,18 +1658,66 @@ function replace<T>(items: T[], index: number, value: T): T[] {
   return items.map((item, current) => current === index ? value : item);
 }
 
-function promptAction(label: string, next: (reason: string) => Promise<unknown>): Promise<unknown> {
-  const reason = window.prompt(label) || "";
-  if (!reason.trim()) return Promise.resolve();
-  return next(reason);
-}
-
 function orderPageMeta(page: AdminOrdersResponse): Pick<AdminOrdersResponse, "limit" | "offset" | "has_more"> {
   return {
     limit: page.limit || 100,
     offset: page.offset || 0,
     has_more: Boolean(page.has_more),
   };
+}
+
+function ordersLoadFilter(view: OrdersView, query: string, date: string, limit: number, offset: number): { status?: string; q?: string; date?: string; limit?: number; offset?: number } {
+  void view;
+  return {
+    q: query.trim() || undefined,
+    date: date || undefined,
+    limit,
+    offset,
+  };
+}
+
+function orderMatchesView(order: Order, view: OrdersView): boolean {
+  if (view === "active") return order.fulfillment_status === "NEW" || order.fulfillment_status === "OUT_FOR_DELIVERY";
+  if (view === "new") return order.fulfillment_status === "NEW";
+  if (view === "delivery") return order.fulfillment_status === "OUT_FOR_DELIVERY";
+  return order.fulfillment_status === "DELIVERED" || order.fulfillment_status === "CANCELLED";
+}
+
+function orderSearchMatch(order: Order, query: string): boolean {
+  if (!query) return true;
+  return [
+    String(order.public_number),
+    order.phone || "",
+    order.address || "",
+    order.client_username || "",
+    order.client_first_name || "",
+  ].some((value) => value.toLowerCase().includes(query));
+}
+
+function orderDateMatch(order: Order, date: string): boolean {
+  if (!date) return true;
+  return order.created_at.slice(0, 10) === date;
+}
+
+function isOrderResponse(value: unknown): value is Order {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<Order>;
+  return typeof candidate.id === "string"
+    && typeof candidate.public_number === "number"
+    && typeof candidate.fulfillment_status === "string"
+    && Array.isArray(candidate.items);
+}
+
+function orderItemsSummary(order: Order): string {
+  const preview = order.items.slice(0, 2).map((item) => `${item.quantity}× ${item.snapshot_title}`).join(", ");
+  if (!preview) return "без блюд";
+  return order.items.length > 2 ? `${preview} +${order.items.length - 2}` : preview;
+}
+
+function orderAvatarLetters(order: Order): string {
+  const username = telegramUsername(order);
+  const name = username || order.client_first_name || "TL";
+  return name.slice(0, 2).toUpperCase();
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -1013,14 +1752,6 @@ function orderEventStatusText(from: string, to: string): string {
 
 function isOrderStatus(value: string): boolean {
   return value === "NEW" || value === "OUT_FOR_DELIVERY" || value === "DELIVERED" || value === "CANCELLED";
-}
-
-function editContact(order: Order, next: (input: { phone: string; address: string; reason: string }) => Promise<unknown>): Promise<unknown> {
-  const phone = window.prompt("Телефон", order.phone || "") || "";
-  const address = window.prompt("Адрес", order.address || "") || "";
-  const reason = window.prompt("Причина изменения", "исправление контакта") || "";
-  if (!phone || !address || !reason) return Promise.resolve();
-  return next({ phone, address, reason });
 }
 
 function editStaff(member: StaffMember, next: (input: StaffInput) => Promise<unknown>): Promise<unknown> {
@@ -1097,6 +1828,13 @@ function runtimeReason(reason: string): string {
   if (reason === "schedule_closed") return "Сейчас вне времени приёма заказов.";
   if (reason === "order_cutoff_passed") return "Приём заказов на сегодня завершён.";
   return "Работает по текущему графику.";
+}
+
+function compactRuntimeReason(reason: string): string {
+  if (reason === "manual_day_off") return "Ручной выходной";
+  if (reason === "schedule_closed") return "По графику закрыто";
+  if (reason === "order_cutoff_passed") return "Заказы на сегодня закрыты";
+  return "Заказы до 21:00";
 }
 
 function roleText(role: string): string {

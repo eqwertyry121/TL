@@ -9,6 +9,7 @@
 5. [Domain architecture](domain-architecture.md)
 6. [Backup and restore](backup-restore.md)
 7. [Production alerts](production-alerts.md)
+8. [UX-ТЗ переработки Admin Mini App](admin-ux-redesign.md)
 
 ## Артефакты этапа 0
 
