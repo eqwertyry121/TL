@@ -192,6 +192,31 @@ func TestAdminDashboardReturnsEmptyNotificationErrorsArray(t *testing.T) {
 	}
 }
 
+func TestAdminAnalyticsReturnsEmptyArrays(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	now := time.Now().UTC()
+	analytics, err := st.AdminAnalytics(ctx, adminSession, now.Add(-24*time.Hour), now, now)
+	if err != nil {
+		t.Fatalf("admin analytics: %v", err)
+	}
+	if analytics.Statuses == nil || analytics.Payments == nil || analytics.TopDishes == nil || analytics.DailyRows == nil {
+		t.Fatalf("expected non-nil analytics slices: statuses=%v payments=%v top_dishes=%v daily_rows=%v", analytics.Statuses, analytics.Payments, analytics.TopDishes, analytics.DailyRows)
+	}
+	payload, err := json.Marshal(analytics)
+	if err != nil {
+		t.Fatalf("marshal analytics: %v", err)
+	}
+	for _, field := range []string{"statuses", "payments", "top_dishes", "daily_rows"} {
+		if !strings.Contains(string(payload), `"`+field+`":[]`) {
+			t.Fatalf("expected %s to encode as [], got %s", field, payload)
+		}
+	}
+}
+
 func TestAdminOrdersSupportsFiltersAndPagination(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)

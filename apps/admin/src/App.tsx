@@ -852,6 +852,8 @@ function SettingsTab({ settings, demoMode, onSave }: { settings: Settings; demoM
 
 function AnalyticsTab({ analytics, range, onRange, onExport }: { analytics: AdminAnalytics; range: AnalyticsRange; onRange(range: AnalyticsRange): void; onExport(): void }) {
   const labels: Record<AnalyticsRange, string> = { today: "Сегодня", "7d": "7 дней", month: "Месяц" };
+  const topDishes = analytics.top_dishes ?? [];
+  const dailyRows = analytics.daily_rows ?? [];
   return (
     <section className="stack">
       <div className="toolbar panel">
@@ -866,8 +868,8 @@ function AnalyticsTab({ analytics, range, onRange, onExport }: { analytics: Admi
         <Metric title="Средний чек" value={money(analytics.summary.average_check_minor)} />
       </div>
       <div className="two">
-        <SimpleTable title="Популярные блюда" rows={analytics.top_dishes.map((dish) => [dish.title, `${dish.quantity} шт`, money(dish.revenue_minor)])} />
-        <SimpleTable title="По дням" rows={analytics.daily_rows.map((row) => [row.day, `${row.orders} заказов`, money(row.revenue_minor)])} />
+        <SimpleTable title="Популярные блюда" rows={topDishes.map((dish) => [dish.title, `${dish.quantity} шт`, money(dish.revenue_minor)])} />
+        <SimpleTable title="По дням" rows={dailyRows.map((row) => [row.day, `${row.orders} заказов`, money(row.revenue_minor)])} />
       </div>
     </section>
   );

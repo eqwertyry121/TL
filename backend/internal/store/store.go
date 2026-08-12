@@ -2192,6 +2192,10 @@ func (s *Store) AdminAnalytics(ctx context.Context, sess core.Session, from, to 
 		From:        from.UTC(),
 		To:          to.UTC(),
 		GeneratedAt: now.UTC(),
+		Statuses:    []core.AnalyticsBreakdown{},
+		Payments:    []core.AnalyticsBreakdown{},
+		TopDishes:   []core.TopDish{},
+		DailyRows:   []core.DailyAnalyticsRow{},
 	}
 	err = s.pool.QueryRow(ctx, `
 		SELECT
