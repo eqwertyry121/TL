@@ -179,12 +179,14 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
   return {
     mode: "real",
     async authenticate() {
+      const initData = rawInitData();
+      if (appEnv === "production" && !initData) throw apiError("TELEGRAM_INIT_DATA_MISSING");
       const response =
         appEnv === "production"
           ? await post(`${baseURL}/api/v1/auth/telegram`, {
               audience: "staff",
               role: "ADMIN",
-              init_data: rawInitData(),
+              init_data: initData,
             })
           : await post(`${baseURL}/api/v1/dev/session`, { telegram_user_id: 1048084234, role: "ADMIN" });
       return response.session;

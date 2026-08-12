@@ -135,12 +135,16 @@ function realApi(baseURL: string, appEnv: string): StaffApi {
   return {
     mode: "real",
     async authenticate(role) {
+      const initData = rawInitData();
+      if (appEnv === "production" && !initData) {
+        throw staffApiError("TELEGRAM_INIT_DATA_MISSING");
+      }
       const response =
         appEnv === "production"
           ? await post(`${baseURL}/api/v1/auth/telegram`, {
               audience: "staff",
               role,
-              init_data: rawInitData(),
+              init_data: initData,
             })
           : await post(`${baseURL}/api/v1/dev/session`, { telegram_user_id: 1048084234, role });
       return response.session;
@@ -242,9 +246,13 @@ async function read(response: Response) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const code = payload?.error?.code || "SERVER_UNAVAILABLE";
-    throw Object.assign(new Error(code), { code, status: response.status } satisfies Pick<StaffApiError, "code" | "status">);
+    throw staffApiError(code, response.status);
   }
   return payload;
+}
+
+function staffApiError(code: string, status?: number): StaffApiError {
+  return Object.assign(new Error(code), { code, status } satisfies Pick<StaffApiError, "code" | "status">);
 }
 
 function loadDemoOrders(): DemoOrder[] {

@@ -1144,6 +1144,8 @@ function errorText(error: unknown): string {
   const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "";
   if (code === "ORDER_STATUS_CONFLICT") return "Данные устарели или статус уже изменился. Обнови экран.";
   if (code === "INVALID_INPUT") return "Некорректные данные. Проверь поля и ограничения.";
+  if (code === "TELEGRAM_INIT_DATA_MISSING") return "Откройте админку именно через Telegram Mini App. В обычном браузере или внешней вкладке Telegram не передаёт данные входа.";
+  if (code === "AUTH_INVALID") return "Telegram-сессия устарела или открыта не через @TakoLako_main_bot. Полностью закройте Mini App и откройте заново из бота.";
   if (code === "FORBIDDEN") return "Нет ADMIN доступа.";
   return code || "Ошибка запроса";
 }
