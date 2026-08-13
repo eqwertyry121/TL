@@ -1,3 +1,4 @@
+import type { Category } from "@tk-delivery/api-client/generated";
 import type { Calculation, CartLine, CartState, CashLocationChallenge, CheckoutDraft, Locale } from "./types";
 
 const CART_KEY = "tk-client-cart-v1";
@@ -5,7 +6,10 @@ const CHECKOUT_KEY = "tk-client-checkout-v1";
 const CHECKOUT_PROGRESS_KEY = "tk-client-checkout-progress-v1";
 const LOCALE_KEY = "tk-client-locale";
 const IDEMPOTENCY_KEY = "tk-client-pending-intent";
+const PUBLIC_DATA_KEY_PREFIX = "tk.menu.v2.";
+const LEGACY_PUBLIC_DATA_KEY = "tk-client-public-menu-v2";
 const CHECKOUT_DRAFT_TTL_MS = 12 * 60 * 60 * 1000;
+const PUBLIC_DATA_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface CheckoutProgress {
   version: 1;
@@ -15,10 +19,32 @@ export interface CheckoutProgress {
   savedAt: string;
 }
 
+export interface CachedPublicData {
+  version: 2;
+  locale: Locale;
+  menu_revision: number;
+  categories: Category[];
+  savedAt: string;
+}
+
 interface StoredCheckoutDraft {
   version: 1;
   draft: Partial<CheckoutDraft> & { details?: string };
   savedAt: string;
+}
+
+let legacySensitiveLocalStorageCleared = false;
+
+function clearLegacySensitiveLocalStorage(): void {
+  if (legacySensitiveLocalStorageCleared) return;
+  legacySensitiveLocalStorageCleared = true;
+  try {
+    localStorage.removeItem(CHECKOUT_KEY);
+    localStorage.removeItem(CHECKOUT_PROGRESS_KEY);
+    localStorage.removeItem(IDEMPOTENCY_KEY);
+  } catch {
+    // ignore storage access errors
+  }
 }
 
 const emptyCheckoutDraft = (): CheckoutDraft => ({
@@ -62,20 +88,21 @@ export function upsertCartLine(cart: CartState, line: CartLine): CartState {
 }
 
 export function loadCheckoutDraft(): CheckoutDraft {
+  clearLegacySensitiveLocalStorage();
   try {
-    const parsed = JSON.parse(localStorage.getItem(CHECKOUT_KEY) || "") as StoredCheckoutDraft;
+    const parsed = JSON.parse(sessionStorage.getItem(CHECKOUT_KEY) || "") as StoredCheckoutDraft;
     if (parsed?.version === 1 && parsed.draft && isRecent(parsed.savedAt, CHECKOUT_DRAFT_TTL_MS)) {
       return normalizeCheckoutDraft(parsed.draft);
     }
-    localStorage.removeItem(CHECKOUT_KEY);
+    sessionStorage.removeItem(CHECKOUT_KEY);
   } catch {
-    localStorage.removeItem(CHECKOUT_KEY);
+    sessionStorage.removeItem(CHECKOUT_KEY);
   }
   return emptyCheckoutDraft();
 }
 
 export function saveCheckoutDraft(draft: CheckoutDraft): void {
-  localStorage.setItem(CHECKOUT_KEY, JSON.stringify({
+  sessionStorage.setItem(CHECKOUT_KEY, JSON.stringify({
     version: 1,
     draft,
     savedAt: new Date().toISOString(),
@@ -120,9 +147,10 @@ export function checkoutCartSignature(lines: CartLine[]): string {
 }
 
 export function loadCheckoutProgress(cartSignature: string): CheckoutProgress | null {
+  clearLegacySensitiveLocalStorage();
   if (!cartSignature) return null;
   try {
-    const parsed = JSON.parse(localStorage.getItem(CHECKOUT_PROGRESS_KEY) || "") as CheckoutProgress;
+    const parsed = JSON.parse(sessionStorage.getItem(CHECKOUT_PROGRESS_KEY) || "") as CheckoutProgress;
     if (parsed?.version !== 1 || parsed.cartSignature !== cartSignature || !isFuture(parsed.calculation?.expires_at)) {
       clearCheckoutProgress();
       return null;
@@ -148,11 +176,11 @@ export function saveCheckoutProgress(cartSignature: string, calculation: Calcula
     cashLocation: cashLocation && isFuture(cashLocation.expires_at) ? cashLocation : null,
     savedAt: new Date().toISOString(),
   };
-  localStorage.setItem(CHECKOUT_PROGRESS_KEY, JSON.stringify(progress));
+  sessionStorage.setItem(CHECKOUT_PROGRESS_KEY, JSON.stringify(progress));
 }
 
 export function clearCheckoutProgress(): void {
-  localStorage.removeItem(CHECKOUT_PROGRESS_KEY);
+  sessionStorage.removeItem(CHECKOUT_PROGRESS_KEY);
 }
 
 export function loadLocale(fallback: Locale): Locale {
@@ -164,17 +192,59 @@ export function saveLocale(locale: Locale): void {
   localStorage.setItem(LOCALE_KEY, locale);
 }
 
+export function loadCachedPublicData(locale: Locale): CachedPublicData | null {
+  const key = publicDataKey(locale);
+  try {
+    localStorage.removeItem(LEGACY_PUBLIC_DATA_KEY);
+    const parsed = JSON.parse(localStorage.getItem(key) || "") as CachedPublicData;
+    if (
+      parsed?.version === 2 &&
+      parsed.locale === locale &&
+      typeof parsed.menu_revision === "number" &&
+      Array.isArray(parsed.categories) &&
+      isRecent(parsed.savedAt, PUBLIC_DATA_TTL_MS)
+    ) {
+      return parsed;
+    }
+    localStorage.removeItem(key);
+  } catch {
+    // Public cache is only a startup accelerator.
+    localStorage.removeItem(key);
+  }
+  return null;
+}
+
+export function saveCachedPublicData(locale: Locale, menuRevision: number, categories: Category[]): void {
+  try {
+    localStorage.removeItem(LEGACY_PUBLIC_DATA_KEY);
+    localStorage.setItem(publicDataKey(locale), JSON.stringify({
+      version: 2,
+      locale,
+      menu_revision: menuRevision,
+      categories,
+      savedAt: new Date().toISOString(),
+    } satisfies CachedPublicData));
+  } catch {
+    // Public cache is best-effort and never required for checkout correctness.
+  }
+}
+
+function publicDataKey(locale: Locale): string {
+  return `${PUBLIC_DATA_KEY_PREFIX}${locale}`;
+}
+
 export function pendingIdempotencyKey(): string {
-  let key = localStorage.getItem(IDEMPOTENCY_KEY);
+  clearLegacySensitiveLocalStorage();
+  let key = sessionStorage.getItem(IDEMPOTENCY_KEY);
   if (!key) {
     key = crypto.randomUUID();
-    localStorage.setItem(IDEMPOTENCY_KEY, key);
+    sessionStorage.setItem(IDEMPOTENCY_KEY, key);
   }
   return key;
 }
 
 export function resetPendingIdempotencyKey(): void {
-  localStorage.removeItem(IDEMPOTENCY_KEY);
+  sessionStorage.removeItem(IDEMPOTENCY_KEY);
 }
 
 function isFuture(value: string | undefined): boolean {

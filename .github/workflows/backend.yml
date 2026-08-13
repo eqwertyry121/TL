@@ -40,10 +40,63 @@ jobs:
       - name: Test
         run: go test ./...
 
-      - name: Store integration tests
+      - name: PostgreSQL integration tests
         env:
           TK_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/tk_delivery_test?sslmode=disable
-        run: go test ./backend/internal/store -count=1 -v
+        run: go test ./... -count=1 -v
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: API public load smoke
+        env:
+          APP_ENV: development
+          HTTP_ADDR: 127.0.0.1:18080
+          APP_PUBLIC_BASE_URL: http://127.0.0.1:18080
+          MEDIA_DIR: ${{ runner.temp }}/tk-media
+          POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/tk_delivery_test?sslmode=disable
+          NOTIFICATION_DRY_RUN: "true"
+          SERVER_TIMING_ENABLED: "true"
+          POSTGRES_MAX_CONNS: "8"
+          POSTGRES_MIN_CONNS: "1"
+          PERF_BASE_URL: http://127.0.0.1:18080
+          PERF_MAX_P95_MS: "500"
+          PERF_CHECKOUT_ITERATIONS: "20"
+          PERF_CHECKOUT_CONCURRENCY: "5"
+          PERF_CHECKOUT_MAX_P95_MS: "300"
+          PERF_ALLOW_LOCAL_BASE_URL: "true"
+        run: |
+          go run ./backend/cmd/app > api.log 2>&1 &
+          api_pid=$!
+          run_public_api_checks() {
+            node scripts/cors-contract.mjs
+            node scripts/production-contract.mjs
+            node scripts/load-smoke.mjs
+          }
+          cleanup() {
+            status=$?
+            kill "$api_pid" 2>/dev/null || true
+            wait "$api_pid" 2>/dev/null || true
+            if [ "$status" -ne 0 ]; then
+              cat api.log
+            fi
+            return "$status"
+          }
+          trap cleanup EXIT
+          for attempt in {1..60}; do
+            if curl -fsS "$PERF_BASE_URL/health" >/dev/null; then
+              run_public_api_checks
+              exit $?
+            fi
+            if ! kill -0 "$api_pid" 2>/dev/null; then
+              exit 1
+            fi
+            sleep 1
+          done
+          curl -fsS "$PERF_BASE_URL/health"
+          run_public_api_checks
 
       - name: Vet
         run: go vet ./...
@@ -52,4 +105,4 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
       - name: Docker build
-        run: docker build -f deploy/Dockerfile .
+        run: docker build --build-arg APP_BUILD_SHA=${{ github.sha }} -f deploy/Dockerfile .

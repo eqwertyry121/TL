@@ -10,6 +10,10 @@
 6. [Backup and restore](backup-restore.md)
 7. [Production alerts](production-alerts.md)
 8. [UX-ТЗ переработки Admin Mini App](admin-ux-redesign.md)
+9. [ТЗ глобальной оптимизации](GLOBAL_OPTIMIZATION_SPEC.md)
+10. [Результаты performance-проверок](performance-results.md)
+11. [Runbook глобальной оптимизации](optimization-runbook.md)
+12. [Аудит завершённости глобальной оптимизации](optimization-completion-audit.md)
 
 ## Артефакты этапа 0
 

@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap");
-
 :root {
   --sidebar-width: clamp(14rem, 18vw, 17rem);
   --page-pad: clamp(0.85rem, 2.2vw, 1.6rem);
@@ -33,8 +31,8 @@
   --glass: rgba(255, 253, 248, 0.72);
   --green: #5e6b3a;
   --red: #b95532;
-  --font-body: "Manrope", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-display: "Cormorant Garamond", "Manrope", ui-serif, Georgia, serif;
+  --font-body: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: Georgia, "Times New Roman", ui-serif, serif;
   color: var(--text);
   background: var(--bg);
   font-family: var(--font-body);
@@ -1293,6 +1291,10 @@ p {
   font-size: 0.85rem;
   font-weight: 800;
   text-align: center;
+}
+
+.audit-pagination {
+  margin-top: 0.8rem;
 }
 
 .compact-empty,

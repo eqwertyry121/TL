@@ -85,7 +85,7 @@ Start only PostgreSQL:
 docker compose up -d postgres
 $env:POSTGRES_DSN = "postgres://tk_delivery:tk_delivery@localhost:15432/tk_delivery?sslmode=disable"
 $env:PII_HASH_KEY = "change-me-local-dev-pii-hash-key"
-go run ./backend/cmd/app
+pnpm api:dev
 ```
 
 Or start PostgreSQL and backend together:

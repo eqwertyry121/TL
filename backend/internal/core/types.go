@@ -164,44 +164,57 @@ type AdminCategory struct {
 }
 
 type AdminMenuItem struct {
-	ID             uuid.UUID `json:"id"`
-	CategoryID     uuid.UUID `json:"category_id"`
-	TitleRU        string    `json:"title_ru"`
-	TitleSR        string    `json:"title_sr"`
-	TitleEN        string    `json:"title_en"`
-	DescriptionRU  string    `json:"description_ru"`
-	DescriptionSR  string    `json:"description_sr"`
-	DescriptionEN  string    `json:"description_en"`
-	PriceMinor     int       `json:"price_minor"`
-	Currency       string    `json:"currency"`
-	PhotoPath      string    `json:"photo_path"`
-	WeightText     string    `json:"weight_text"`
-	MinQuantity    int       `json:"min_quantity"`
-	AllergenTextRU string    `json:"allergen_text_ru"`
-	AllergenTextSR string    `json:"allergen_text_sr"`
-	AllergenTextEN string    `json:"allergen_text_en"`
-	SortOrder      int       `json:"sort_order"`
-	Visible        bool      `json:"visible"`
-	Archived       bool      `json:"archived"`
-	UsedInOrders   bool      `json:"used_in_orders"`
-	Version        int       `json:"version"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             uuid.UUID      `json:"id"`
+	CategoryID     uuid.UUID      `json:"category_id"`
+	TitleRU        string         `json:"title_ru"`
+	TitleSR        string         `json:"title_sr"`
+	TitleEN        string         `json:"title_en"`
+	DescriptionRU  string         `json:"description_ru"`
+	DescriptionSR  string         `json:"description_sr"`
+	DescriptionEN  string         `json:"description_en"`
+	PriceMinor     int            `json:"price_minor"`
+	Currency       string         `json:"currency"`
+	PhotoPath      string         `json:"photo_path"`
+	PhotoVariants  *PhotoVariants `json:"photo_variants,omitempty"`
+	WeightText     string         `json:"weight_text"`
+	MinQuantity    int            `json:"min_quantity"`
+	AllergenTextRU string         `json:"allergen_text_ru"`
+	AllergenTextSR string         `json:"allergen_text_sr"`
+	AllergenTextEN string         `json:"allergen_text_en"`
+	SortOrder      int            `json:"sort_order"`
+	Visible        bool           `json:"visible"`
+	Archived       bool           `json:"archived"`
+	UsedInOrders   bool           `json:"used_in_orders"`
+	Version        int            `json:"version"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 }
 
 type MenuItem struct {
-	ID           uuid.UUID `json:"id"`
-	CategoryID   uuid.UUID `json:"category_id"`
-	Title        string    `json:"title"`
-	Description  string    `json:"description"`
-	PriceMinor   int       `json:"price_minor"`
-	Currency     string    `json:"currency"`
-	PhotoPath    string    `json:"photo_path"`
-	WeightText   string    `json:"weight_text"`
-	MinQuantity  int       `json:"min_quantity"`
-	AllergenText string    `json:"allergen_text"`
-	SortOrder    int       `json:"sort_order"`
-	Version      int       `json:"version"`
+	ID            uuid.UUID      `json:"id"`
+	CategoryID    uuid.UUID      `json:"category_id"`
+	Title         string         `json:"title"`
+	Description   string         `json:"description"`
+	PriceMinor    int            `json:"price_minor"`
+	Currency      string         `json:"currency"`
+	PhotoPath     string         `json:"photo_path"`
+	PhotoVariants *PhotoVariants `json:"photo_variants,omitempty"`
+	WeightText    string         `json:"weight_text"`
+	MinQuantity   int            `json:"min_quantity"`
+	AllergenText  string         `json:"allergen_text"`
+	SortOrder     int            `json:"sort_order"`
+	Version       int            `json:"version"`
+}
+
+type PhotoVariants struct {
+	Thumbnail PhotoVariant `json:"thumbnail"`
+	Display   PhotoVariant `json:"display"`
+}
+
+type PhotoVariant struct {
+	URL    string `json:"url"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
 }
 
 type CartItemInput struct {
@@ -285,6 +298,29 @@ type Order struct {
 	CashLocationDistanceMeters *int              `json:"cash_location_distance_meters,omitempty"`
 	Items                      []OrderItem       `json:"items"`
 	Events                     []OrderEvent      `json:"events,omitempty"`
+}
+
+type OrderSummary struct {
+	ID                         uuid.UUID         `json:"id"`
+	PublicNumber               int               `json:"public_number"`
+	ClientUsername             string            `json:"client_username,omitempty"`
+	ClientFirstName            string            `json:"client_first_name,omitempty"`
+	ClientPhotoURL             string            `json:"client_photo_url,omitempty"`
+	FulfillmentStatus          FulfillmentStatus `json:"fulfillment_status"`
+	PaymentMethod              PaymentMethod     `json:"payment_method"`
+	PaymentStatus              PaymentStatus     `json:"payment_status"`
+	SubtotalMinor              int               `json:"subtotal_minor"`
+	DeliveryFeeMinor           int               `json:"delivery_fee_minor"`
+	TotalMinor                 int               `json:"total_minor"`
+	Currency                   string            `json:"currency"`
+	Locale                     string            `json:"locale"`
+	Version                    int               `json:"version"`
+	CreatedAt                  time.Time         `json:"created_at"`
+	ReadyAt                    *time.Time        `json:"ready_at,omitempty"`
+	DeliveredAt                *time.Time        `json:"delivered_at,omitempty"`
+	CancelledAt                *time.Time        `json:"cancelled_at,omitempty"`
+	CashLocationVerifiedAt     *time.Time        `json:"cash_location_verified_at,omitempty"`
+	CashLocationDistanceMeters *int              `json:"cash_location_distance_meters,omitempty"`
 }
 
 type OrderItem struct {

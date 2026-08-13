@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./auth-retry": "./src/auth-retry.ts",
     "./generated": "./src/generated.ts",
+    "./performance": "./src/performance.ts",
+    "./polling": "./src/polling.ts",
     "./role-switch": "./src/role-switch.ts"
   },
   "scripts": {

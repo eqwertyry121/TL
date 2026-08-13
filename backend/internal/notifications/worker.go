@@ -3,11 +3,14 @@ package notifications
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	cryptobox "github.com/eqwertyry121/TL/backend/internal/crypto"
@@ -16,15 +19,20 @@ import (
 )
 
 type Worker struct {
-	pool          *pgxpool.Pool
-	interval      time.Duration
-	dryRun        bool
-	clientToken   string
-	staffToken    string
-	publicBaseURL string
-	box           *cryptobox.Box
-	httpClient    *http.Client
-	logger        *slog.Logger
+	pool            *pgxpool.Pool
+	interval        time.Duration
+	dryRun          bool
+	concurrency     int
+	backlogAfter    time.Duration
+	lastBacklogWarn time.Time
+	clientToken     string
+	staffToken      string
+	publicBaseURL   string
+	box             *cryptobox.Box
+	httpClient      *http.Client
+	logger          *slog.Logger
+	claimJobsFunc   func(context.Context) ([]job, error)
+	processJobFunc  func(context.Context, job) error
 }
 
 type job struct {
@@ -35,17 +43,44 @@ type job struct {
 	attempts      int
 }
 
-func New(pool *pgxpool.Pool, box *cryptobox.Box, interval time.Duration, dryRun bool, clientToken, staffToken, publicBaseURL string, logger *slog.Logger) *Worker {
+func New(pool *pgxpool.Pool, box *cryptobox.Box, interval time.Duration, dryRun bool, concurrency int, backlogAfter time.Duration, clientToken, staffToken, publicBaseURL string, logger *slog.Logger) *Worker {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	if concurrency > 4 {
+		concurrency = 4
+	}
 	return &Worker{
 		pool:          pool,
 		box:           box,
 		interval:      interval,
 		dryRun:        dryRun,
+		concurrency:   concurrency,
+		backlogAfter:  backlogAfter,
 		clientToken:   strings.TrimSpace(clientToken),
 		staffToken:    strings.TrimSpace(staffToken),
 		publicBaseURL: strings.TrimRight(strings.TrimSpace(publicBaseURL), "/"),
-		httpClient:    &http.Client{Timeout: 8 * time.Second},
+		httpClient:    newTelegramHTTPClient(),
 		logger:        logger,
+	}
+}
+
+func newTelegramHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 8 * time.Second,
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   3 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			MaxIdleConns:          16,
+			MaxIdleConnsPerHost:   4,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   5 * time.Second,
+			ResponseHeaderTimeout: 5 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
 	}
 }
 
@@ -55,13 +90,25 @@ func (w *Worker) Run(ctx context.Context) {
 	}
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
+	cleanupTicker := time.NewTicker(24 * time.Hour)
+	defer cleanupTicker.Stop()
+	if err := w.cleanupExpired(ctx); err != nil {
+		w.logger.Warn("cleanup failed", "error", err)
+	}
 	for {
 		if err := w.ProcessOnce(ctx); err != nil {
 			w.logger.Warn("notification worker error", "error", err)
 		}
+		if err := w.warnIfBacklogIsStale(ctx); err != nil {
+			w.logger.Warn("notification backlog check failed", "error", err)
+		}
 		select {
 		case <-ctx.Done():
 			return
+		case <-cleanupTicker.C:
+			if err := w.cleanupExpired(ctx); err != nil {
+				w.logger.Warn("cleanup failed", "error", err)
+			}
 		case <-ticker.C:
 		}
 	}
@@ -86,17 +133,94 @@ func (w *Worker) ProcessOnce(ctx context.Context) error {
 	return err
 }
 
+func (w *Worker) warnIfBacklogIsStale(ctx context.Context) error {
+	if w.backlogAfter <= 0 {
+		return nil
+	}
+	var pendingCount int
+	var oldestDue sql.NullTime
+	if err := w.pool.QueryRow(ctx, `
+		SELECT COUNT(*)::int, MIN(created_at)
+		FROM notification_jobs
+		WHERE status='pending' AND next_attempt_at <= now()
+	`).Scan(&pendingCount, &oldestDue); err != nil {
+		return err
+	}
+	if pendingCount == 0 || !oldestDue.Valid {
+		return nil
+	}
+	now := time.Now().UTC()
+	oldestAge := now.Sub(oldestDue.Time)
+	if oldestAge < w.backlogAfter {
+		return nil
+	}
+	if !w.lastBacklogWarn.IsZero() && now.Sub(w.lastBacklogWarn) < w.backlogAfter {
+		return nil
+	}
+	w.lastBacklogWarn = now
+	w.logger.Warn(
+		"notification backlog stale",
+		"pending_count", pendingCount,
+		"oldest_age_seconds", int(oldestAge.Seconds()),
+	)
+	if !w.dryRun && w.staffToken != "" {
+		if err := w.sendAdminBacklogAlert(ctx, pendingCount, oldestAge); err != nil {
+			w.logger.Warn("notification backlog alert failed", "error", redactedError(err))
+		}
+	}
+	return nil
+}
+
+func (w *Worker) sendAdminBacklogAlert(ctx context.Context, pendingCount int, oldestAge time.Duration) error {
+	chatID, err := w.staffTarget(ctx, "ADMIN")
+	if err != nil {
+		return err
+	}
+	text := fmt.Sprintf(
+		"Notification queue is delayed. Pending jobs: %d. Oldest due job age: %d seconds.",
+		pendingCount,
+		int(oldestAge.Seconds()),
+	)
+	return w.sendMessage(ctx, w.staffToken, chatID, text)
+}
+
 func (w *Worker) processTelegram(ctx context.Context) error {
-	jobs, err := w.claimJobs(ctx)
+	claimJobs := w.claimJobs
+	if w.claimJobsFunc != nil {
+		claimJobs = w.claimJobsFunc
+	}
+	processJob := w.processJob
+	if w.processJobFunc != nil {
+		processJob = w.processJobFunc
+	}
+	jobs, err := claimJobs(ctx)
 	if err != nil {
 		return err
 	}
 
-	for _, current := range jobs {
-		if err := w.processJob(ctx, current); err != nil {
-			w.logger.Warn("telegram notification failed", "job_id", current.id, "recipient_kind", current.recipientKind, "template", current.template, "error", redactedError(err))
-		}
+	concurrency := w.concurrency
+	if concurrency < 1 {
+		concurrency = 1
 	}
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for _, current := range jobs {
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			return ctx.Err()
+		case sem <- struct{}{}:
+		}
+		wg.Add(1)
+		go func(current job) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := processJob(ctx, current); err != nil {
+				w.logger.Warn("telegram notification failed", "job_id", current.id, "recipient_kind", current.recipientKind, "template", current.template, "error", redactedError(err))
+			}
+		}(current)
+	}
+	wg.Wait()
 	return nil
 }
 
@@ -361,6 +485,100 @@ func (w *Worker) markFailed(ctx context.Context, current job, cause error) {
 		SET status=$2, next_attempt_at=$3, last_error_code=$4, updated_at=now()
 		WHERE id=$1 AND status='processing'
 	`, current.id, status, nextAttemptAt, redactedError(cause))
+}
+
+func (w *Worker) cleanupExpired(ctx context.Context) error {
+	statements := []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "sessions",
+			sql: `
+				WITH expired AS (
+					SELECT token_hash
+					FROM sessions
+					WHERE expires_at < now() - interval '7 days'
+					LIMIT 500
+				)
+				DELETE FROM sessions s
+				USING expired
+				WHERE s.token_hash = expired.token_hash
+			`,
+		},
+		{
+			name: "calculation_tokens",
+			sql: `
+				WITH expired AS (
+					SELECT token_hash
+					FROM calculation_tokens
+					WHERE expires_at < now() - interval '1 day'
+					LIMIT 500
+				)
+				DELETE FROM calculation_tokens t
+				USING expired
+				WHERE t.token_hash = expired.token_hash
+			`,
+		},
+		{
+			name: "idempotency_keys",
+			sql: `
+				WITH expired AS (
+					SELECT id
+					FROM idempotency_keys
+					WHERE expires_at < now() - interval '1 day'
+					LIMIT 500
+				)
+				DELETE FROM idempotency_keys k
+				USING expired
+				WHERE k.id = expired.id
+			`,
+		},
+		{
+			name: "notification_jobs",
+			sql: `
+				WITH expired AS (
+					SELECT id
+					FROM notification_jobs
+					WHERE status IN ('sent', 'failed')
+						AND updated_at < now() - interval '30 days'
+					LIMIT 500
+				)
+				DELETE FROM notification_jobs j
+				USING expired
+				WHERE j.id = expired.id
+			`,
+		},
+		{
+			name: "cash_location_challenges",
+			sql: `
+				WITH expired AS (
+					SELECT c.id
+					FROM cash_location_challenges c
+					WHERE c.expires_at < now() - interval '7 days'
+						AND NOT EXISTS (
+							SELECT 1
+							FROM orders o
+							WHERE o.cash_location_challenge_id = c.id
+						)
+					LIMIT 500
+				)
+				DELETE FROM cash_location_challenges c
+				USING expired
+				WHERE c.id = expired.id
+			`,
+		},
+	}
+	for _, statement := range statements {
+		tag, err := w.pool.Exec(ctx, statement.sql)
+		if err != nil {
+			return fmt.Errorf("%s: %w", statement.name, err)
+		}
+		if deleted := tag.RowsAffected(); deleted > 0 {
+			w.logger.Info("cleanup deleted expired rows", "table", statement.name, "rows", deleted)
+		}
+	}
+	return nil
 }
 
 func clientText(publicNumber int, template string) string {

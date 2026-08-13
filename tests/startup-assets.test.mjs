@@ -1,0 +1,123 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+const apps = ["client", "kitchen", "courier", "admin"];
+const telegramSdkURL = "https://telegram.org/js/telegram-web-app.js";
+const apiOrigin = "https://api.takolako.site";
+const telegramOrigin = "https://telegram.org";
+
+test("app HTML keeps startup network hints and Telegram SDK non-blocking", () => {
+  for (const app of apps) {
+    const html = readSource(`apps/${app}/index.html`);
+    const telegramSdkTag = findTags(html, "script").find((tag) => hasAttrValue(tag, "src", telegramSdkURL));
+
+    assert.ok(telegramSdkTag, `${app} index.html must load Telegram WebApp SDK`);
+    assert.ok(hasBooleanAttr(telegramSdkTag, "defer"), `${app} Telegram SDK script must use defer`);
+
+    assert.ok(
+      findTags(html, "link").some(
+        (tag) =>
+          hasAttrToken(tag, "rel", "preconnect") &&
+          hasAttrValue(tag, "href", apiOrigin) &&
+          hasBooleanAttr(tag, "crossorigin"),
+      ),
+      `${app} index.html must preconnect to the API origin with crossorigin`,
+    );
+    assert.ok(
+      findTags(html, "link").some(
+        (tag) => hasAttrToken(tag, "rel", "preconnect") && hasAttrValue(tag, "href", telegramOrigin),
+      ),
+      `${app} index.html must preconnect to Telegram before loading the SDK`,
+    );
+
+    assertNoExternalFonts(html, `apps/${app}/index.html`);
+    assertNoImagePreloads(html, `apps/${app}/index.html`);
+  }
+});
+
+test("critical app CSS does not import blocking external font stylesheets", () => {
+  for (const app of apps) {
+    const css = readSource(`apps/${app}/src/styles.css`);
+
+    assertNoExternalFonts(css, `apps/${app}/src/styles.css`);
+    assert.doesNotMatch(css, /@import\b/i, `${app} critical CSS must not use @import`);
+  }
+});
+
+test("client root fallback with Telegram initData does not trigger a second document load", () => {
+  const source = readSource("apps/client/src/App.tsx");
+  const appBody = sliceBetween(source, "export function App()", "function ClientMiniApp()");
+
+  assertIncludes(appBody, "if (rawInitData()) return <ClientMiniApp />;");
+  assertNotIncludes(source, "window.location.replace(`/main");
+  assertNotIncludes(source, "function TelegramMainRedirect");
+});
+
+function readSource(path) {
+  return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+}
+
+function findTags(source, tagName) {
+  return Array.from(source.matchAll(new RegExp(`<${tagName}\\b[^>]*>`, "gi")), (match) => match[0]);
+}
+
+function hasBooleanAttr(tag, name) {
+  return new RegExp(`\\s${escapeRegExp(name)}(?:\\s|=|/?>)`, "i").test(tag);
+}
+
+function hasAttrToken(tag, name, token) {
+  const value = getAttrValue(tag, name);
+
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .some((part) => part.toLowerCase() === token.toLowerCase());
+}
+
+function hasAttrValue(tag, name, expected) {
+  return getAttrValue(tag, name) === expected;
+}
+
+function getAttrValue(tag, name) {
+  const match = tag.match(new RegExp(`\\s${escapeRegExp(name)}\\s*=\\s*(["'])(.*?)\\1`, "i"));
+
+  return match?.[2] ?? "";
+}
+
+function assertNoExternalFonts(source, label) {
+  assert.doesNotMatch(source, /fonts\.googleapis\.com|fonts\.gstatic\.com/i, `${label} must not load Google Fonts`);
+  assert.doesNotMatch(
+    source,
+    /<link\b[^>]*rel=["'][^"']*stylesheet[^"']*["'][^>]*href=["']https?:\/\//i,
+    `${label} must not load blocking external stylesheets`,
+  );
+}
+
+function assertNoImagePreloads(source, label) {
+  const hasPreloadedImage = findTags(source, "link").some(
+    (tag) => hasAttrToken(tag, "rel", "preload") && hasAttrValue(tag, "as", "image"),
+  );
+
+  assert.ok(!hasPreloadedImage, `${label} must not preload menu/media images in the startup HTML`);
+}
+
+function sliceBetween(source, startNeedle, endNeedle) {
+  const start = source.indexOf(startNeedle);
+  assert.notEqual(start, -1, `missing start marker: ${startNeedle}`);
+  const end = source.indexOf(endNeedle, start);
+  assert.notEqual(end, -1, `missing end marker: ${endNeedle}`);
+  return source.slice(start, end);
+}
+
+function assertIncludes(source, needle) {
+  assert.ok(source.includes(needle), `expected source to include ${needle}`);
+}
+
+function assertNotIncludes(source, needle) {
+  assert.ok(!source.includes(needle), `expected source not to include ${needle}`);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

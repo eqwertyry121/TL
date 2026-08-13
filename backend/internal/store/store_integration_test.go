@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/eqwertyry121/TL/backend/internal/db"
 	"github.com/eqwertyry121/TL/backend/internal/store"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,9 +30,42 @@ const (
 	adminTelegramID   = int64(2000000002)
 	courierTelegramID = int64(2000000003)
 	secondCourierID   = int64(2000000004)
+
+	integrationDBLockKey = int64(812379421)
 )
 
 var classicKhinkaliID = uuid.MustParse("22222222-2222-2222-2222-222222222001")
+var khinkaliCategoryID = uuid.MustParse("11111111-1111-1111-1111-111111111001")
+
+var seededMenuItemInputs = []core.CartItemInput{
+	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222001"), Quantity: 5},
+	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222002"), Quantity: 5},
+	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222003"), Quantity: 1},
+	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222004"), Quantity: 1},
+	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222005"), Quantity: 1},
+	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222006"), Quantity: 1},
+	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222007"), Quantity: 1},
+	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222008"), Quantity: 1},
+}
+
+type queryCounter struct {
+	count atomic.Int64
+}
+
+func (q *queryCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryStartData) context.Context {
+	q.count.Add(1)
+	return ctx
+}
+
+func (q *queryCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func (q *queryCounter) Reset() {
+	q.count.Store(0)
+}
+
+func (q *queryCounter) Count() int64 {
+	return q.count.Load()
+}
 
 func TestCreateCashOrderRejectsStaleHiddenItemCalculation(t *testing.T) {
 	ctx := context.Background()
@@ -69,6 +104,155 @@ func TestCreateCashOrderRejectsStaleHiddenItemCalculation(t *testing.T) {
 	}, "idem-stale-hidden-item", "request-hash", now)
 	if !errors.Is(err, core.ErrItemUnavailable) && !errors.Is(err, core.ErrCalculationExpired) {
 		t.Fatalf("expected stale calculation rejection, got %v", err)
+	}
+}
+
+func TestMenuRevisionBumpsOnAdminMenuMutations(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	revision := menuRevision(t, ctx, st)
+	category, err := st.CreateCategory(ctx, adminSession, store.UpsertCategoryInput{
+		TitleRU:   "Тест",
+		TitleSR:   "Test",
+		TitleEN:   "Test",
+		SortOrder: 90,
+		Visible:   true,
+	})
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	revision = requireRevisionIncrease(t, ctx, st, revision, "create category")
+
+	category.TitleRU = "Тест 2"
+	category.TitleSR = "Test 2"
+	category.TitleEN = "Test 2"
+	updatedCategory, err := st.UpdateCategory(ctx, adminSession, category.ID, store.UpsertCategoryInput{
+		TitleRU:   category.TitleRU,
+		TitleSR:   category.TitleSR,
+		TitleEN:   category.TitleEN,
+		SortOrder: category.SortOrder,
+		Visible:   category.Visible,
+		Version:   category.Version,
+	})
+	if err != nil {
+		t.Fatalf("update category: %v", err)
+	}
+	revision = requireRevisionIncrease(t, ctx, st, revision, "update category")
+
+	archivedCategory, err := st.ArchiveCategory(ctx, adminSession, updatedCategory.ID, "revision test")
+	if err != nil {
+		t.Fatalf("archive category: %v", err)
+	}
+	revision = requireRevisionIncrease(t, ctx, st, revision, "archive category")
+
+	restoredCategory, err := st.RestoreCategory(ctx, adminSession, archivedCategory.ID, "revision test")
+	if err != nil {
+		t.Fatalf("restore category: %v", err)
+	}
+	revision = requireRevisionIncrease(t, ctx, st, revision, "restore category")
+
+	action, err := st.DeleteOrArchiveCategory(ctx, adminSession, restoredCategory.ID, "revision test")
+	if err != nil {
+		t.Fatalf("delete category: %v", err)
+	}
+	if action != "deleted" {
+		t.Fatalf("expected unused category to be deleted, got %s", action)
+	}
+	revision = requireRevisionIncrease(t, ctx, st, revision, "delete category")
+
+	item, err := st.CreateMenuItem(ctx, adminSession, store.UpsertMenuItemInput{
+		CategoryID:    khinkaliCategoryID,
+		TitleRU:       "Тестовое блюдо",
+		TitleSR:       "Test jelo",
+		TitleEN:       "Test dish",
+		DescriptionRU: "Описание",
+		DescriptionSR: "Opis",
+		DescriptionEN: "Description",
+		PriceMinor:    100,
+		MinQuantity:   1,
+		SortOrder:     100,
+		Visible:       true,
+	})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	revision = requireRevisionIncrease(t, ctx, st, revision, "create item")
+
+	item.TitleRU = "Тестовое блюдо 2"
+	item.TitleSR = "Test jelo 2"
+	item.TitleEN = "Test dish 2"
+	updatedItem, err := st.UpdateMenuItem(ctx, adminSession, item.ID, store.UpsertMenuItemInput{
+		CategoryID:     item.CategoryID,
+		TitleRU:        item.TitleRU,
+		TitleSR:        item.TitleSR,
+		TitleEN:        item.TitleEN,
+		DescriptionRU:  item.DescriptionRU,
+		DescriptionSR:  item.DescriptionSR,
+		DescriptionEN:  item.DescriptionEN,
+		PriceMinor:     item.PriceMinor + 1,
+		PhotoPath:      item.PhotoPath,
+		WeightText:     item.WeightText,
+		MinQuantity:    item.MinQuantity,
+		AllergenTextRU: item.AllergenTextRU,
+		AllergenTextSR: item.AllergenTextSR,
+		AllergenTextEN: item.AllergenTextEN,
+		SortOrder:      item.SortOrder,
+		Visible:        item.Visible,
+		Version:        item.Version,
+	})
+	if err != nil {
+		t.Fatalf("update item: %v", err)
+	}
+	revision = requireRevisionIncrease(t, ctx, st, revision, "update item")
+
+	archivedItem, err := st.ArchiveMenuItem(ctx, adminSession, updatedItem.ID, "revision test")
+	if err != nil {
+		t.Fatalf("archive item: %v", err)
+	}
+	revision = requireRevisionIncrease(t, ctx, st, revision, "archive item")
+
+	restoredItem, err := st.RestoreMenuItem(ctx, adminSession, archivedItem.ID, "revision test")
+	if err != nil {
+		t.Fatalf("restore item: %v", err)
+	}
+	revision = requireRevisionIncrease(t, ctx, st, revision, "restore item")
+
+	action, err = st.DeleteOrArchiveMenuItem(ctx, adminSession, restoredItem.ID, "revision test")
+	if err != nil {
+		t.Fatalf("delete item: %v", err)
+	}
+	if action != "deleted" {
+		t.Fatalf("expected unused item to be deleted, got %s", action)
+	}
+	requireRevisionIncrease(t, ctx, st, revision, "delete item")
+}
+
+func TestScheduleUpdateBumpsRuntimeRevision(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	before, err := st.Settings(ctx)
+	if err != nil {
+		t.Fatalf("settings before: %v", err)
+	}
+	schedule, err := st.Schedule(ctx)
+	if err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+	if _, err := st.UpdateSchedule(ctx, adminSession, schedule); err != nil {
+		t.Fatalf("update schedule: %v", err)
+	}
+	after, err := st.Settings(ctx)
+	if err != nil {
+		t.Fatalf("settings after: %v", err)
+	}
+	if after.Version <= before.Version {
+		t.Fatalf("expected runtime revision to increase after schedule update, before=%d after=%d", before.Version, after.Version)
 	}
 }
 
@@ -118,6 +302,41 @@ func TestStaffRoleChangeRevokesOldSessionAndProtectsLastAdmin(t *testing.T) {
 	}
 	if _, err := st.SessionByToken(ctx, adminSession.Token); !errors.Is(err, core.ErrForbidden) {
 		t.Fatalf("expected old admin session to be forbidden, got %v", err)
+	}
+}
+
+func TestCreateSessionRejectsUnassignedStaffRole(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	ownerSession := bootstrapOwnerSession(t, ctx, st)
+	if _, err := st.AddStaff(ctx, ownerSession, store.AddStaffInput{
+		TelegramUserID: secondCourierID,
+		DisplayLabel:   "Kitchen Only",
+		Role:           core.RoleKitchen,
+		Active:         true,
+	}); err != nil {
+		t.Fatalf("add kitchen-only staff: %v", err)
+	}
+	staffUser, err := st.UpsertTelegramUser(ctx, core.User{
+		TelegramUserID: secondCourierID,
+		Username:       "kitchen_only",
+		FirstName:      "Kitchen Only",
+		LanguageCode:   "ru",
+	})
+	if err != nil {
+		t.Fatalf("upsert kitchen-only staff user: %v", err)
+	}
+	session, roles, err := st.CreateSession(ctx, staffUser, core.RoleKitchen, time.Hour)
+	if err != nil {
+		t.Fatalf("create assigned kitchen session: %v", err)
+	}
+	if session.ActiveRole != core.RoleKitchen || !roleListContains(roles, core.RoleKitchen) || roleListContains(roles, core.RoleCourier) {
+		t.Fatalf("unexpected kitchen-only session/roles: session=%+v roles=%v", session, roles)
+	}
+	if _, _, err := st.CreateSession(ctx, staffUser, core.RoleCourier, time.Hour); !errors.Is(err, core.ErrForbidden) {
+		t.Fatalf("expected unassigned courier role to be forbidden, got %v", err)
 	}
 }
 
@@ -217,6 +436,50 @@ func TestAdminAnalyticsReturnsEmptyArrays(t *testing.T) {
 	}
 }
 
+func TestAuditLogIsPaginatedAndBounded(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	for index := 0; index < 105; index++ {
+		if _, err := st.CreateCategory(ctx, adminSession, store.UpsertCategoryInput{
+			TitleRU:   "Аудит " + strconv.Itoa(index),
+			TitleSR:   "Audit " + strconv.Itoa(index),
+			TitleEN:   "Audit " + strconv.Itoa(index),
+			SortOrder: 1000 + index,
+			Visible:   true,
+		}); err != nil {
+			t.Fatalf("create category for audit %d: %v", index, err)
+		}
+	}
+
+	firstPage, err := st.AuditLog(ctx, adminSession, store.AuditLogFilter{Limit: 20, Offset: 0})
+	if err != nil {
+		t.Fatalf("audit first page: %v", err)
+	}
+	if len(firstPage.Entries) != 20 || firstPage.Limit != 20 || firstPage.Offset != 0 || !firstPage.HasMore {
+		t.Fatalf("unexpected audit first page: len=%d limit=%d offset=%d has_more=%t", len(firstPage.Entries), firstPage.Limit, firstPage.Offset, firstPage.HasMore)
+	}
+	secondPage, err := st.AuditLog(ctx, adminSession, store.AuditLogFilter{Limit: 20, Offset: 20})
+	if err != nil {
+		t.Fatalf("audit second page: %v", err)
+	}
+	if len(secondPage.Entries) != 20 || secondPage.Offset != 20 || !secondPage.HasMore {
+		t.Fatalf("unexpected audit second page: len=%d offset=%d has_more=%t", len(secondPage.Entries), secondPage.Offset, secondPage.HasMore)
+	}
+	if firstPage.Entries[0].ID == secondPage.Entries[0].ID {
+		t.Fatalf("audit pages overlap at first entry: %s", firstPage.Entries[0].ID)
+	}
+	cappedPage, err := st.AuditLog(ctx, adminSession, store.AuditLogFilter{Limit: 500, Offset: 0})
+	if err != nil {
+		t.Fatalf("audit capped page: %v", err)
+	}
+	if cappedPage.Limit != 100 || len(cappedPage.Entries) != 100 || !cappedPage.HasMore {
+		t.Fatalf("expected audit limit cap at 100 with more rows, got len=%d limit=%d has_more=%t", len(cappedPage.Entries), cappedPage.Limit, cappedPage.HasMore)
+	}
+}
+
 func TestAdminOrdersSupportsFiltersAndPagination(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)
@@ -260,6 +523,522 @@ func TestAdminOrdersSupportsFiltersAndPagination(t *testing.T) {
 	}
 	if _, err := st.AdminOrders(ctx, adminSession, store.AdminOrderFilter{Status: "PREPARING", Limit: 100}); !errors.Is(err, core.ErrInvalidInput) {
 		t.Fatalf("expected invalid status rejection, got %v", err)
+	}
+}
+
+func TestAdminOrdersDateFilterUsesBelgradeLocalDayBounds(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	base := time.Now().UTC()
+	beforeDay := createVerifiedCashOrder(t, ctx, st, clientTelegramID, "+38160111301", "Novi Sad before local day", "idem-admin-date-before", base)
+	startOfDay := createVerifiedCashOrder(t, ctx, st, clientTelegramID+1, "+38160111302", "Novi Sad start local day", "idem-admin-date-start", base.Add(time.Minute))
+	endOfDay := createVerifiedCashOrder(t, ctx, st, clientTelegramID+2, "+38160111303", "Novi Sad end local day", "idem-admin-date-end", base.Add(2*time.Minute))
+	afterDay := createVerifiedCashOrder(t, ctx, st, clientTelegramID+3, "+38160111304", "Novi Sad after local day", "idem-admin-date-after", base.Add(3*time.Minute))
+
+	setOrderCreatedAt(t, ctx, pool, beforeDay.ID, time.Date(2026, time.March, 28, 22, 59, 59, 0, time.UTC))
+	setOrderCreatedAt(t, ctx, pool, startOfDay.ID, time.Date(2026, time.March, 28, 23, 0, 0, 0, time.UTC))
+	setOrderCreatedAt(t, ctx, pool, endOfDay.ID, time.Date(2026, time.March, 29, 21, 59, 59, 0, time.UTC))
+	setOrderCreatedAt(t, ctx, pool, afterDay.ID, time.Date(2026, time.March, 29, 22, 0, 0, 0, time.UTC))
+
+	page, err := st.AdminOrders(ctx, adminSession, store.AdminOrderFilter{Date: "2026-03-29", Limit: 10})
+	if err != nil {
+		t.Fatalf("admin orders by local date: %v", err)
+	}
+	gotIDs := make([]uuid.UUID, 0, len(page.Orders))
+	for _, order := range page.Orders {
+		gotIDs = append(gotIDs, order.ID)
+	}
+	wantIDs := []uuid.UUID{endOfDay.ID, startOfDay.ID}
+	if !uuidSlicesEqual(gotIDs, wantIDs) {
+		t.Fatalf("admin orders for Belgrade local date returned %v, want %v", gotIDs, wantIDs)
+	}
+}
+
+func TestAdminOrdersDateFilterUsesCreatedAtIndexOnRealisticDataset(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	clientSession := clientSession(t, ctx, st, clientTelegramID)
+	_, err := pool.Exec(ctx, `
+		INSERT INTO orders (
+			client_user_id, fulfillment_status, payment_method, payment_status,
+			subtotal_minor, delivery_fee_minor, total_minor, currency,
+			phone_ciphertext, phone_hash, address_ciphertext, customer_comment, locale,
+			created_at, updated_at, delivered_at
+		)
+		SELECT
+			$1, 'DELIVERED', 'cash', 'PAID',
+			100, 0, 100, 'RSD',
+			'encrypted-phone', 'hmac-sha256:explain-test', 'encrypted-address', '', 'ru',
+			TIMESTAMPTZ '2026-05-01 00:00:00+00' + (series.index * INTERVAL '1 hour'),
+			TIMESTAMPTZ '2026-05-01 00:00:00+00' + (series.index * INTERVAL '1 hour'),
+			TIMESTAMPTZ '2026-05-01 00:00:00+00' + (series.index * INTERVAL '1 hour')
+		FROM generate_series(0, 3999) AS series(index)
+	`, clientSession.UserID)
+	if err != nil {
+		t.Fatalf("seed realistic orders: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ANALYZE orders`); err != nil {
+		t.Fatalf("analyze orders: %v", err)
+	}
+
+	page, err := st.AdminOrders(ctx, adminSession, store.AdminOrderFilter{Date: "2026-07-15", Limit: 20})
+	if err != nil {
+		t.Fatalf("admin orders by date on realistic dataset: %v", err)
+	}
+	if len(page.Orders) != 20 || !page.HasMore {
+		t.Fatalf("expected bounded first page with more rows, got len=%d has_more=%t", len(page.Orders), page.HasMore)
+	}
+
+	from, to := belgradeDayUTCRange(t, "2026-07-15")
+	plan := explainPlanJSON(t, ctx, pool, `
+		SELECT o.id, o.public_number, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
+			COALESCE(u.photo_url, ''),
+			o.fulfillment_status, o.payment_method, o.payment_status,
+			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
+			o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.cash_location_verified_at, o.cash_location_distance_meters
+		FROM orders o
+		JOIN users u ON u.id=o.client_user_id
+		WHERE o.created_at >= $1 AND o.created_at < $2
+		ORDER BY o.created_at DESC
+		LIMIT $3 OFFSET $4
+	`, from, to, 21, 0)
+	if planHasRelationNodeType(plan, "orders", "Seq Scan") {
+		t.Fatalf("admin date filter plan used Seq Scan on orders: %s", mustMarshalJSON(t, plan))
+	}
+	if !planHasIndexName(plan, "idx_orders_created_desc") {
+		t.Fatalf("admin date filter plan did not use idx_orders_created_desc: %s", mustMarshalJSON(t, plan))
+	}
+}
+
+func TestOrderSummaryPagesDoNotDecryptPIIOrLoadDetailData(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	clientListSession := clientSession(t, ctx, st, clientTelegramID)
+	order := createVerifiedCashOrder(t, ctx, st, clientTelegramID, "+38160111321", "Novi Sad corrupt PII", "idem-summary-no-pii", time.Now().UTC())
+	corruptOrderPII(t, ctx, pool, order.ID)
+
+	adminPage, err := st.AdminOrders(ctx, adminSession, store.AdminOrderFilter{Limit: 20})
+	if err != nil {
+		t.Fatalf("admin order summaries should not decrypt PII: %v", err)
+	}
+	if !orderSummaryPageContains(adminPage.Orders, order.ID) {
+		t.Fatalf("admin order summaries did not include order %s: %+v", order.ID, adminPage.Orders)
+	}
+	clientPage, err := st.ClientOrders(ctx, clientListSession, store.ClientOrderFilter{Limit: 20})
+	if err != nil {
+		t.Fatalf("client order summaries should not decrypt PII: %v", err)
+	}
+	if !orderSummaryPageContains(clientPage.Orders, order.ID) {
+		t.Fatalf("client order summaries did not include order %s: %+v", order.ID, clientPage.Orders)
+	}
+	if _, err := st.AdminOrderByID(ctx, adminSession, order.ID); err == nil {
+		t.Fatal("admin order detail unexpectedly succeeded with corrupt encrypted PII")
+	}
+	if _, err := st.ClientOrderByID(ctx, clientListSession, order.ID); err == nil {
+		t.Fatal("client order detail unexpectedly succeeded with corrupt encrypted PII")
+	}
+}
+
+func TestClientOrderAccessIsScopedToSessionUser(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	firstClientSession := clientSession(t, ctx, st, clientTelegramID)
+	firstOrder := createVerifiedCashOrder(t, ctx, st, clientTelegramID, "+38160111331", "Novi Sad first client", "idem-client-scope-first", time.Now().UTC())
+	secondOrder := createVerifiedCashOrder(t, ctx, st, clientTelegramID+1, "+38160111332", "Novi Sad second client", "idem-client-scope-second", time.Now().UTC().Add(time.Second))
+
+	page, err := st.ClientOrders(ctx, firstClientSession, store.ClientOrderFilter{Limit: 20})
+	if err != nil {
+		t.Fatalf("first client order summaries: %v", err)
+	}
+	if !orderSummaryPageContains(page.Orders, firstOrder.ID) {
+		t.Fatalf("first client summaries did not include own order %s: %+v", firstOrder.ID, page.Orders)
+	}
+	if orderSummaryPageContains(page.Orders, secondOrder.ID) {
+		t.Fatalf("first client summaries leaked second client order %s: %+v", secondOrder.ID, page.Orders)
+	}
+	bootstrapOrders, err := st.ClientBootstrapOrders(ctx, firstClientSession)
+	if err != nil {
+		t.Fatalf("first client bootstrap orders: %v", err)
+	}
+	if !orderSummaryPageContains(bootstrapOrders, firstOrder.ID) || orderSummaryPageContains(bootstrapOrders, secondOrder.ID) {
+		t.Fatalf("first client bootstrap order scope is wrong: got %+v own=%s foreign=%s", bootstrapOrders, firstOrder.ID, secondOrder.ID)
+	}
+	if _, err := st.ClientOrderByID(ctx, firstClientSession, secondOrder.ID); !errors.Is(err, core.ErrForbidden) {
+		t.Fatalf("expected foreign client order detail to be forbidden, got %v", err)
+	}
+	if _, err := st.ClientOrderByID(ctx, firstClientSession, firstOrder.ID); err != nil {
+		t.Fatalf("own client order detail: %v", err)
+	}
+}
+
+func TestClientBootstrapOrdersPreferActiveAndFallbackToLatest(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	kitchenSession := adminSession
+	kitchenSession.ActiveRole = core.RoleKitchen
+	courierSession := adminSession
+	courierSession.ActiveRole = core.RoleCourier
+	clientListSession := clientSession(t, ctx, st, clientTelegramID)
+	now := time.Now().UTC()
+
+	firstOrder := createVerifiedCashOrder(t, ctx, st, clientTelegramID, "+38160111401", "Novi Sad bootstrap one", "idem-client-bootstrap-1", now)
+	if _, err := st.MarkReady(ctx, kitchenSession, firstOrder.ID, "idem-ready-client-bootstrap-1", "ready-hash-client-bootstrap-1"); err != nil {
+		t.Fatalf("mark first ready: %v", err)
+	}
+	if _, err := st.MarkDelivered(ctx, courierSession, firstOrder.ID, "idem-delivered-client-bootstrap-1", "delivered-hash-client-bootstrap-1"); err != nil {
+		t.Fatalf("mark first delivered: %v", err)
+	}
+	secondOrder := createVerifiedCashOrder(t, ctx, st, clientTelegramID, "+38160111402", "Novi Sad bootstrap two", "idem-client-bootstrap-2", now.Add(time.Hour))
+
+	orders, err := st.ClientBootstrapOrders(ctx, clientListSession)
+	if err != nil {
+		t.Fatalf("client bootstrap orders with active: %v", err)
+	}
+	if len(orders) != 1 || orders[0].ID != secondOrder.ID || orders[0].FulfillmentStatus != core.StatusNew {
+		t.Fatalf("expected active second order only, got %+v", orders)
+	}
+
+	if _, err := st.MarkReady(ctx, kitchenSession, secondOrder.ID, "idem-ready-client-bootstrap-2", "ready-hash-client-bootstrap-2"); err != nil {
+		t.Fatalf("mark second ready: %v", err)
+	}
+	if _, err := st.MarkDelivered(ctx, courierSession, secondOrder.ID, "idem-delivered-client-bootstrap-2", "delivered-hash-client-bootstrap-2"); err != nil {
+		t.Fatalf("mark second delivered: %v", err)
+	}
+	orders, err = st.ClientBootstrapOrders(ctx, clientListSession)
+	if err != nil {
+		t.Fatalf("client bootstrap orders without active: %v", err)
+	}
+	if len(orders) != 1 || orders[0].ID != secondOrder.ID || orders[0].FulfillmentStatus != core.StatusDelivered {
+		t.Fatalf("expected latest delivered second order only, got %+v", orders)
+	}
+}
+
+func TestMarkReadyPersistsStatusBeforeNotificationDelivery(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	kitchenSession := adminSession
+	kitchenSession.ActiveRole = core.RoleKitchen
+	order := createVerifiedCashOrder(t, ctx, st, clientTelegramID, "+38160111421", "Novi Sad notification queue", "idem-ready-before-telegram-order", time.Now().UTC())
+
+	readyOrder, err := st.MarkReady(ctx, kitchenSession, order.ID, "idem-ready-before-telegram", "ready-before-telegram-hash")
+	if err != nil {
+		t.Fatalf("mark ready: %v", err)
+	}
+	if readyOrder.FulfillmentStatus != core.StatusOutForDelivery {
+		t.Fatalf("ready order status = %s, want %s", readyOrder.FulfillmentStatus, core.StatusOutForDelivery)
+	}
+	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{
+		"kitchen": 1,
+		"client":  1,
+		"courier": 1,
+	})
+
+	replayedOrder, err := st.MarkReady(ctx, kitchenSession, order.ID, "idem-ready-before-telegram", "ready-before-telegram-hash")
+	if err != nil {
+		t.Fatalf("mark ready replay: %v", err)
+	}
+	if replayedOrder.ID != order.ID || replayedOrder.FulfillmentStatus != core.StatusOutForDelivery {
+		t.Fatalf("unexpected replayed order: id=%s status=%s", replayedOrder.ID, replayedOrder.FulfillmentStatus)
+	}
+	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{
+		"kitchen": 1,
+		"client":  1,
+		"courier": 1,
+	})
+}
+
+func TestOrderItemSnapshotsSurviveMenuEditAndArchive(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	clientSession := clientSession(t, ctx, st, clientTelegramID)
+	phone := "+38160111431"
+	if err := st.VerifyTelegramContact(ctx, clientTelegramID, clientTelegramID, phone); err != nil {
+		t.Fatalf("verify contact: %v", err)
+	}
+
+	cart := []core.CartItemInput{
+		seededMenuItemInputs[1],
+		seededMenuItemInputs[0],
+	}
+	now := time.Now().UTC()
+	calc, err := st.Calculate(ctx, clientSession, cart, now)
+	if err != nil {
+		t.Fatalf("calculate: %v", err)
+	}
+	challenge, err := st.CreateCashLocationChallenge(ctx, clientSession, store.CreateCashLocationChallengeInput{
+		CalculationToken: calc.Token,
+	}, now, true)
+	if err != nil {
+		t.Fatalf("create location challenge: %v", err)
+	}
+	order, err := st.CreateCashOrder(ctx, clientSession, store.CreateOrderInput{
+		CalculationToken:        calc.Token,
+		CashLocationChallengeID: challenge.ID.String(),
+		Phone:                   phone,
+		Address:                 "Novi Sad snapshot history",
+		PaymentMethod:           core.PaymentCash,
+		TermsAccepted:           true,
+		Locale:                  "ru",
+	}, "idem-order-snapshot-history", "request-hash-order-snapshot-history", now)
+	if err != nil {
+		t.Fatalf("create cash order: %v", err)
+	}
+	if len(order.Items) != len(cart) {
+		t.Fatalf("order item count = %d, want %d", len(order.Items), len(cart))
+	}
+	for index, cartItem := range cart {
+		if order.Items[index].MenuItemID != cartItem.ItemID {
+			t.Fatalf("order item %d id = %s, want cart order id %s", index, order.Items[index].MenuItemID, cartItem.ItemID)
+		}
+	}
+	snapshot := append([]core.OrderItem(nil), order.Items...)
+
+	item := adminMenuItemForTest(t, ctx, st, adminSession, cart[0].ItemID)
+	updated, err := st.UpdateMenuItem(ctx, adminSession, item.ID, store.UpsertMenuItemInput{
+		CategoryID:     item.CategoryID,
+		TitleRU:        "Изменённое блюдо для snapshot",
+		TitleSR:        "Izmenjeno snapshot jelo",
+		TitleEN:        "Changed snapshot dish",
+		DescriptionRU:  item.DescriptionRU,
+		DescriptionSR:  item.DescriptionSR,
+		DescriptionEN:  item.DescriptionEN,
+		PriceMinor:     item.PriceMinor + 777,
+		PhotoPath:      item.PhotoPath,
+		WeightText:     item.WeightText,
+		MinQuantity:    item.MinQuantity,
+		AllergenTextRU: item.AllergenTextRU,
+		AllergenTextSR: item.AllergenTextSR,
+		AllergenTextEN: item.AllergenTextEN,
+		SortOrder:      item.SortOrder,
+		Visible:        item.Visible,
+		Version:        item.Version,
+	})
+	if err != nil {
+		t.Fatalf("update menu item: %v", err)
+	}
+	if updated.TitleRU == snapshot[0].SnapshotTitle || updated.PriceMinor == snapshot[0].UnitPriceMinor {
+		t.Fatalf("menu item did not change enough to prove snapshot isolation: updated=%+v snapshot=%+v", updated, snapshot[0])
+	}
+
+	action, err := st.DeleteOrArchiveMenuItem(ctx, adminSession, updated.ID, "snapshot history regression")
+	if err != nil {
+		t.Fatalf("delete/archive used item: %v", err)
+	}
+	if action != "archived" {
+		t.Fatalf("used menu item delete/archive action = %s, want archived", action)
+	}
+
+	clientDetail, err := st.ClientOrderByID(ctx, clientSession, order.ID)
+	if err != nil {
+		t.Fatalf("client order detail after menu mutation: %v", err)
+	}
+	assertOrderItemsEqual(t, "client detail after menu edit/archive", clientDetail.Items, snapshot)
+
+	adminDetail, err := st.AdminOrderByID(ctx, adminSession, order.ID)
+	if err != nil {
+		t.Fatalf("admin order detail after menu mutation: %v", err)
+	}
+	assertOrderItemsEqual(t, "admin detail after menu edit/archive", adminDetail.Items, snapshot)
+	if adminDetail.TotalMinor != order.TotalMinor || adminDetail.SubtotalMinor != order.SubtotalMinor {
+		t.Fatalf("order totals changed after menu mutation: got subtotal=%d total=%d want subtotal=%d total=%d",
+			adminDetail.SubtotalMinor, adminDetail.TotalMinor, order.SubtotalMinor, order.TotalMinor)
+	}
+}
+
+func TestCalculateQueryCountIsBoundedByCartSize(t *testing.T) {
+	ctx := context.Background()
+	st, pool, counter := newIntegrationStoreWithQueryCounter(t, ctx)
+	defer pool.Close()
+
+	clientSession := clientSession(t, ctx, st, clientTelegramID)
+	now := time.Now().UTC()
+
+	counter.Reset()
+	if _, err := st.Calculate(ctx, clientSession, seededMenuItemInputs[:1], now); err != nil {
+		t.Fatalf("calculate single item: %v", err)
+	}
+	singleItemQueries := counter.Count()
+
+	counter.Reset()
+	if _, err := st.Calculate(ctx, clientSession, seededMenuItemInputs, now); err != nil {
+		t.Fatalf("calculate eight items: %v", err)
+	}
+	eightItemQueries := counter.Count()
+
+	assertQueryBudget(t, "calculate one item", singleItemQueries, 4)
+	assertQueryBudget(t, "calculate eight items", eightItemQueries, singleItemQueries)
+}
+
+func TestCreateCashOrderQueryCountIsBoundedByCartSize(t *testing.T) {
+	ctx := context.Background()
+	st, pool, counter := newIntegrationStoreWithQueryCounter(t, ctx)
+	defer pool.Close()
+
+	now := time.Now().UTC()
+	singleSession, singleInput := prepareCashOrderForCart(
+		t,
+		ctx,
+		st,
+		clientTelegramID,
+		"+38160111441",
+		"Novi Sad create one item",
+		seededMenuItemInputs[:1],
+		now,
+	)
+	counter.Reset()
+	if _, err := st.CreateCashOrder(ctx, singleSession, singleInput, "idem-create-query-one", "request-hash-create-query-one", now); err != nil {
+		t.Fatalf("create one-item cash order: %v", err)
+	}
+	singleItemQueries := counter.Count()
+
+	multiSession, multiInput := prepareCashOrderForCart(
+		t,
+		ctx,
+		st,
+		clientTelegramID+1,
+		"+38160111442",
+		"Novi Sad create eight items",
+		seededMenuItemInputs,
+		now.Add(time.Minute),
+	)
+	counter.Reset()
+	multiOrder, err := st.CreateCashOrder(ctx, multiSession, multiInput, "idem-create-query-eight", "request-hash-create-query-eight", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("create eight-item cash order: %v", err)
+	}
+	eightItemQueries := counter.Count()
+	if len(multiOrder.Items) != len(seededMenuItemInputs) {
+		t.Fatalf("eight-item order item count = %d, want %d", len(multiOrder.Items), len(seededMenuItemInputs))
+	}
+
+	assertQueryBudget(t, "create cash order one item", singleItemQueries, 20)
+	assertQueryBudget(t, "create cash order eight items", eightItemQueries, singleItemQueries)
+}
+
+func TestOrderListQueryCountIsBoundedByOrderCount(t *testing.T) {
+	ctx := context.Background()
+	st, pool, counter := newIntegrationStoreWithQueryCounter(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	kitchenSession := adminSession
+	kitchenSession.ActiveRole = core.RoleKitchen
+	courierSession := adminSession
+	courierSession.ActiveRole = core.RoleCourier
+
+	now := time.Now().UTC()
+	orderIDs := make([]uuid.UUID, 0, 20)
+	for i := 0; i < 20; i++ {
+		order := createVerifiedCashOrder(
+			t,
+			ctx,
+			st,
+			clientTelegramID+int64(i),
+			"+38160112"+strconv.Itoa(100+i),
+			"Novi Sad bounded list "+strconv.Itoa(i),
+			"idem-query-count-"+strconv.Itoa(i),
+			now.Add(time.Duration(i)*time.Second),
+		)
+		orderIDs = append(orderIDs, order.ID)
+	}
+
+	counter.Reset()
+	kitchenOrders, err := st.KitchenOrders(ctx, kitchenSession)
+	if err != nil {
+		t.Fatalf("kitchen orders: %v", err)
+	}
+	kitchenQueries := counter.Count()
+	if len(kitchenOrders) != 20 {
+		t.Fatalf("expected 20 kitchen orders, got %d", len(kitchenOrders))
+	}
+	assertQueryBudget(t, "kitchen orders 20", kitchenQueries, 2)
+
+	for i, orderID := range orderIDs {
+		if _, err := st.MarkReady(ctx, kitchenSession, orderID, "idem-ready-query-count-"+strconv.Itoa(i), "ready-hash-"+strconv.Itoa(i)); err != nil {
+			t.Fatalf("mark ready %d: %v", i, err)
+		}
+	}
+
+	counter.Reset()
+	courierOrders, err := st.CourierOrders(ctx, courierSession)
+	if err != nil {
+		t.Fatalf("courier orders: %v", err)
+	}
+	courierQueries := counter.Count()
+	if len(courierOrders) != 20 {
+		t.Fatalf("expected 20 courier orders, got %d", len(courierOrders))
+	}
+	assertQueryBudget(t, "courier orders 20", courierQueries, 2)
+
+	counter.Reset()
+	page, err := st.AdminOrders(ctx, adminSession, store.AdminOrderFilter{Limit: 20, Offset: 0})
+	if err != nil {
+		t.Fatalf("admin orders: %v", err)
+	}
+	adminQueries := counter.Count()
+	if len(page.Orders) != 20 {
+		t.Fatalf("expected 20 admin orders, got %d", len(page.Orders))
+	}
+	assertQueryBudget(t, "admin order summaries 20", adminQueries, 1)
+	detail, err := st.AdminOrderByID(ctx, adminSession, page.Orders[0].ID)
+	if err != nil {
+		t.Fatalf("admin order detail: %v", err)
+	}
+	if detail.Phone == "" || detail.Address == "" || len(detail.Items) == 0 {
+		t.Fatalf("admin order detail did not include PII/items")
+	}
+
+	clientListSession := clientSession(t, ctx, st, clientTelegramID)
+	if _, err := st.MarkDelivered(ctx, courierSession, orderIDs[0], "idem-delivered-client-page", "delivered-hash-client-page"); err != nil {
+		t.Fatalf("mark delivered before client pagination: %v", err)
+	}
+	createVerifiedCashOrder(
+		t,
+		ctx,
+		st,
+		clientTelegramID,
+		"+38160112999",
+		"Novi Sad client pagination",
+		"idem-client-page-extra",
+		now.Add(2*time.Hour),
+	)
+	counter.Reset()
+	clientPage, err := st.ClientOrders(ctx, clientListSession, store.ClientOrderFilter{Limit: 1, Offset: 0})
+	if err != nil {
+		t.Fatalf("client order summaries: %v", err)
+	}
+	clientQueries := counter.Count()
+	if len(clientPage.Orders) != 1 || clientPage.Limit != 1 || clientPage.Offset != 0 || !clientPage.HasMore {
+		t.Fatalf("unexpected client first page: limit=%d offset=%d len=%d has_more=%t", clientPage.Limit, clientPage.Offset, len(clientPage.Orders), clientPage.HasMore)
+	}
+	assertQueryBudget(t, "client order summaries", clientQueries, 1)
+	clientSecondPage, err := st.ClientOrders(ctx, clientListSession, store.ClientOrderFilter{Limit: 1, Offset: 1})
+	if err != nil {
+		t.Fatalf("client order summaries second page: %v", err)
+	}
+	if len(clientSecondPage.Orders) != 1 {
+		t.Fatalf("expected client second page summary")
 	}
 }
 
@@ -352,11 +1131,39 @@ func TestServerSideTextLimits(t *testing.T) {
 
 func createVerifiedCashOrder(t *testing.T, ctx context.Context, st *store.Store, telegramID int64, phone, address, idempotencyKey string, now time.Time) core.Order {
 	t.Helper()
+	clientSession, input := prepareCashOrderForCart(
+		t,
+		ctx,
+		st,
+		telegramID,
+		phone,
+		address,
+		[]core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}},
+		now,
+	)
+	order, err := st.CreateCashOrder(ctx, clientSession, input, idempotencyKey, "request-hash-"+idempotencyKey, now)
+	if err != nil {
+		t.Fatalf("create cash order: %v", err)
+	}
+	return order
+}
+
+func prepareCashOrderForCart(
+	t *testing.T,
+	ctx context.Context,
+	st *store.Store,
+	telegramID int64,
+	phone string,
+	address string,
+	cart []core.CartItemInput,
+	now time.Time,
+) (core.Session, store.CreateOrderInput) {
+	t.Helper()
 	clientSession := clientSession(t, ctx, st, telegramID)
 	if err := st.VerifyTelegramContact(ctx, telegramID, telegramID, phone); err != nil {
 		t.Fatalf("verify contact: %v", err)
 	}
-	calc, err := st.Calculate(ctx, clientSession, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now)
+	calc, err := st.Calculate(ctx, clientSession, cart, now)
 	if err != nil {
 		t.Fatalf("calculate: %v", err)
 	}
@@ -366,7 +1173,7 @@ func createVerifiedCashOrder(t *testing.T, ctx context.Context, st *store.Store,
 	if err != nil {
 		t.Fatalf("create location challenge: %v", err)
 	}
-	order, err := st.CreateCashOrder(ctx, clientSession, store.CreateOrderInput{
+	return clientSession, store.CreateOrderInput{
 		CalculationToken:        calc.Token,
 		CashLocationChallengeID: challenge.ID.String(),
 		Phone:                   phone,
@@ -374,23 +1181,32 @@ func createVerifiedCashOrder(t *testing.T, ctx context.Context, st *store.Store,
 		PaymentMethod:           core.PaymentCash,
 		TermsAccepted:           true,
 		Locale:                  "ru",
-	}, idempotencyKey, "request-hash-"+idempotencyKey, now)
-	if err != nil {
-		t.Fatalf("create cash order: %v", err)
 	}
-	return order
 }
 
 func newIntegrationStore(t *testing.T, ctx context.Context) (*store.Store, *pgxpool.Pool) {
+	t.Helper()
+	st, pool, _ := newIntegrationStoreWithQueryCounter(t, ctx)
+	return st, pool
+}
+
+func newIntegrationStoreWithQueryCounter(t *testing.T, ctx context.Context) (*store.Store, *pgxpool.Pool, *queryCounter) {
 	t.Helper()
 	dsn := os.Getenv("TK_TEST_POSTGRES_DSN")
 	if dsn == "" {
 		t.Skip("set TK_TEST_POSTGRES_DSN to run store integration tests")
 	}
-	pool, err := pgxpool.New(ctx, dsn)
+	counter := &queryCounter{}
+	poolConfig, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("parse postgres config: %v", err)
+	}
+	poolConfig.ConnConfig.Tracer = counter
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		t.Fatalf("connect postgres: %v", err)
 	}
+	lockIntegrationDatabase(t, ctx, pool)
 	if _, err := pool.Exec(ctx, `DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;`); err != nil {
 		pool.Close()
 		t.Fatalf("reset schema: %v", err)
@@ -412,7 +1228,23 @@ func newIntegrationStore(t *testing.T, ctx context.Context) (*store.Store, *pgxp
 		pool.Close()
 		t.Fatalf("create crypto box: %v", err)
 	}
-	return store.New(pool, box, bytes.Repeat([]byte{9}, 32)), pool
+	counter.Reset()
+	return store.New(pool, box, bytes.Repeat([]byte{9}, 32)), pool, counter
+}
+
+func lockIntegrationDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `SELECT pg_advisory_lock($1)`, integrationDBLockKey); err != nil {
+		pool.Close()
+		t.Fatalf("lock integration database: %v", err)
+	}
+}
+
+func assertQueryBudget(t *testing.T, name string, got, max int64) {
+	t.Helper()
+	if got > max {
+		t.Fatalf("%s query count = %d, want <= %d", name, got, max)
+	}
 }
 
 func legacyPhoneHashForTest(phone string) string {
@@ -439,6 +1271,24 @@ func bootstrapOwnerSession(t *testing.T, ctx context.Context, st *store.Store) c
 		t.Fatalf("create owner session: %v", err)
 	}
 	return session
+}
+
+func menuRevision(t *testing.T, ctx context.Context, st *store.Store) int64 {
+	t.Helper()
+	revision, _, err := st.MenuWithRevision(ctx, "ru")
+	if err != nil {
+		t.Fatalf("menu revision: %v", err)
+	}
+	return revision
+}
+
+func requireRevisionIncrease(t *testing.T, ctx context.Context, st *store.Store, previous int64, action string) int64 {
+	t.Helper()
+	next := menuRevision(t, ctx, st)
+	if next <= previous {
+		t.Fatalf("%s did not increase menu revision: before=%d after=%d", action, previous, next)
+	}
+	return next
 }
 
 func clientSession(t *testing.T, ctx context.Context, st *store.Store, telegramID int64) core.Session {
@@ -472,4 +1322,199 @@ func findStaff(t *testing.T, ctx context.Context, st *store.Store, sess core.Ses
 	}
 	t.Fatalf("staff member not found: telegram_id=%d role=%s", telegramID, role)
 	return core.StaffMember{}
+}
+
+func roleListContains(roles []core.Role, role core.Role) bool {
+	for _, candidate := range roles {
+		if candidate == role {
+			return true
+		}
+	}
+	return false
+}
+
+func assertNotificationJobs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, orderID uuid.UUID, expected map[string]int) {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+		SELECT recipient_kind, COUNT(*)::int
+		FROM notification_jobs
+		WHERE order_id=$1 AND status='pending'
+		GROUP BY recipient_kind
+	`, orderID)
+	if err != nil {
+		t.Fatalf("count notification jobs: %v", err)
+	}
+	defer rows.Close()
+	got := map[string]int{}
+	for rows.Next() {
+		var recipient string
+		var count int
+		if err := rows.Scan(&recipient, &count); err != nil {
+			t.Fatalf("scan notification jobs: %v", err)
+		}
+		got[recipient] = count
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate notification jobs: %v", err)
+	}
+	for recipient, want := range expected {
+		if got[recipient] != want {
+			t.Fatalf("notification jobs for %s = %d, want %d; all=%v", recipient, got[recipient], want, got)
+		}
+		delete(got, recipient)
+	}
+	if len(got) != 0 {
+		t.Fatalf("unexpected notification job recipients: %v", got)
+	}
+}
+
+func setOrderCreatedAt(t *testing.T, ctx context.Context, pool *pgxpool.Pool, orderID uuid.UUID, createdAt time.Time) {
+	t.Helper()
+	tag, err := pool.Exec(ctx, `UPDATE orders SET created_at=$2, updated_at=$2 WHERE id=$1`, orderID, createdAt)
+	if err != nil {
+		t.Fatalf("set order created_at: %v", err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("set order created_at rows affected = %d, want 1", tag.RowsAffected())
+	}
+}
+
+func belgradeDayUTCRange(t *testing.T, date string) (time.Time, time.Time) {
+	t.Helper()
+	loc, err := time.LoadLocation("Europe/Belgrade")
+	if err != nil {
+		t.Fatalf("load Belgrade location: %v", err)
+	}
+	from, err := time.ParseInLocation("2006-01-02", date, loc)
+	if err != nil {
+		t.Fatalf("parse Belgrade date: %v", err)
+	}
+	return from.UTC(), from.AddDate(0, 0, 1).UTC()
+}
+
+func explainPlanJSON(t *testing.T, ctx context.Context, pool *pgxpool.Pool, query string, args ...any) any {
+	t.Helper()
+	var raw []byte
+	if err := pool.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+query, args...).Scan(&raw); err != nil {
+		t.Fatalf("explain query: %v", err)
+	}
+	var plan any
+	if err := json.Unmarshal(raw, &plan); err != nil {
+		t.Fatalf("parse explain plan JSON: %v", err)
+	}
+	return plan
+}
+
+func planHasRelationNodeType(plan any, relation, nodeType string) bool {
+	found := false
+	walkPlanJSON(plan, func(node map[string]any) {
+		if found {
+			return
+		}
+		if node["Relation Name"] == relation && node["Node Type"] == nodeType {
+			found = true
+		}
+	})
+	return found
+}
+
+func planHasIndexName(plan any, indexName string) bool {
+	found := false
+	walkPlanJSON(plan, func(node map[string]any) {
+		if found {
+			return
+		}
+		if node["Index Name"] == indexName {
+			found = true
+		}
+	})
+	return found
+}
+
+func walkPlanJSON(value any, visit func(map[string]any)) {
+	switch typed := value.(type) {
+	case []any:
+		for _, child := range typed {
+			walkPlanJSON(child, visit)
+		}
+	case map[string]any:
+		visit(typed)
+		for _, child := range typed {
+			walkPlanJSON(child, visit)
+		}
+	}
+}
+
+func mustMarshalJSON(t *testing.T, value any) string {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal JSON: %v", err)
+	}
+	return string(raw)
+}
+
+func uuidSlicesEqual(left, right []uuid.UUID) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func corruptOrderPII(t *testing.T, ctx context.Context, pool *pgxpool.Pool, orderID uuid.UUID) {
+	t.Helper()
+	tag, err := pool.Exec(ctx, `
+		UPDATE orders
+		SET phone_ciphertext='not-base64-phone',
+		    address_ciphertext='not-base64-address',
+		    updated_at=now()
+		WHERE id=$1
+	`, orderID)
+	if err != nil {
+		t.Fatalf("corrupt order PII: %v", err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("corrupt order PII rows affected = %d, want 1", tag.RowsAffected())
+	}
+}
+
+func adminMenuItemForTest(t *testing.T, ctx context.Context, st *store.Store, sess core.Session, itemID uuid.UUID) core.AdminMenuItem {
+	t.Helper()
+	_, items, err := st.AdminMenu(ctx, sess)
+	if err != nil {
+		t.Fatalf("admin menu: %v", err)
+	}
+	for _, item := range items {
+		if item.ID == itemID {
+			return item
+		}
+	}
+	t.Fatalf("admin menu item %s not found", itemID)
+	return core.AdminMenuItem{}
+}
+
+func assertOrderItemsEqual(t *testing.T, label string, got, want []core.OrderItem) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s item count = %d, want %d; got=%+v want=%+v", label, len(got), len(want), got, want)
+	}
+	for index := range got {
+		if got[index] != want[index] {
+			t.Fatalf("%s item %d = %+v, want %+v", label, index, got[index], want[index])
+		}
+	}
+}
+
+func orderSummaryPageContains(orders []core.OrderSummary, orderID uuid.UUID) bool {
+	for _, order := range orders {
+		if order.ID == orderID {
+			return true
+		}
+	}
+	return false
 }

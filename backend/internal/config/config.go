@@ -15,10 +15,14 @@ import (
 
 type Config struct {
 	Env                      string
+	BuildSHA                 string
 	HTTPAddr                 string
 	PublicBaseURL            string
 	MediaDir                 string
 	DatabaseURL              string
+	PostgresMaxConns         int32
+	PostgresMinConns         int32
+	PostgresMaxConnIdleTime  time.Duration
 	Timezone                 string
 	Currency                 string
 	ClientBotUsername        string
@@ -36,16 +40,23 @@ type Config struct {
 	MaxItemQuantity          int
 	NotificationDryRun       bool
 	NotificationPollInterval time.Duration
+	NotificationConcurrency  int
+	NotificationBacklogAfter time.Duration
+	ServerTimingEnabled      bool
 }
 
 func Load() (Config, error) {
 	_ = godotenv.Load(".env.local", ".env")
 	cfg := Config{
 		Env:                      get("APP_ENV", "development"),
+		BuildSHA:                 get("APP_BUILD_SHA", "dev"),
 		HTTPAddr:                 get("HTTP_ADDR", ":8080"),
 		PublicBaseURL:            get("APP_PUBLIC_BASE_URL", "http://127.0.0.1:8080"),
 		MediaDir:                 get("MEDIA_DIR", "backend/uploads"),
 		DatabaseURL:              get("POSTGRES_DSN", "postgres://tk_delivery:tk_delivery@localhost:5432/tk_delivery?sslmode=disable"),
+		PostgresMaxConns:         int32(mustInt64(get("POSTGRES_MAX_CONNS", "8"))),
+		PostgresMinConns:         int32(mustInt64(get("POSTGRES_MIN_CONNS", "1"))),
+		PostgresMaxConnIdleTime:  getDuration("POSTGRES_MAX_CONN_IDLE_TIME", 5*time.Minute),
 		Timezone:                 get("APP_TIMEZONE", "Europe/Belgrade"),
 		Currency:                 get("APP_CURRENCY", "RSD"),
 		ClientBotUsername:        get("TELEGRAM_CLIENT_BOT_USERNAME", "TakoLako_main_bot"),
@@ -61,6 +72,12 @@ func Load() (Config, error) {
 		MaxItemQuantity:          int(mustInt64(get("MAX_ITEM_QUANTITY", "10"))),
 		NotificationDryRun:       getBool("NOTIFICATION_DRY_RUN", true),
 		NotificationPollInterval: getDuration("NOTIFICATION_POLL_INTERVAL", 5*time.Second),
+		NotificationConcurrency:  int(mustInt64(get("NOTIFICATION_CONCURRENCY", "4"))),
+		NotificationBacklogAfter: getDuration("NOTIFICATION_BACKLOG_ALERT_AFTER", 60*time.Second),
+	}
+	cfg.ServerTimingEnabled = cfg.Env != "production"
+	if strings.TrimSpace(os.Getenv("SERVER_TIMING_ENABLED")) != "" {
+		cfg.ServerTimingEnabled = getBool("SERVER_TIMING_ENABLED", cfg.ServerTimingEnabled)
 	}
 	key, err := loadEncryptionKey(cfg.Env)
 	if err != nil {
@@ -88,6 +105,21 @@ func Load() (Config, error) {
 	}
 	if strings.TrimSpace(cfg.StaffBotUsername) == "" {
 		cfg.StaffBotUsername = cfg.ClientBotUsername
+	}
+	if cfg.PostgresMaxConns < 1 {
+		cfg.PostgresMaxConns = 1
+	}
+	if cfg.PostgresMinConns < 0 {
+		cfg.PostgresMinConns = 0
+	}
+	if cfg.PostgresMinConns > cfg.PostgresMaxConns {
+		cfg.PostgresMinConns = cfg.PostgresMaxConns
+	}
+	if cfg.NotificationConcurrency < 1 {
+		cfg.NotificationConcurrency = 1
+	}
+	if cfg.NotificationConcurrency > 4 {
+		cfg.NotificationConcurrency = 4
 	}
 	return cfg, nil
 }

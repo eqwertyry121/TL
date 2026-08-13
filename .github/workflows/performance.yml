@@ -1,0 +1,133 @@
+name: Performance checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-performance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.16.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: OpenAPI generated contract tests
+        run: pnpm openapi:check
+
+      - name: Media reference check
+        run: pnpm media:check
+
+      - name: Media backfill wrapper tests
+        run: pnpm media:backfill:cli:test
+
+      - name: PostgreSQL wrapper tests
+        run: pnpm go:test:postgres:cli:test
+
+      - name: External smoke wrapper tests
+        run: pnpm perf:external-smoke:cli:test
+
+      - name: Production contract wrapper tests
+        run: pnpm perf:production-contract:cli:test
+
+      - name: Legacy public contract wrapper tests
+        run: pnpm perf:legacy-public-contract:cli:test
+
+      - name: CORS contract wrapper tests
+        run: pnpm perf:cors-contract:cli:test
+
+      - name: Release acceptance wrapper tests
+        run: pnpm perf:release-acceptance:cli:test
+
+      - name: Deployment diagnostics wrapper tests
+        run: pnpm perf:deployment-diagnostics:cli:test
+
+      - name: Release lab wrapper tests
+        run: pnpm perf:release-lab:cli:test
+
+      - name: Polling engine tests
+        run: pnpm polling:test
+
+      - name: Client storage cache tests
+        run: pnpm storage:test
+
+      - name: Media rendering contract tests
+        run: pnpm media:rendering:test
+
+      - name: Env contract tests
+        run: pnpm env:contract:test
+
+      - name: Migration contract tests
+        run: pnpm migrations:contract:test
+
+      - name: API compatibility tests
+        run: pnpm api:compatibility:test
+
+      - name: Performance beacon tests
+        run: pnpm performance:beacon:test
+
+      - name: Architecture guard tests
+        run: pnpm architecture:guard:test
+
+      - name: Auth retry tests
+        run: pnpm auth:test
+
+      - name: Bootstrap fallback compatibility tests
+        run: pnpm bootstrap:fallback:test
+
+      - name: Documentation link tests
+        run: pnpm docs:links:test
+
+      - name: Startup waterfall contract tests
+        run: pnpm startup:contract:test
+
+      - name: Startup asset contract tests
+        run: pnpm startup:assets:test
+
+      - name: Load smoke runner tests
+        run: pnpm load-smoke:test
+
+      - name: Production build
+        run: pnpm build
+        env:
+          VITE_BUILD_SHA: ${{ github.sha }}
+
+      - name: Bundle budget gate
+        run: pnpm perf:budgets
+
+      - name: Build lab apps
+        run: pnpm perf:lab:build
+
+      - name: Playwright startup lab
+        run: pnpm perf:playwright
+
+      - name: Lighthouse client lab
+        run: pnpm perf:lighthouse
+
+      - name: Upload performance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results
+          path: |
+            test-results/
+            playwright-report/

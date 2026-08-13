@@ -4,7 +4,9 @@ import type {
   AdminDashboard,
   AdminMenuItem,
   AuditEntry,
+  AuditLogResponse,
   Order,
+  OrderSummary,
   Role,
   ScheduleDay,
   Settings,
@@ -17,6 +19,7 @@ const demoSettingsKey = "tk-admin-demo-settings-v1";
 const demoStaffKey = "tk-admin-demo-staff-v1";
 const demoAuditKey = "tk-admin-demo-audit-v1";
 const demoCryptoTestMigrationKey = "tk-demo-crypto-test-enabled-v1";
+const getCache = new Map<string, { etag: string; payload: unknown }>();
 
 export type AdminTab = "home" | "menu" | "orders" | "staff" | "schedule" | "analytics" | "settings" | "audit";
 export type StaffRole = Exclude<Role, "CLIENT">;
@@ -43,10 +46,32 @@ export interface AdminMenuResponse {
 }
 
 export interface AdminOrdersResponse {
-  orders: Order[];
+  orders: OrderSummary[];
   limit?: number;
   offset?: number;
   has_more?: boolean;
+}
+
+export interface AdminBootstrapOptions {
+  range?: AnalyticsRange;
+  status?: string;
+  q?: string;
+  date?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AdminBootstrapResponse {
+  session: AdminSession;
+  roles?: Role[];
+  dashboard: AdminDashboard;
+  menu?: AdminMenuResponse;
+  settings?: Settings;
+  schedule?: { schedule: ScheduleDay[] };
+  orders?: AdminOrdersResponse;
+  staff?: { staff: StaffMember[] };
+  analytics?: AdminAnalytics;
+  audit?: AuditLogResponse;
 }
 
 export interface CategoryInput {
@@ -106,8 +131,9 @@ export interface StaffInput {
 
 export interface AdminApi {
   mode: "real" | "demo";
+  bootstrap(tab: AdminTab, options?: AdminBootstrapOptions): Promise<AdminBootstrapResponse>;
   authenticate(): Promise<AdminSession>;
-  dashboard(token: string): Promise<AdminDashboard>;
+  dashboard(token: string, signal?: AbortSignal): Promise<AdminDashboard>;
   menu(token: string): Promise<AdminMenuResponse>;
   createCategory(token: string, input: CategoryInput): Promise<AdminCategory>;
   updateCategory(token: string, id: string, input: CategoryInput): Promise<AdminCategory>;
@@ -119,12 +145,12 @@ export interface AdminApi {
   archiveItem(token: string, id: string, reason: string): Promise<AdminMenuItem>;
   restoreItem(token: string, id: string, reason: string): Promise<AdminMenuItem>;
   deleteItem(token: string, id: string, reason: string): Promise<{ result: string }>;
-  settings(token: string): Promise<Settings>;
+  settings(token: string, signal?: AbortSignal): Promise<Settings>;
   updateSettings(token: string, input: SettingsInput): Promise<Settings>;
   setManualDayOff(token: string, enabled: boolean): Promise<Settings>;
   schedule(token: string): Promise<{ schedule: ScheduleDay[] }>;
   updateSchedule(token: string, schedule: ScheduleDay[]): Promise<{ schedule: ScheduleDay[] }>;
-  orders(token: string, filter?: { status?: string; q?: string; date?: string; limit?: number; offset?: number }): Promise<AdminOrdersResponse>;
+  orders(token: string, filter?: { status?: string; q?: string; date?: string; limit?: number; offset?: number }, signal?: AbortSignal): Promise<AdminOrdersResponse>;
   order(token: string, id: string): Promise<Order>;
   cancelOrder(token: string, id: string, reason: string): Promise<Order>;
   returnOrderToNew(token: string, id: string, reason: string): Promise<Order>;
@@ -136,8 +162,13 @@ export interface AdminApi {
   updateStaff(token: string, id: string, input: StaffInput): Promise<StaffMember>;
   analytics(token: string, range: AnalyticsRange): Promise<AdminAnalytics>;
   analyticsCSV(token: string, range: AnalyticsRange): Promise<Blob>;
-  audit(token: string): Promise<{ entries: AuditEntry[] }>;
-  uploadMenuPhoto(token: string, file: File): Promise<{ photo_path: string }>;
+  audit(token: string, limit?: number, offset?: number): Promise<AuditLogResponse>;
+  uploadMenuPhoto(token: string, file: File): Promise<MenuPhotoUploadResponse>;
+}
+
+export interface MenuPhotoUploadResponse {
+  photo_path: string;
+  photo_variants?: AdminMenuItem["photo_variants"];
 }
 
 export function createAdminApi(): AdminApi {
@@ -176,22 +207,78 @@ export function isAuthError(error: unknown): boolean {
 }
 
 function realApi(baseURL: string, appEnv: string): AdminApi {
+  const authenticate = async () => {
+    const initData = rawInitData();
+    if (appEnv === "production" && !initData) throw apiError("TELEGRAM_INIT_DATA_MISSING");
+    const response =
+      appEnv === "production"
+        ? await post(`${baseURL}/api/v1/auth/telegram`, {
+            audience: "staff",
+            role: "ADMIN",
+            init_data: initData,
+          })
+        : await post(`${baseURL}/api/v1/dev/session`, { telegram_user_id: 1048084234, role: "ADMIN" });
+    return response.session;
+  };
+
+  const sectionFromToken = async (session: AdminSession, tab: AdminTab, options: AdminBootstrapOptions = {}): Promise<AdminBootstrapResponse> => {
+    const token = session.token;
+    const response: AdminBootstrapResponse = {
+      session,
+      dashboard: await get(`${baseURL}/api/v1/admin/dashboard`, token),
+    };
+    switch (tab) {
+      case "home":
+        response.settings = await get(`${baseURL}/api/v1/admin/settings`, token);
+        break;
+      case "menu":
+        response.menu = await get(`${baseURL}/api/v1/admin/menu`, token);
+        break;
+      case "orders":
+        response.orders = await get(`${baseURL}/api/v1/admin/orders?${new URLSearchParams(clean({ ...options, limit: options.limit || 20, offset: options.offset || 0 }))}`, token);
+        break;
+      case "staff":
+        response.staff = await get(`${baseURL}/api/v1/admin/staff`, token);
+        break;
+      case "schedule":
+        response.schedule = await get(`${baseURL}/api/v1/admin/schedule`, token);
+        break;
+      case "settings":
+        response.settings = await get(`${baseURL}/api/v1/admin/settings`, token);
+        break;
+      case "analytics":
+        response.analytics = await get(`${baseURL}/api/v1/admin/analytics?range=${options.range || "today"}`, token);
+        break;
+      case "audit":
+        response.audit = await get(`${baseURL}/api/v1/admin/audit?limit=${options.limit || 50}&offset=${options.offset || 0}`, token);
+        break;
+    }
+    return response;
+  };
+
   return {
     mode: "real",
-    async authenticate() {
+    async bootstrap(tab, options = {}) {
       const initData = rawInitData();
       if (appEnv === "production" && !initData) throw apiError("TELEGRAM_INIT_DATA_MISSING");
-      const response =
-        appEnv === "production"
-          ? await post(`${baseURL}/api/v1/auth/telegram`, {
-              audience: "staff",
-              role: "ADMIN",
-              init_data: initData,
-            })
-          : await post(`${baseURL}/api/v1/dev/session`, { telegram_user_id: 1048084234, role: "ADMIN" });
-      return response.session;
+      try {
+        return await post(`${baseURL}/api/v1/bootstrap/admin`, {
+          init_data: initData,
+          tab,
+          range: options.range,
+          status: options.status,
+          q: options.q,
+          date: options.date,
+          limit: options.limit || (tab === "audit" ? 50 : 20),
+          offset: options.offset || 0,
+        });
+      } catch (err) {
+        if (!isMissingEndpoint(err)) throw err;
+      }
+      return sectionFromToken(await authenticate(), tab, options);
     },
-    dashboard: (token) => get(`${baseURL}/api/v1/admin/dashboard`, token),
+    authenticate,
+    dashboard: (token, signal) => get(`${baseURL}/api/v1/admin/dashboard`, token, signal),
     menu: (token) => get(`${baseURL}/api/v1/admin/menu`, token),
     createCategory: (token, input) => post(`${baseURL}/api/v1/admin/categories`, input, token),
     updateCategory: (token, id, input) => put(`${baseURL}/api/v1/admin/categories/${id}`, input, token),
@@ -203,12 +290,12 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
     archiveItem: (token, id, reason) => post(`${baseURL}/api/v1/admin/items/${id}/archive`, { reason }, token),
     restoreItem: (token, id, reason) => post(`${baseURL}/api/v1/admin/items/${id}/restore`, { reason }, token),
     deleteItem: (token, id, reason) => del(`${baseURL}/api/v1/admin/items/${id}?reason=${encodeURIComponent(reason)}`, token),
-    settings: (token) => get(`${baseURL}/api/v1/admin/settings`, token),
+    settings: (token, signal) => get(`${baseURL}/api/v1/admin/settings`, token, signal),
     updateSettings: (token, input) => put(`${baseURL}/api/v1/admin/settings`, input, token),
     setManualDayOff: (token, enabled) => put(`${baseURL}/api/v1/admin/settings/manual-day-off`, { enabled }, token),
     schedule: (token) => get(`${baseURL}/api/v1/admin/schedule`, token),
     updateSchedule: (token, schedule) => put(`${baseURL}/api/v1/admin/schedule`, { schedule }, token),
-    orders: (token, filter = {}) => get(`${baseURL}/api/v1/admin/orders?${new URLSearchParams(clean(filter))}`, token),
+    orders: (token, filter = {}, signal) => get(`${baseURL}/api/v1/admin/orders?${new URLSearchParams(clean(filter))}`, token, signal),
     order: (token, id) => get(`${baseURL}/api/v1/admin/orders/${id}`, token),
     cancelOrder: (token, id, reason) => post(`${baseURL}/api/v1/admin/orders/${id}/cancel`, { reason }, token),
     returnOrderToNew: (token, id, reason) => post(`${baseURL}/api/v1/admin/orders/${id}/return-to-new`, { reason }, token),
@@ -220,7 +307,7 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
     updateStaff: (token, id, input) => put(`${baseURL}/api/v1/admin/staff/${id}`, input, token),
     analytics: (token, range) => get(`${baseURL}/api/v1/admin/analytics?range=${range}`, token),
     analyticsCSV: (token, range) => getBlob(`${baseURL}/api/v1/admin/analytics.csv?range=${range}`, token),
-    audit: (token) => get(`${baseURL}/api/v1/admin/audit`, token),
+    audit: (token, limit = 50, offset = 0) => get(`${baseURL}/api/v1/admin/audit?limit=${limit}&offset=${offset}`, token),
     async uploadMenuPhoto(token, file) {
       const form = new FormData();
       form.append("file", file);
@@ -236,31 +323,59 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
 
 function demoApi(): AdminApi {
   ensureDemoSeed();
+  const authenticate = async () => ({
+    token: "demo-admin-token",
+    telegram_user_id: 1048084234,
+    active_role: "ADMIN",
+    expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  } satisfies AdminSession);
+  const dashboard = async (): Promise<AdminDashboard> => {
+    const settings = loadSettings();
+    const orders = loadOrders();
+    return {
+      runtime: runtimeFromSettings(settings),
+      new_orders: orders.filter((order) => order.fulfillment_status === "NEW").length,
+      out_for_delivery: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").length,
+      orders_today: orders.filter((order) => isToday(order.created_at)).length,
+      revenue_today_minor: orders
+        .filter((order) => isToday(order.created_at) && order.fulfillment_status === "DELIVERED" && order.payment_status === "PAID")
+        .reduce((sum, order) => sum + order.total_minor, 0),
+      notification_errors: [],
+      generated_at: new Date().toISOString(),
+    };
+  };
   return {
     mode: "demo",
-    async authenticate() {
-      return {
-        token: "demo-admin-token",
-        telegram_user_id: 1048084234,
-        active_role: "ADMIN",
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    async bootstrap(tab, options = {}) {
+      const response: AdminBootstrapResponse = {
+        session: await authenticate(),
+        dashboard: await dashboard(),
       };
+      if (tab === "home" || tab === "settings") {
+        response.settings = loadSettings();
+      } else if (tab === "menu") {
+        response.menu = loadMenu();
+      } else if (tab === "orders") {
+        let orders = loadOrders();
+        if (options.status) orders = orders.filter((order) => order.fulfillment_status === options.status);
+        if (options.q) orders = orders.filter((order) => String(order.public_number).includes(options.q || "") || (order.phone || "").includes(options.q || ""));
+        if (options.date) orders = orders.filter((order) => order.created_at.slice(0, 10) === options.date);
+        const offset = options.offset || 0;
+        const limit = options.limit || 20;
+        response.orders = { orders: orders.slice(offset, offset + limit), limit, offset, has_more: orders.length > offset + limit };
+      } else if (tab === "staff") {
+        response.staff = { staff: loadStaff() };
+      } else if (tab === "schedule") {
+        response.schedule = { schedule: loadSettings().schedule || defaultSchedule() };
+      } else if (tab === "analytics") {
+        response.analytics = calculateAnalytics(options.range || "today");
+      } else if (tab === "audit") {
+        response.audit = demoAuditPage(options.limit, options.offset);
+      }
+      return response;
     },
-    async dashboard() {
-      const settings = loadSettings();
-      const orders = loadOrders();
-      return {
-        runtime: runtimeFromSettings(settings),
-        new_orders: orders.filter((order) => order.fulfillment_status === "NEW").length,
-        out_for_delivery: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").length,
-        orders_today: orders.filter((order) => isToday(order.created_at)).length,
-        revenue_today_minor: orders
-          .filter((order) => isToday(order.created_at) && order.fulfillment_status === "DELIVERED" && order.payment_status === "PAID")
-          .reduce((sum, order) => sum + order.total_minor, 0),
-        notification_errors: [],
-        generated_at: new Date().toISOString(),
-      };
-    },
+    authenticate,
+    dashboard,
     async menu() {
       return loadMenu();
     },
@@ -426,7 +541,7 @@ function demoApi(): AdminApi {
       if (filter.q) orders = orders.filter((order) => String(order.public_number).includes(filter.q || "") || (order.phone || "").includes(filter.q || ""));
       if (filter.date) orders = orders.filter((order) => order.created_at.slice(0, 10) === filter.date);
       const offset = filter.offset || 0;
-      const limit = filter.limit || 100;
+      const limit = filter.limit || 20;
       return { orders: orders.slice(offset, offset + limit), limit, offset, has_more: orders.length > offset + limit };
     },
     async order(_token, id) {
@@ -500,8 +615,8 @@ function demoApi(): AdminApi {
       ];
       return new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
     },
-    async audit() {
-      return { entries: loadAudit() };
+    async audit(_token, limit = 50, offset = 0) {
+      return demoAuditPage(limit, offset);
     },
     async uploadMenuPhoto(_token, file) {
       return { photo_path: URL.createObjectURL(file) };
@@ -515,6 +630,7 @@ function unconfiguredApi(): AdminApi {
   };
   return {
     mode: "real",
+    bootstrap: fail as (tab: AdminTab, options?: AdminBootstrapOptions) => Promise<AdminBootstrapResponse>,
     authenticate: fail as () => Promise<AdminSession>,
     dashboard: fail,
     menu: fail,
@@ -550,9 +666,13 @@ function unconfiguredApi(): AdminApi {
   };
 }
 
-async function get(url: string, token?: string) {
-  const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-  return read(response);
+async function get(url: string, token?: string, signal?: AbortSignal) {
+  const cacheKey = `${token || "public"}\n${url}`;
+  const cached = getCache.get(cacheKey);
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  if (cached?.etag) headers["If-None-Match"] = cached.etag;
+  const response = await fetch(url, { headers, signal });
+  return read(response, cacheKey);
 }
 
 async function getBlob(url: string, token?: string) {
@@ -593,10 +713,22 @@ async function del(url: string, token?: string) {
   return read(response);
 }
 
-async function read(response: Response) {
+async function read(response: Response, cacheKey?: string) {
+  if (response.status === 304 && cacheKey) {
+    const cached = getCache.get(cacheKey);
+    if (cached) return cached.payload;
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw apiError(payload?.error?.code || "SERVER_UNAVAILABLE", response.status);
+  const etag = response.headers.get("ETag");
+  if (cacheKey && etag) {
+    getCache.set(cacheKey, { etag, payload });
+  }
   return payload;
+}
+
+function isMissingEndpoint(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "status" in error && (error as { status?: number }).status === 404;
 }
 
 function runtimeEnv(): Record<string, string | boolean | undefined> {
@@ -824,7 +956,7 @@ function calculateAnalytics(range: AnalyticsRange): AdminAnalytics {
     },
     statuses,
     payments,
-    top_dishes: [...top.entries()].map(([title, value]) => ({ title, quantity: value.quantity, revenue_minor: value.revenue_minor })).sort((a, b) => b.quantity - a.quantity),
+    top_dishes: [...top.entries()].map(([title, value]) => ({ title, quantity: value.quantity, revenue_minor: value.revenue_minor })).sort((a, b) => b.quantity - a.quantity).slice(0, 10),
     daily_rows: daily,
   };
 }
@@ -1015,6 +1147,18 @@ function saveStaff(staff: StaffMember[]): void {
 
 function loadAudit(): AuditEntry[] {
   return loadJSON(demoAuditKey, []);
+}
+
+function demoAuditPage(limit = 50, offset = 0): AuditLogResponse {
+  const entries = loadAudit();
+  const safeLimit = Math.min(Math.max(Math.trunc(limit) || 50, 1), 100);
+  const safeOffset = Math.max(Math.trunc(offset) || 0, 0);
+  return {
+    entries: entries.slice(safeOffset, safeOffset + safeLimit),
+    limit: safeLimit,
+    offset: safeOffset,
+    has_more: entries.length > safeOffset + safeLimit,
+  };
 }
 
 function saveAudit(entries: AuditEntry[]): void {

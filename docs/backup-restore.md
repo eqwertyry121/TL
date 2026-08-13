@@ -3,7 +3,10 @@
 Status: MVP VPS procedure.
 
 The backend keeps business state in PostgreSQL and menu photos/uploads in the
-Docker volume mounted at `/app/uploads`. Both must be backed up.
+uploads mount visible inside the app container at `/app/uploads`. In production
+templates this mount is a host directory (`MEDIA_VOLUME_HOST_PATH`, default
+`/srv/tk-delivery/uploads`) so Nginx can serve `/media/` directly. Both
+PostgreSQL and uploads must be backed up.
 
 ## Script
 

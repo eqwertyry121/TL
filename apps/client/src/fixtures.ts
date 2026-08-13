@@ -1,4 +1,4 @@
-import type { Category, Order, Runtime } from "@tk-delivery/api-client/generated";
+import type { Category, OrderSummary, Runtime } from "@tk-delivery/api-client/generated";
 
 export const demoRuntime: Runtime = {
   server_time: new Date().toISOString(),
@@ -29,7 +29,7 @@ export const demoCategories: Category[] = [
         description: "Замороженные хинкали с говядиной и зеленью. Минимум 5 шт",
         price_minor: 690,
         currency: "RSD",
-        photo_path: "fixtures/khinkali-classic.webp",
+        photo_path: "",
         weight_text: "от 5 шт",
         min_quantity: 5,
         allergen_text: "",
@@ -43,7 +43,7 @@ export const demoCategories: Category[] = [
         description: "Замороженные хинкали с говядиной без кинзы. Минимум 5 шт",
         price_minor: 640,
         currency: "RSD",
-        photo_path: "fixtures/khinkali-cheese.webp",
+        photo_path: "",
         weight_text: "от 5 шт",
         min_quantity: 5,
         allergen_text: "",
@@ -64,7 +64,7 @@ export const demoCategories: Category[] = [
         description: "Лодочка с сыром, яйцом и сливочным маслом",
         price_minor: 890,
         currency: "RSD",
-        photo_path: "fixtures/khachapuri-adjarian.webp",
+        photo_path: "",
         weight_text: "1 шт",
         min_quantity: 1,
         allergen_text: "",
@@ -78,7 +78,7 @@ export const demoCategories: Category[] = [
         description: "Круглый хачапури с сыром внутри",
         price_minor: 760,
         currency: "RSD",
-        photo_path: "fixtures/khachapuri-imeretian.webp",
+        photo_path: "",
         weight_text: "1 шт",
         min_quantity: 1,
         allergen_text: "",
@@ -99,7 +99,7 @@ export const demoCategories: Category[] = [
         description: "Курица в томатном соусе с травами",
         price_minor: 940,
         currency: "RSD",
-        photo_path: "fixtures/chakhokhbili.webp",
+        photo_path: "",
         weight_text: "350 г",
         min_quantity: 1,
         allergen_text: "",
@@ -113,7 +113,7 @@ export const demoCategories: Category[] = [
         description: "Фасоль с орехами, зеленью и специями",
         price_minor: 620,
         currency: "RSD",
-        photo_path: "fixtures/lobio.webp",
+        photo_path: "",
         weight_text: "300 г",
         min_quantity: 1,
         allergen_text: "",
@@ -134,7 +134,7 @@ export const demoCategories: Category[] = [
         description: "Холодный газированный лимонад",
         price_minor: 290,
         currency: "RSD",
-        photo_path: "fixtures/lemonade-tarragon.webp",
+        photo_path: "",
         weight_text: "500 мл",
         min_quantity: 1,
         allergen_text: "",
@@ -148,7 +148,7 @@ export const demoCategories: Category[] = [
         description: "Домашний ягодный напиток",
         price_minor: 260,
         currency: "RSD",
-        photo_path: "fixtures/berry-mors.webp",
+        photo_path: "",
         weight_text: "400 мл",
         min_quantity: 1,
         allergen_text: "",
@@ -159,7 +159,7 @@ export const demoCategories: Category[] = [
   },
 ];
 
-export function orderStatusText(order: Order): string {
+export function orderStatusText(order: OrderSummary): string {
   switch (order.fulfillment_status) {
     case "NEW":
       return "Заказ принят, готовится";

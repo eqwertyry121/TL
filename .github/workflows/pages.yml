@@ -39,6 +39,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Optimization contract checks
+        run: pnpm check
+
+      - name: API deployment diagnostics
+        env:
+          PERF_BASE_URL: https://api.takolako.site
+          PERF_EXPECTED_BUILD_SHA: ${{ github.sha }}
+        run: pnpm perf:deployment-diagnostics
+
       - name: Build client Mini App
         run: pnpm --filter @tk-delivery/client build
         env:
@@ -46,6 +55,7 @@ jobs:
           VITE_DEMO_MODE: "false"
           VITE_API_BASE_URL: https://api.takolako.site
           VITE_BASE_PATH: "/"
+          VITE_BUILD_SHA: ${{ github.sha }}
 
       - name: Build kitchen Mini App
         run: pnpm --filter @tk-delivery/kitchen build
@@ -54,6 +64,7 @@ jobs:
           VITE_DEMO_MODE: "false"
           VITE_API_BASE_URL: https://api.takolako.site
           VITE_BASE_PATH: "/kitchen/"
+          VITE_BUILD_SHA: ${{ github.sha }}
 
       - name: Build courier Mini App
         run: pnpm --filter @tk-delivery/courier build
@@ -62,6 +73,7 @@ jobs:
           VITE_DEMO_MODE: "false"
           VITE_API_BASE_URL: https://api.takolako.site
           VITE_BASE_PATH: "/courier/"
+          VITE_BUILD_SHA: ${{ github.sha }}
 
       - name: Build admin Mini App
         run: pnpm --filter @tk-delivery/admin build
@@ -70,6 +82,10 @@ jobs:
           VITE_DEMO_MODE: "false"
           VITE_API_BASE_URL: https://api.takolako.site
           VITE_BASE_PATH: "/admin/"
+          VITE_BUILD_SHA: ${{ github.sha }}
+
+      - name: Check bundle budgets
+        run: pnpm perf:budgets
 
       - name: Prepare Pages artifact
         run: |

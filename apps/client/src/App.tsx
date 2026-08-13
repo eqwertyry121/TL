@@ -1,4 +1,7 @@
-import type { MenuItem, Order, PaymentMethod, Role } from "@tk-delivery/api-client/generated";
+import type { MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Role } from "@tk-delivery/api-client/generated";
+import { createSingleFlightAuthRetry, isAuthErrorLike } from "@tk-delivery/api-client/auth-retry";
+import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
+import { startVisiblePolling } from "@tk-delivery/api-client/polling";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
 import {
   AlertCircle,
@@ -24,12 +27,14 @@ import {
   clearCheckoutProgress,
   checkoutCartSignature,
   loadCart,
+  loadCachedPublicData,
   loadCheckoutDraft,
   loadCheckoutProgress,
   loadLocale,
   pendingIdempotencyKey,
   resetPendingIdempotencyKey,
   saveCart,
+  saveCachedPublicData,
   saveCheckoutDraft,
   saveCheckoutProgress,
   saveLocale,
@@ -50,7 +55,7 @@ const clientBotMiniAppURL = "https://t.me/TakoLako_main_bot?startapp";
 
 export function App() {
   if (isPortalPath()) {
-    if (rawInitData()) return <TelegramMainRedirect />;
+    if (rawInitData()) return <ClientMiniApp />;
     return <PortalLanding />;
   }
   return <ClientMiniApp />;
@@ -61,7 +66,11 @@ function ClientMiniApp() {
   const [locale, setLocale] = useState<Locale>(() => loadLocale(initialLocale()));
   const [cart, setCart] = useState<CartState>(loadCart);
   const [draft, setDraft] = useState<CheckoutDraft>(loadCheckoutDraft);
-  const [data, setData] = useState<AppData>({ session: null, runtime: null, categories: [], orders: [] });
+  const [data, setData] = useState<AppData>(() => {
+    const cached = loadCachedPublicData(locale);
+    return { session: null, runtime: null, categories: cached?.categories || [], orders: [] };
+  });
+  const [ordersPage, setOrdersPage] = useState<Pick<OrderSummaryPage, "limit" | "offset" | "has_more">>({ limit: 20, offset: 0, has_more: false });
   const [calculation, setCalculation] = useState<Calculation | null>(null);
   const [verifiedContact, setVerifiedContact] = useState<VerifiedContact | null>(null);
   const [cashLocation, setCashLocation] = useState<CashLocationChallenge | null>(null);
@@ -70,7 +79,7 @@ function ClientMiniApp() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [restoredCheckoutSignature, setRestoredCheckoutSignature] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!data.runtime && data.categories.length === 0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -87,75 +96,59 @@ function ClientMiniApp() {
   const dayOffBlocked = isDayOffRuntime(data.runtime) && !isOwnerTelegramId(data.session?.telegram_user_id);
   const paymentMethods = useMemo(() => checkoutPaymentMethods(data.runtime?.enabled_payments || []), [data.runtime?.enabled_payments]);
   const cashLocationRequired = data.runtime?.cash_location_required ?? true;
+  const routedOrder = route.name === "order"
+    ? data.orders.find((order) => order.id === route.id)
+    : undefined;
+  const routeOrderTerminal = routedOrder
+    ? isFullOrder(routedOrder) && isTerminalOrderStatus(routedOrder.fulfillment_status)
+    : false;
 
-  const refresh = useCallback(async () => {
+  useEffect(() => installPerformanceBeacon("client", () => currentRoute().name), []);
+
+  const applySession = useCallback((session: Session) => {
+    setData((current) => ({ ...current, session }));
+    return session.token;
+  }, []);
+
+  const authRetry = useMemo(() => createSingleFlightAuthRetry({
+    authenticate: () => api.authenticate(locale).then(applySession),
+    isAuthError: isAuthErrorLike,
+  }), [applySession, locale]);
+
+  const withAuth = useCallback(<T,>(action: (authToken: string) => Promise<T>, authToken = token): Promise<T> => {
+    return authRetry.withAuth(action, authToken);
+  }, [authRetry, token]);
+
+  const bootstrap = useCallback(async () => {
     setError("");
-    const [runtime, menu] = await Promise.all([
-      api.runtime(),
-      api.menu(locale),
-    ]);
-
-    if (!data.session && api.mode === "real" && !rawInitData()) {
-      setData({ session: null, runtime, categories: menu.categories, orders: [] });
-      setVerifiedContact({ verified: false });
-      return null;
-    }
-
-    let session = data.session;
-    if (!session) {
-      try {
-        session = await api.authenticate(locale);
-      } catch (err) {
-        setData({ session: null, runtime, categories: menu.categories, orders: [] });
-        setVerifiedContact({ verified: false });
-        setError(errorText(err));
-        return null;
-      }
-    }
-
-    const [orders, contact] = await Promise.all([
-      api.listOrders(session.token).catch(() => ({ orders: [] })),
-      api.contact(session.token).catch(() => ({ verified: false })),
-    ]);
-    setData({ session, runtime, categories: menu.categories, orders: orders.orders });
-    setVerifiedContact(contact);
-    return session;
-  }, [data.session, locale]);
+    const response = await api.bootstrap(locale);
+    saveCachedPublicData(locale, response.menu_revision ?? 0, response.categories);
+    setData({
+      session: response.session || null,
+      runtime: response.runtime,
+      categories: response.categories,
+      orders: response.orders || [],
+    });
+    setVerifiedContact(response.contact || { verified: false });
+    return response.session || null;
+  }, [locale]);
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
-    refresh()
+    setLoading(data.categories.length === 0);
+    bootstrap()
       .catch((err) => alive && setError(errorText(err)))
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
     };
-  }, [refresh]);
+  }, [bootstrap]);
 
   useEffect(() => {
-    let stopped = false;
-    const refreshRuntime = () => {
-      api.runtime()
-        .then((runtime) => {
-          if (!stopped) setData((current) => ({ ...current, runtime }));
-        })
-        .catch(() => undefined);
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== "hidden") refreshRuntime();
-    };
-    const timer = window.setInterval(refreshRuntime, 10000);
-    window.addEventListener("focus", refreshRuntime);
-    window.addEventListener("pageshow", refreshRuntime);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      stopped = true;
-      window.clearInterval(timer);
-      window.removeEventListener("focus", refreshRuntime);
-      window.removeEventListener("pageshow", refreshRuntime);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
+    return startVisiblePolling(async (signal) => {
+      const runtime = await api.runtime(signal);
+      setData((current) => ({ ...current, runtime }));
+    }, 10000);
   }, []);
 
   useEffect(() => {
@@ -172,30 +165,11 @@ function ClientMiniApp() {
 
   useEffect(() => {
     if (!token || cashLocation?.status !== "PENDING") return;
-    let stopped = false;
-    const refreshCashLocation = () => {
-      api.getCashLocationChallenge(token, cashLocation.id)
-        .then((next) => {
-          if (!stopped) setCashLocation(next);
-        })
-        .catch(() => undefined);
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== "hidden") refreshCashLocation();
-    };
-    refreshCashLocation();
-    const timer = window.setInterval(refreshCashLocation, 2000);
-    window.addEventListener("focus", refreshCashLocation);
-    window.addEventListener("pageshow", refreshCashLocation);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      stopped = true;
-      window.clearInterval(timer);
-      window.removeEventListener("focus", refreshCashLocation);
-      window.removeEventListener("pageshow", refreshCashLocation);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [token, cashLocation?.id, cashLocation?.status]);
+    return startVisiblePolling(async (signal) => {
+      const next = await withAuth((authToken) => api.getCashLocationChallenge(authToken, cashLocation.id, signal), token);
+      setCashLocation(next);
+    }, 2000, true);
+  }, [token, cashLocation?.id, cashLocation?.status, withAuth]);
 
   useEffect(() => {
     document.body.classList.toggle("has-day-off-overlay", dayOffBlocked);
@@ -214,7 +188,8 @@ function ClientMiniApp() {
     setCalculation(progress.calculation);
     if (!progress.cashLocation) return;
     setCashLocation(progress.cashLocation);
-    api.getCashLocationChallenge(token, progress.cashLocation.id)
+    const challengeId = progress.cashLocation.id;
+    withAuth((authToken) => api.getCashLocationChallenge(authToken, challengeId), token)
       .then((next) => {
         if (next.status === "EXPIRED" || next.status === "USED") {
           setCashLocation(null);
@@ -224,7 +199,7 @@ function ClientMiniApp() {
         setCashLocation(next);
       })
       .catch(() => undefined);
-  }, [token, checkoutSignature, restoredCheckoutSignature]);
+  }, [token, checkoutSignature, restoredCheckoutSignature, withAuth]);
 
   useEffect(() => {
     if (!checkoutSignature || restoredCheckoutSignature !== checkoutSignature) return;
@@ -232,31 +207,57 @@ function ClientMiniApp() {
   }, [checkoutSignature, restoredCheckoutSignature, calculation, cashLocation]);
 
   useEffect(() => {
-    if (route.name !== "order" || !token) return;
+    if (!token || route.name !== "checkout" || verifiedContact?.verified) return;
     let stopped = false;
-    const load = async () => {
-      try {
-        const order = await api.getOrder(token, route.id);
-        if (!stopped) mergeOrder(order);
-      } catch {
-        if (!stopped) setError("Не удалось обновить статус заказа");
-      }
-    };
-    void load();
-    const timer = window.setInterval(load, 10000);
-    const onFocus = () => void load();
-    window.addEventListener("focus", onFocus);
+    withAuth((authToken) => api.contact(authToken), token)
+      .then((contact) => {
+        if (!stopped) setVerifiedContact(contact);
+      })
+      .catch(() => undefined);
     return () => {
       stopped = true;
-      window.clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
     };
-  }, [route, token]);
+  }, [route.name, token, verifiedContact?.verified, withAuth]);
+
+  useEffect(() => {
+    if (!token || route.name !== "orders") return;
+    let stopped = false;
+    withAuth((authToken) => api.listOrders(authToken, { limit: 20, offset: 0 }), token)
+      .then((response) => {
+        if (stopped) return;
+        setData((current) => ({ ...current, orders: response.orders }));
+        setOrdersPage(orderPageMeta(response));
+      })
+      .catch(() => undefined);
+    return () => {
+      stopped = true;
+    };
+  }, [route.name, token, withAuth]);
+
+  useEffect(() => {
+    if (route.name !== "order" || !token || routeOrderTerminal) return;
+    return startVisiblePolling(async (signal) => {
+      try {
+        const order = await withAuth((authToken) => api.getOrder(authToken, route.id, signal), token);
+        mergeOrder(order);
+      } catch {
+        if (signal.aborted) return;
+        setError("Не удалось обновить статус заказа");
+      }
+    }, 10000, true);
+  }, [route, token, routeOrderTerminal, withAuth]);
 
   function updateLocale(next: Locale) {
     setLocale(next);
     saveLocale(next);
-    setData((current) => ({ ...current, session: null }));
+    const cached = loadCachedPublicData(next);
+    setData((current) => ({
+      ...current,
+      session: null,
+      runtime: null,
+      categories: cached?.categories || [],
+      orders: [],
+    }));
   }
 
   function setLine(item: MenuItem, quantity: number) {
@@ -344,9 +345,12 @@ function ClientMiniApp() {
 
   async function calculate() {
     if (!token || availableCartLines.length === 0) return null;
-    const result = await api.calculate(
+    const result = await withAuth(
+      (authToken) => api.calculate(
+        authToken,
+        availableCartLines.map((line) => ({ item_id: line.itemId, quantity: line.quantity })),
+      ),
       token,
-      availableCartLines.map((line) => ({ item_id: line.itemId, quantity: line.quantity })),
     );
     setCalculation(result);
     setCashLocation(null);
@@ -364,7 +368,7 @@ function ClientMiniApp() {
         return;
       }
       for (let attempt = 0; attempt < 10; attempt += 1) {
-        const contact = await api.contact(token);
+        const contact = await withAuth((authToken) => api.contact(authToken), token);
         if (contact.verified && contact.phone) {
           setVerifiedContact(contact);
           updateDraft({ phone: contact.phone });
@@ -387,10 +391,10 @@ function ClientMiniApp() {
     try {
       const calc = calculation || (await calculate());
       if (!calc) throw new Error("EMPTY_CART");
-      const challenge = await api.createCashLocationChallenge(token, {
+      const challenge = await withAuth((authToken) => api.createCashLocationChallenge(authToken, {
         calculation_token: calc.calculation_token,
         send_prompt: true,
-      });
+      }), token);
       setCashLocation(challenge);
       if (challenge.status !== "PENDING") return;
       if (challenge.bot_url) {
@@ -423,8 +427,8 @@ function ClientMiniApp() {
         return;
       }
       if (paymentMethod === "crypto" && !window.confirm(`Тестовая crypto-оплата ${money(calc.total_minor)} будет сразу отмечена как PAID. Реальные деньги не списываются.`)) return;
-      const order = await api.createOrder(
-        token,
+      const order = await withAuth((authToken) => api.createOrder(
+        authToken,
         {
           calculation_token: calc.calculation_token,
           phone: draft.phone.trim(),
@@ -436,7 +440,7 @@ function ClientMiniApp() {
           locale,
         },
         pendingIdempotencyKey(),
-      );
+      ), token);
       clearCart();
       clearCheckoutProgress();
       resetPendingIdempotencyKey();
@@ -458,6 +462,21 @@ function ClientMiniApp() {
       ...current,
       orders: [order, ...current.orders.filter((entry) => entry.id !== order.id)],
     }));
+  }
+
+  async function loadMoreOrders() {
+    if (!token || !ordersPage.has_more) return;
+    const limit = ordersPage.limit || 20;
+    const offset = (ordersPage.offset || 0) + limit;
+    const response = await withAuth((authToken) => api.listOrders(authToken, { limit, offset }), token);
+    setData((current) => {
+      const seen = new Set(current.orders.map((order) => order.id));
+      return {
+        ...current,
+        orders: [...current.orders, ...response.orders.filter((order) => !seen.has(order.id))],
+      };
+    });
+    setOrdersPage(orderPageMeta(response));
   }
 
   if (loading && !data.runtime) {
@@ -506,9 +525,9 @@ function ClientMiniApp() {
         onSubmit={submitOrder}
       />
     ) : route.name === "order" ? (
-      <OrderScreen order={data.orders.find((order) => order.id === route.id)} locale={locale} />
+      <OrderScreen order={fullOrderFromCache(data.orders, route.id)} locale={locale} />
     ) : route.name === "orders" ? (
-      <Orders orders={data.orders} locale={locale} />
+      <Orders orders={data.orders} page={ordersPage} locale={locale} onLoadMore={loadMoreOrders} />
     ) : route.name === "support" ? (
       <Support support={data.runtime?.support_text || "@Tako_Lako"} />
     ) : route.name === "terms" ? (
@@ -541,25 +560,6 @@ function ClientMiniApp() {
 function isPortalPath(): boolean {
   const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
   return pathname === "/";
-}
-
-function TelegramMainRedirect() {
-  useEffect(() => {
-    window.location.replace(`/main${window.location.hash || "#/"}`);
-  }, []);
-
-  return (
-    <main className="portal-page">
-      <section className="portal-card">
-        <h1>Грузинская кухня в Telegram</h1>
-        <a className="portal-button" href={`/main${window.location.hash || "#/"}`}>
-          Открыть Mini App
-          <ChevronRight size={18} />
-        </a>
-        <small>Если Telegram не открылся автоматически, найдите бота @takolako_main_bot.</small>
-      </section>
-    </main>
-  );
 }
 
 function PortalLanding() {
@@ -836,6 +836,8 @@ function DishVisual({
   onClick?: () => void;
 }) {
   const src = menuPhotoURL(item.photo_path);
+  const srcSet = menuPhotoSrcSet(item);
+  const dimensions = menuPhotoDimensions(item, hero);
   const className = `${hero ? "hero-art" : "dish-art"} art-${visualIndex % 6}${src ? " has-photo" : ""}`;
   const content = (
     <>
@@ -843,9 +845,14 @@ function DishVisual({
         <img
           className="dish-photo"
           src={src}
+          srcSet={srcSet}
+          sizes={hero ? "(max-width: 720px) 100vw, 720px" : "(max-width: 720px) 45vw, 220px"}
+          width={dimensions?.width}
+          height={dimensions?.height}
           alt=""
           loading={hero ? "eager" : "lazy"}
           decoding="async"
+          fetchPriority={hero ? "high" : undefined}
           onError={(event) => {
             event.currentTarget.hidden = true;
             event.currentTarget.parentElement?.classList.add("photo-failed");
@@ -1116,7 +1123,7 @@ function formatDistance(meters: number): string {
 }
 
 function OrderScreen({ order, locale }: { order?: Order; locale: Locale }) {
-  if (!order) return <div className="state">Заказ не найден</div>;
+  if (!order) return <div className="state">Загружаем заказ...</div>;
   return (
     <div className="page narrow order-page">
       <div className="order-status">
@@ -1146,7 +1153,17 @@ function OrderScreen({ order, locale }: { order?: Order; locale: Locale }) {
   );
 }
 
-function Orders({ orders, locale }: { orders: Order[]; locale: Locale }) {
+function Orders({
+  orders,
+  page,
+  locale,
+  onLoadMore,
+}: {
+  orders: OrderSummary[];
+  page: Pick<OrderSummaryPage, "limit" | "offset" | "has_more">;
+  locale: Locale;
+  onLoadMore(): Promise<void>;
+}) {
   if (!orders.length) return <div className="state">{t(locale, "orders")} пустая</div>;
   return (
     <div className="page narrow">
@@ -1161,6 +1178,7 @@ function Orders({ orders, locale }: { orders: Order[]; locale: Locale }) {
           </button>
         ))}
       </div>
+      {page.has_more && <button className="secondary full" type="button" onClick={() => void onLoadMore()}>Показать ещё</button>}
     </div>
   );
 }
@@ -1232,12 +1250,33 @@ function paymentStatusLabel(order: Order): string {
   return order.payment_status === "PAID" ? "Наличные · PAID" : "Наличные";
 }
 
-function localizedStatus(order: Order, locale: Locale): string {
+function localizedStatus(order: OrderSummary, locale: Locale): string {
   if (locale === "ru") return orderStatusText(order);
   if (order.fulfillment_status === "NEW") return t(locale, "accepted");
   if (order.fulfillment_status === "OUT_FOR_DELIVERY") return t(locale, "delivery");
   if (order.fulfillment_status === "DELIVERED") return t(locale, "delivered");
   return t(locale, "cancelled");
+}
+
+function fullOrderFromCache(orders: OrderSummary[], id: string): Order | undefined {
+  const order = orders.find((entry) => entry.id === id);
+  return order && isFullOrder(order) ? order : undefined;
+}
+
+function isFullOrder(order: OrderSummary): order is Order {
+  return Array.isArray((order as Partial<Order>).items);
+}
+
+function isTerminalOrderStatus(status?: OrderSummary["fulfillment_status"]): boolean {
+  return status === "DELIVERED" || status === "CANCELLED";
+}
+
+function orderPageMeta(page: OrderSummaryPage): Pick<OrderSummaryPage, "limit" | "offset" | "has_more"> {
+  return {
+    limit: page.limit || 20,
+    offset: page.offset || 0,
+    has_more: Boolean(page.has_more),
+  };
 }
 
 function foodVisual(title: string): string {
@@ -1261,6 +1300,26 @@ function menuPhotoURL(path: string): string {
   }
   if (value.startsWith("/")) return value;
   return `/${value.replace(/^\/+/, "")}`;
+}
+
+function menuPhotoSrcSet(item: MenuItem): string | undefined {
+  const variants = item.photo_variants;
+  if (!variants) return undefined;
+  const thumbnail = menuPhotoURL(variants.thumbnail?.url || "");
+  const display = menuPhotoURL(variants.display?.url || "");
+  const parts = [
+    thumbnail ? `${thumbnail} ${variants.thumbnail.width || 360}w` : "",
+    display ? `${display} ${variants.display.width || 1280}w` : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(", ") : undefined;
+}
+
+function menuPhotoDimensions(item: MenuItem, hero: boolean): { width: number; height: number } | undefined {
+  const variants = item.photo_variants;
+  const preferred = hero ? variants?.display : variants?.thumbnail || variants?.display;
+  if (!preferred || preferred.width <= 0 || preferred.height <= 0) return undefined;
+
+  return { width: preferred.width, height: preferred.height };
 }
 
 function itemMinQuantity(item: MenuItem): number {

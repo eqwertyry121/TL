@@ -8,12 +8,40 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /version:
+    get:
+      security: []
+      responses:
+        "200":
+          description: Public build/version metadata for rollout verification. Uses weak ETag W/"version-<build_sha>" and Cache-Control no-cache.
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionInfo"
+        "304":
+          description: Version metadata did not change for the supplied If-None-Match validator.
   /runtime:
     get:
       security: []
       responses:
         "200":
-          description: Runtime settings and schedule state
+          description: Runtime settings and schedule state. Uses weak ETag W/"runtime-<revision>-<derived-state-key>" and Cache-Control no-cache.
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+        "304":
+          description: Runtime semantic state did not change for the supplied If-None-Match validator.
   /menu:
     get:
       security: []
@@ -25,7 +53,67 @@ paths:
             enum: [ru, sr, en]
       responses:
         "200":
-          description: Visible non-archived menu
+          description: Visible non-archived menu with additive menu_revision and photo_variants. Uses weak ETag W/"menu-<locale>-<menu_revision>".
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+        "304":
+          description: Visible menu did not change for the supplied If-None-Match validator.
+  /bootstrap/public:
+    get:
+      security: []
+      parameters:
+        - name: locale
+          in: query
+          schema:
+            type: string
+            enum: [ru, sr, en]
+      responses:
+        "200":
+          description: Runtime and visible menu for fast public startup, with runtime_revision, menu_revision and weak ETag.
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+        "304":
+          description: Public bootstrap data did not change for the supplied If-None-Match validator.
+  /bootstrap/client:
+    post:
+      security: []
+      responses:
+        "200":
+          description: Runtime, visible menu, runtime_revision, menu_revision and optional client session, verified contact and at most one active/latest order summary from Telegram initData. Full history is loaded by /orders. Response is not cacheable.
+  /bootstrap/staff:
+    post:
+      security: []
+      responses:
+        "200":
+          description: Staff session and role-specific active order list for Kitchen or Courier
+  /bootstrap/admin:
+    post:
+      security: []
+      responses:
+        "200":
+          description: Admin session, dashboard and optional currently visible admin section
+  /performance/beacon:
+    post:
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PerformanceBeacon"
+      responses:
+        "204":
+          description: Sampled safe frontend performance metrics accepted
   /dev/session:
     post:
       security: []
@@ -80,9 +168,32 @@ paths:
           description: Server-side cart calculation
   /orders:
     get:
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
       responses:
         "200":
-          description: Client order history
+          description: Client order history summary page with limit/offset/has_more and private ETag; full items/contact are returned by /orders/{id}
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+        "304":
+          description: Client order history did not change for the supplied If-None-Match validator.
     post:
       parameters:
         - name: Idempotency-Key
@@ -104,7 +215,16 @@ paths:
     get:
       responses:
         "200":
-          description: NEW orders without phone/address
+          description: NEW orders without phone/address. Uses private ETag for polling.
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+        "304":
+          description: Kitchen order list did not change for the supplied If-None-Match validator.
   /kitchen/orders/{id}/ready:
     post:
       parameters:
@@ -117,7 +237,16 @@ paths:
     get:
       responses:
         "200":
-          description: OUT_FOR_DELIVERY orders with phone/address
+          description: OUT_FOR_DELIVERY orders with phone/address. Uses private ETag for polling.
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+        "304":
+          description: Courier order list did not change for the supplied If-None-Match validator.
   /courier/orders/{id}/eta:
     post:
       parameters:
@@ -224,7 +353,7 @@ paths:
     post:
       responses:
         "201":
-          description: JPEG/PNG/WebP menu photo decoded, stripped and stored as PNG
+          description: JPEG/PNG/WebP menu photo decoded, stripped, resized and stored as JPEG display + thumbnail variants
   /admin/settings:
     get:
       responses:
@@ -265,9 +394,9 @@ paths:
           in: query
           schema:
             type: integer
-            minimum: 20
-            maximum: 100
-            default: 100
+            minimum: 1
+            maximum: 50
+            default: 20
         - name: offset
           in: query
           schema:
@@ -276,7 +405,16 @@ paths:
             default: 0
       responses:
         "200":
-          description: Admin order console page with status/date/search filters and has_more pagination metadata
+          description: Admin order summary page with private ETag, status/date/search filters and has_more pagination metadata; phone, address, items and events are returned only by /admin/orders/{id}
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+        "304":
+          description: Admin order summary page did not change for the supplied If-None-Match validator.
   /admin/orders/{id}:
     get:
       parameters:
@@ -347,14 +485,74 @@ paths:
           description: CSV export without phone/address
   /admin/audit:
     get:
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
       responses:
         "200":
-          description: Safe admin audit log
+          description: Safe paginated admin audit log with entries, limit, offset and has_more
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
+  schemas:
+    VersionInfo:
+      type: object
+      additionalProperties: false
+      required: [service, build_sha, api_contract]
+      properties:
+        service:
+          type: string
+        build_sha:
+          type: string
+        api_contract:
+          type: string
+    PerformanceBeacon:
+      type: object
+      additionalProperties: false
+      required: [app, route, build]
+      properties:
+        app:
+          type: string
+          enum: [client, kitchen, courier, admin]
+        route:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: "^[A-Za-z0-9._/-]+$"
+        build:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: "^[A-Za-z0-9._/-]+$"
+        ttfb_ms:
+          type: number
+          minimum: 0
+          maximum: 60000
+        lcp_ms:
+          type: number
+          minimum: 0
+          maximum: 60000
+        cls:
+          type: number
+          minimum: 0
+          maximum: 10
+        inp_ms:
+          type: number
+          minimum: 0
+          maximum: 60000
   parameters:
     id:
       name: id

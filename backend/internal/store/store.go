@@ -19,6 +19,7 @@ import (
 	"github.com/eqwertyry121/TL/backend/internal/core"
 	cryptobox "github.com/eqwertyry121/TL/backend/internal/crypto"
 	"github.com/eqwertyry121/TL/backend/internal/geo"
+	"github.com/eqwertyry121/TL/backend/internal/menumedia"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -119,11 +120,46 @@ type AdminOrderFilter struct {
 	Offset int
 }
 
+type AuditLogFilter struct {
+	Limit  int
+	Offset int
+}
+
+type ClientOrderFilter struct {
+	Limit  int
+	Offset int
+}
+
+type ClientOrdersPage struct {
+	Orders  []core.OrderSummary `json:"orders"`
+	Limit   int                 `json:"limit"`
+	Offset  int                 `json:"offset"`
+	HasMore bool                `json:"has_more"`
+}
+
 type AdminOrdersPage struct {
-	Orders  []core.Order `json:"orders"`
-	Limit   int          `json:"limit"`
-	Offset  int          `json:"offset"`
-	HasMore bool         `json:"has_more"`
+	Orders  []core.OrderSummary `json:"orders"`
+	Limit   int                 `json:"limit"`
+	Offset  int                 `json:"offset"`
+	HasMore bool                `json:"has_more"`
+}
+
+type AuditLogPage struct {
+	Entries []core.AuditEntry `json:"entries"`
+	Limit   int               `json:"limit"`
+	Offset  int               `json:"offset"`
+	HasMore bool              `json:"has_more"`
+}
+
+type MenuMediaInput struct {
+	DisplayPath     string
+	ThumbnailPath   string
+	DisplayWidth    int
+	DisplayHeight   int
+	DisplayBytes    int
+	ThumbnailWidth  int
+	ThumbnailHeight int
+	ThumbnailBytes  int
 }
 
 type AddStaffInput struct {
@@ -526,6 +562,9 @@ func (s *Store) UpdateSchedule(ctx context.Context, sess core.Session, input []c
 			return nil, err
 		}
 	}
+	if err := bumpRuntimeRevisionTx(ctx, tx); err != nil {
+		return nil, err
+	}
 	if err := s.insertAuditTx(ctx, tx, sess, "schedule.update", "restaurant_schedule", nil, "", map[string]any{"schedule": before}, map[string]any{"schedule": days}); err != nil {
 		return nil, err
 	}
@@ -536,62 +575,83 @@ func (s *Store) UpdateSchedule(ctx context.Context, sess core.Session, input []c
 }
 
 func (s *Store) Menu(ctx context.Context, locale string) ([]core.Category, error) {
+	_, categories, err := s.MenuWithRevision(ctx, locale)
+	return categories, err
+}
+
+func (s *Store) MenuWithRevision(ctx context.Context, locale string) (int64, []core.Category, error) {
 	catRows, err := s.pool.Query(ctx, `
-		SELECT id, title_ru, title_sr, title_en, sort_order
-		FROM categories
-		WHERE visible=true AND archived=false
-		ORDER BY sort_order, title_ru
+		SELECT s.menu_revision, COALESCE(c.id::text, ''), COALESCE(c.title_ru, ''), COALESCE(c.title_sr, ''),
+			COALESCE(c.title_en, ''), COALESCE(c.sort_order, 0)
+		FROM app_settings s
+		LEFT JOIN categories c ON c.visible=true AND c.archived=false
+		WHERE s.id=true
+		ORDER BY c.sort_order NULLS LAST, c.title_ru NULLS LAST
 	`)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	defer catRows.Close()
+	var revision int64
 	categories := make([]core.Category, 0)
 	index := map[uuid.UUID]int{}
 	for catRows.Next() {
-		var id uuid.UUID
+		var idText string
 		var titleRU, titleSR, titleEN string
 		var sortOrder int
-		if err := catRows.Scan(&id, &titleRU, &titleSR, &titleEN, &sortOrder); err != nil {
-			return nil, err
+		if err := catRows.Scan(&revision, &idText, &titleRU, &titleSR, &titleEN, &sortOrder); err != nil {
+			return 0, nil, err
+		}
+		if idText == "" {
+			continue
+		}
+		id, err := uuid.Parse(idText)
+		if err != nil {
+			return 0, nil, err
 		}
 		index[id] = len(categories)
 		categories = append(categories, core.Category{ID: id, Title: localized(locale, titleRU, titleSR, titleEN), SortOrder: sortOrder})
 	}
 	if err := catRows.Err(); err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 
 	itemRows, err := s.pool.Query(ctx, `
 		SELECT id, category_id, title_ru, title_sr, title_en, description_ru, description_sr, description_en,
 			price_minor, currency, photo_path, weight_text, min_quantity, allergen_text_ru, allergen_text_sr, allergen_text_en,
-			sort_order, version
-		FROM menu_items
-		WHERE visible=true AND archived=false
-		ORDER BY sort_order, title_ru
+			sort_order, version,
+			COALESCE(mm.thumbnail_path, ''), COALESCE(mm.thumbnail_width, 0), COALESCE(mm.thumbnail_height, 0),
+			COALESCE(mm.display_width, 0), COALESCE(mm.display_height, 0)
+		FROM menu_items mi
+		LEFT JOIN menu_media mm ON mm.display_path=mi.photo_path
+		WHERE mi.visible=true AND mi.archived=false
+		ORDER BY mi.sort_order, mi.title_ru
 	`)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	defer itemRows.Close()
 	for itemRows.Next() {
 		var item core.MenuItem
 		var titleRU, titleSR, titleEN, descRU, descSR, descEN, allergenRU, allergenSR, allergenEN string
+		var thumbnailPath string
+		var thumbnailWidth, thumbnailHeight, displayWidth, displayHeight int
 		if err := itemRows.Scan(
 			&item.ID, &item.CategoryID, &titleRU, &titleSR, &titleEN, &descRU, &descSR, &descEN,
 			&item.PriceMinor, &item.Currency, &item.PhotoPath, &item.WeightText, &item.MinQuantity, &allergenRU, &allergenSR, &allergenEN,
-			&item.SortOrder, &item.Version,
+			&item.SortOrder, &item.Version, &thumbnailPath, &thumbnailWidth, &thumbnailHeight, &displayWidth, &displayHeight,
 		); err != nil {
-			return nil, err
+			return 0, nil, err
 		}
 		item.Title = localized(locale, titleRU, titleSR, titleEN)
 		item.Description = localized(locale, descRU, descSR, descEN)
 		item.AllergenText = localized(locale, allergenRU, allergenSR, allergenEN)
+		item.PhotoVariants = menuPhotoVariants(item.PhotoPath, thumbnailPath, thumbnailWidth, thumbnailHeight, displayWidth, displayHeight)
 		if pos, ok := index[item.CategoryID]; ok {
 			categories[pos].Items = append(categories[pos].Items, item)
 		}
 	}
-	return categories, itemRows.Err()
+	return revision, categories, itemRows.Err()
 }
 
 func (s *Store) AdminMenu(ctx context.Context, sess core.Session) ([]core.AdminCategory, []core.AdminMenuItem, error) {
@@ -642,8 +702,11 @@ func (s *Store) AdminMenuItems(ctx context.Context, sess core.Session) ([]core.A
 			mi.description_en, mi.price_minor, mi.currency, mi.photo_path, mi.weight_text, mi.min_quantity,
 			mi.allergen_text_ru, mi.allergen_text_sr, mi.allergen_text_en, mi.sort_order, mi.visible, mi.archived,
 			EXISTS (SELECT 1 FROM order_items oi WHERE oi.menu_item_id=mi.id) AS used_in_orders,
-			mi.version, mi.created_at, mi.updated_at
+			mi.version, mi.created_at, mi.updated_at,
+			COALESCE(mm.thumbnail_path, ''), COALESCE(mm.thumbnail_width, 0), COALESCE(mm.thumbnail_height, 0),
+			COALESCE(mm.display_width, 0), COALESCE(mm.display_height, 0)
 		FROM menu_items mi
+		LEFT JOIN menu_media mm ON mm.display_path=mi.photo_path
 		ORDER BY mi.archived, mi.sort_order, mi.title_ru
 	`)
 	if err != nil {
@@ -653,17 +716,62 @@ func (s *Store) AdminMenuItems(ctx context.Context, sess core.Session) ([]core.A
 	items := []core.AdminMenuItem{}
 	for rows.Next() {
 		var item core.AdminMenuItem
+		var thumbnailPath string
+		var thumbnailWidth, thumbnailHeight, displayWidth, displayHeight int
 		if err := rows.Scan(
 			&item.ID, &item.CategoryID, &item.TitleRU, &item.TitleSR, &item.TitleEN, &item.DescriptionRU, &item.DescriptionSR,
 			&item.DescriptionEN, &item.PriceMinor, &item.Currency, &item.PhotoPath, &item.WeightText, &item.MinQuantity,
 			&item.AllergenTextRU, &item.AllergenTextSR, &item.AllergenTextEN, &item.SortOrder, &item.Visible, &item.Archived, &item.UsedInOrders,
-			&item.Version, &item.CreatedAt, &item.UpdatedAt,
+			&item.Version, &item.CreatedAt, &item.UpdatedAt, &thumbnailPath, &thumbnailWidth, &thumbnailHeight, &displayWidth, &displayHeight,
 		); err != nil {
 			return nil, err
 		}
+		item.PhotoVariants = menuPhotoVariants(item.PhotoPath, thumbnailPath, thumbnailWidth, thumbnailHeight, displayWidth, displayHeight)
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (s *Store) RecordMenuMedia(ctx context.Context, input MenuMediaInput) error {
+	if !validMenuMediaInput(input) {
+		return core.ErrInvalidInput
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO menu_media (
+			display_path, thumbnail_path, display_width, display_height, display_bytes,
+			display_mime, thumbnail_width, thumbnail_height, thumbnail_bytes, thumbnail_mime
+		)
+		VALUES ($1, $2, $3, $4, $5, 'image/jpeg', $6, $7, $8, 'image/jpeg')
+		ON CONFLICT (display_path) DO UPDATE SET
+			thumbnail_path=EXCLUDED.thumbnail_path,
+			display_width=EXCLUDED.display_width,
+			display_height=EXCLUDED.display_height,
+			display_bytes=EXCLUDED.display_bytes,
+			display_mime=EXCLUDED.display_mime,
+			thumbnail_width=EXCLUDED.thumbnail_width,
+			thumbnail_height=EXCLUDED.thumbnail_height,
+			thumbnail_bytes=EXCLUDED.thumbnail_bytes,
+			thumbnail_mime=EXCLUDED.thumbnail_mime
+	`, safe(input.DisplayPath), safe(input.ThumbnailPath), input.DisplayWidth, input.DisplayHeight, input.DisplayBytes, input.ThumbnailWidth, input.ThumbnailHeight, input.ThumbnailBytes)
+	return err
+}
+
+func bumpMenuRevisionTx(ctx context.Context, tx pgx.Tx) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE app_settings
+		SET menu_revision=menu_revision+1, updated_at=now()
+		WHERE id=true
+	`)
+	return err
+}
+
+func bumpRuntimeRevisionTx(ctx context.Context, tx pgx.Tx) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE app_settings
+		SET version=version+1, updated_at=now()
+		WHERE id=true
+	`)
+	return err
 }
 
 func (s *Store) CreateCategory(ctx context.Context, sess core.Session, input UpsertCategoryInput) (core.AdminCategory, error) {
@@ -673,8 +781,13 @@ func (s *Store) CreateCategory(ctx context.Context, sess core.Session, input Ups
 	if !validCategoryInput(input) {
 		return core.AdminCategory{}, core.ErrInvalidInput
 	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	defer rollback(ctx, tx)
 	var id uuid.UUID
-	err := s.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO categories (title_ru, title_sr, title_en, sort_order, visible)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id
@@ -682,7 +795,15 @@ func (s *Store) CreateCategory(ctx context.Context, sess core.Session, input Ups
 	if err != nil {
 		return core.AdminCategory{}, err
 	}
-	_ = s.insertAudit(ctx, sess, "category.create", "category", &id, "", nil, map[string]any{"title_ru": safe(input.TitleRU)})
+	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
+		return core.AdminCategory{}, err
+	}
+	if err := s.insertAuditTx(ctx, tx, sess, "category.create", "category", &id, "", nil, map[string]any{"title_ru": safe(input.TitleRU)}); err != nil {
+		return core.AdminCategory{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.AdminCategory{}, err
+	}
 	return s.adminCategoryByID(ctx, id)
 }
 
@@ -697,7 +818,12 @@ func (s *Store) UpdateCategory(ctx context.Context, sess core.Session, id uuid.U
 	if err != nil {
 		return core.AdminCategory{}, err
 	}
-	result, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	defer rollback(ctx, tx)
+	result, err := tx.Exec(ctx, `
 		UPDATE categories
 		SET title_ru=$1, title_sr=$2, title_en=$3, sort_order=$4, visible=$5, version=version+1, updated_at=now()
 		WHERE id=$6 AND version=$7 AND archived=false
@@ -707,6 +833,12 @@ func (s *Store) UpdateCategory(ctx context.Context, sess core.Session, id uuid.U
 	}
 	if result.RowsAffected() == 0 {
 		return core.AdminCategory{}, core.ErrOrderStatusConflict
+	}
+	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
+		return core.AdminCategory{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.AdminCategory{}, err
 	}
 	after, err := s.adminCategoryByID(ctx, id)
 	if err != nil {
@@ -724,7 +856,12 @@ func (s *Store) ArchiveCategory(ctx context.Context, sess core.Session, id uuid.
 	if err != nil {
 		return core.AdminCategory{}, err
 	}
-	result, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	defer rollback(ctx, tx)
+	result, err := tx.Exec(ctx, `
 		UPDATE categories SET visible=false, archived=true, version=version+1, updated_at=now()
 		WHERE id=$1 AND archived=false
 	`, id)
@@ -733,6 +870,12 @@ func (s *Store) ArchiveCategory(ctx context.Context, sess core.Session, id uuid.
 	}
 	if result.RowsAffected() == 0 {
 		return core.AdminCategory{}, core.ErrOrderStatusConflict
+	}
+	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
+		return core.AdminCategory{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.AdminCategory{}, err
 	}
 	after, err := s.adminCategoryByID(ctx, id)
 	if err != nil {
@@ -750,7 +893,12 @@ func (s *Store) RestoreCategory(ctx context.Context, sess core.Session, id uuid.
 	if err != nil {
 		return core.AdminCategory{}, err
 	}
-	result, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.AdminCategory{}, err
+	}
+	defer rollback(ctx, tx)
+	result, err := tx.Exec(ctx, `
 		UPDATE categories SET visible=true, archived=false, version=version+1, updated_at=now()
 		WHERE id=$1 AND archived=true
 	`, id)
@@ -759,6 +907,12 @@ func (s *Store) RestoreCategory(ctx context.Context, sess core.Session, id uuid.
 	}
 	if result.RowsAffected() == 0 {
 		return core.AdminCategory{}, core.ErrOrderStatusConflict
+	}
+	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
+		return core.AdminCategory{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.AdminCategory{}, err
 	}
 	after, err := s.adminCategoryByID(ctx, id)
 	if err != nil {
@@ -777,11 +931,24 @@ func (s *Store) DeleteOrArchiveCategory(ctx context.Context, sess core.Session, 
 		return "", err
 	}
 	if count == 0 {
-		_, err := s.pool.Exec(ctx, `DELETE FROM categories WHERE id=$1`, id)
+		tx, err := s.pool.Begin(ctx)
 		if err != nil {
 			return "", err
 		}
-		_ = s.insertAudit(ctx, sess, "category.delete", "category", &id, safe(reason), nil, nil)
+		defer rollback(ctx, tx)
+		_, err = tx.Exec(ctx, `DELETE FROM categories WHERE id=$1`, id)
+		if err != nil {
+			return "", err
+		}
+		if err := bumpMenuRevisionTx(ctx, tx); err != nil {
+			return "", err
+		}
+		if err := s.insertAuditTx(ctx, tx, sess, "category.delete", "category", &id, safe(reason), nil, nil); err != nil {
+			return "", err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", err
+		}
 		return "deleted", nil
 	}
 	_, err := s.ArchiveCategory(ctx, sess, id, reason)
@@ -795,8 +962,13 @@ func (s *Store) CreateMenuItem(ctx context.Context, sess core.Session, input Ups
 	if !validMenuItemInput(input) {
 		return core.AdminMenuItem{}, core.ErrInvalidInput
 	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	defer rollback(ctx, tx)
 	var id uuid.UUID
-	err := s.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO menu_items (
 			category_id, title_ru, title_sr, title_en, description_ru, description_sr, description_en,
 			price_minor, photo_path, weight_text, min_quantity, allergen_text_ru, allergen_text_sr, allergen_text_en,
@@ -810,7 +982,15 @@ func (s *Store) CreateMenuItem(ctx context.Context, sess core.Session, input Ups
 	if err != nil {
 		return core.AdminMenuItem{}, err
 	}
-	_ = s.insertAudit(ctx, sess, "menu_item.create", "menu_item", &id, "", nil, map[string]any{"title_ru": safe(input.TitleRU), "price_minor": input.PriceMinor})
+	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	if err := s.insertAuditTx(ctx, tx, sess, "menu_item.create", "menu_item", &id, "", nil, map[string]any{"title_ru": safe(input.TitleRU), "price_minor": input.PriceMinor}); err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.AdminMenuItem{}, err
+	}
 	return s.adminMenuItemByID(ctx, id)
 }
 
@@ -825,7 +1005,12 @@ func (s *Store) UpdateMenuItem(ctx context.Context, sess core.Session, id uuid.U
 	if err != nil {
 		return core.AdminMenuItem{}, err
 	}
-	result, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	defer rollback(ctx, tx)
+	result, err := tx.Exec(ctx, `
 		UPDATE menu_items
 		SET category_id=$1, title_ru=$2, title_sr=$3, title_en=$4, description_ru=$5, description_sr=$6,
 			description_en=$7, price_minor=$8, photo_path=$9, weight_text=$10, min_quantity=$11,
@@ -840,6 +1025,12 @@ func (s *Store) UpdateMenuItem(ctx context.Context, sess core.Session, id uuid.U
 	}
 	if result.RowsAffected() == 0 {
 		return core.AdminMenuItem{}, core.ErrOrderStatusConflict
+	}
+	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.AdminMenuItem{}, err
 	}
 	after, err := s.adminMenuItemByID(ctx, id)
 	if err != nil {
@@ -863,7 +1054,12 @@ func (s *Store) ArchiveMenuItem(ctx context.Context, sess core.Session, id uuid.
 	if err != nil {
 		return core.AdminMenuItem{}, err
 	}
-	result, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	defer rollback(ctx, tx)
+	result, err := tx.Exec(ctx, `
 		UPDATE menu_items SET visible=false, archived=true, version=version+1, updated_at=now()
 		WHERE id=$1 AND archived=false
 	`, id)
@@ -872,6 +1068,12 @@ func (s *Store) ArchiveMenuItem(ctx context.Context, sess core.Session, id uuid.
 	}
 	if result.RowsAffected() == 0 {
 		return core.AdminMenuItem{}, core.ErrOrderStatusConflict
+	}
+	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.AdminMenuItem{}, err
 	}
 	after, err := s.adminMenuItemByID(ctx, id)
 	if err != nil {
@@ -889,7 +1091,12 @@ func (s *Store) RestoreMenuItem(ctx context.Context, sess core.Session, id uuid.
 	if err != nil {
 		return core.AdminMenuItem{}, err
 	}
-	result, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	defer rollback(ctx, tx)
+	result, err := tx.Exec(ctx, `
 		UPDATE menu_items SET visible=true, archived=false, version=version+1, updated_at=now()
 		WHERE id=$1 AND archived=true
 	`, id)
@@ -898,6 +1105,12 @@ func (s *Store) RestoreMenuItem(ctx context.Context, sess core.Session, id uuid.
 	}
 	if result.RowsAffected() == 0 {
 		return core.AdminMenuItem{}, core.ErrOrderStatusConflict
+	}
+	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.AdminMenuItem{}, err
 	}
 	after, err := s.adminMenuItemByID(ctx, id)
 	if err != nil {
@@ -916,11 +1129,24 @@ func (s *Store) DeleteOrArchiveMenuItem(ctx context.Context, sess core.Session, 
 		return "", err
 	}
 	if !used {
-		_, err := s.pool.Exec(ctx, `DELETE FROM menu_items WHERE id=$1`, id)
+		tx, err := s.pool.Begin(ctx)
 		if err != nil {
 			return "", err
 		}
-		_ = s.insertAudit(ctx, sess, "menu_item.delete", "menu_item", &id, safe(reason), nil, nil)
+		defer rollback(ctx, tx)
+		_, err = tx.Exec(ctx, `DELETE FROM menu_items WHERE id=$1`, id)
+		if err != nil {
+			return "", err
+		}
+		if err := bumpMenuRevisionTx(ctx, tx); err != nil {
+			return "", err
+		}
+		if err := s.insertAuditTx(ctx, tx, sess, "menu_item.delete", "menu_item", &id, safe(reason), nil, nil); err != nil {
+			return "", err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", err
+		}
 		return "deleted", nil
 	}
 	_, err := s.ArchiveMenuItem(ctx, sess, id, reason)
@@ -936,9 +1162,13 @@ func (s *Store) Calculate(ctx context.Context, sess core.Session, input []core.C
 		return core.Calculation{}, err
 	}
 	quantities := map[uuid.UUID]int{}
+	ids := []uuid.UUID{}
 	for _, item := range input {
 		if item.Quantity <= 0 || item.Quantity > settings.MaxItemQuantity {
 			return core.Calculation{}, core.ErrInvalidQuantity
+		}
+		if _, ok := quantities[item.ItemID]; !ok {
+			ids = append(ids, item.ItemID)
 		}
 		quantities[item.ItemID] += item.Quantity
 		if quantities[item.ItemID] > settings.MaxItemQuantity {
@@ -955,33 +1185,52 @@ func (s *Store) Calculate(ctx context.Context, sess core.Session, input []core.C
 		Currency:         settings.Currency,
 		ExpiresAt:        now.UTC().Add(10 * time.Minute),
 	}
-	for id, qty := range quantities {
-		var title string
-		var price, version, minQuantity int
-		err := s.pool.QueryRow(ctx, `
-			SELECT mi.title_ru, mi.price_minor, mi.version, mi.min_quantity
+	rows, err := s.pool.Query(ctx, `
+			SELECT mi.id, mi.title_ru, mi.price_minor, mi.version, mi.min_quantity
 			FROM menu_items mi
 			JOIN categories c ON c.id=mi.category_id
-			WHERE mi.id=$1 AND mi.visible=true AND mi.archived=false AND c.visible=true AND c.archived=false
-		`, id).Scan(&title, &price, &version, &minQuantity)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return core.Calculation{}, core.ErrItemUnavailable
-		}
-		if err != nil {
+			WHERE mi.id=ANY($1) AND mi.visible=true AND mi.archived=false AND c.visible=true AND c.archived=false
+	`, ids)
+	if err != nil {
+		return core.Calculation{}, err
+	}
+	defer rows.Close()
+	type menuCalcRow struct {
+		title       string
+		price       int
+		version     int
+		minQuantity int
+	}
+	menuRows := map[uuid.UUID]menuCalcRow{}
+	for rows.Next() {
+		var id uuid.UUID
+		var row menuCalcRow
+		if err := rows.Scan(&id, &row.title, &row.price, &row.version, &row.minQuantity); err != nil {
 			return core.Calculation{}, err
 		}
-		if qty < minQuantity {
+		menuRows[id] = row
+	}
+	if err := rows.Err(); err != nil {
+		return core.Calculation{}, err
+	}
+	if len(menuRows) != len(ids) {
+		return core.Calculation{}, core.ErrItemUnavailable
+	}
+	for _, id := range ids {
+		qty := quantities[id]
+		row := menuRows[id]
+		if qty < row.minQuantity {
 			return core.Calculation{}, core.ErrInvalidQuantity
 		}
-		line := price * qty
+		line := row.price * qty
 		calc.SubtotalMinor += line
 		calc.Items = append(calc.Items, core.CalculatedItem{
 			ItemID:         id,
-			Title:          title,
-			UnitPriceMinor: price,
+			Title:          row.title,
+			UnitPriceMinor: row.price,
 			Quantity:       qty,
 			LineTotalMinor: line,
-			Version:        version,
+			Version:        row.version,
 		})
 	}
 	calc.TotalMinor = calc.SubtotalMinor + calc.DeliveryFeeMinor
@@ -1025,50 +1274,74 @@ func (s *Store) revalidateCalculationTx(ctx context.Context, tx pgx.Tx, items []
 	}
 
 	seen := map[uuid.UUID]bool{}
-	revalidated := make([]core.CalculatedItem, 0, len(items))
-	subtotal := 0
+	ids := make([]uuid.UUID, 0, len(items))
 	for _, item := range items {
 		if item.ItemID == uuid.Nil || seen[item.ItemID] || item.Quantity <= 0 || item.Quantity > maxItemQuantity {
 			return nil, 0, 0, 0, "", core.ErrInvalidQuantity
 		}
 		seen[item.ItemID] = true
+		ids = append(ids, item.ItemID)
+	}
 
-		var title string
-		var price, version, minQuantity int
-		err := tx.QueryRow(ctx, `
-			SELECT mi.title_ru, mi.price_minor, mi.version, mi.min_quantity
-			FROM menu_items mi
-			JOIN categories c ON c.id=mi.category_id
-			WHERE mi.id=$1
-				AND mi.visible=true
-				AND mi.archived=false
-				AND c.visible=true
-				AND c.archived=false
-		`, item.ItemID).Scan(&title, &price, &version, &minQuantity)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, 0, 0, 0, "", core.ErrItemUnavailable
-		}
-		if err != nil {
+	rows, err := tx.Query(ctx, `
+		SELECT mi.id, mi.title_ru, mi.price_minor, mi.version, mi.min_quantity
+		FROM menu_items mi
+		JOIN categories c ON c.id=mi.category_id
+		WHERE mi.id=ANY($1)
+			AND mi.visible=true
+			AND mi.archived=false
+			AND c.visible=true
+			AND c.archived=false
+	`, ids)
+	if err != nil {
+		return nil, 0, 0, 0, "", err
+	}
+	defer rows.Close()
+	type menuCalcRow struct {
+		title       string
+		price       int
+		version     int
+		minQuantity int
+	}
+	menuRows := map[uuid.UUID]menuCalcRow{}
+	for rows.Next() {
+		var id uuid.UUID
+		var row menuCalcRow
+		if err := rows.Scan(&id, &row.title, &row.price, &row.version, &row.minQuantity); err != nil {
 			return nil, 0, 0, 0, "", err
 		}
-		if item.Quantity < minQuantity {
+		menuRows[id] = row
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, 0, 0, "", err
+	}
+	if len(menuRows) != len(ids) {
+		return nil, 0, 0, 0, "", core.ErrItemUnavailable
+	}
+
+	revalidated := make([]core.CalculatedItem, 0, len(items))
+	subtotal := 0
+	for _, item := range items {
+		row := menuRows[item.ItemID]
+
+		if item.Quantity < row.minQuantity {
 			return nil, 0, 0, 0, "", core.ErrInvalidQuantity
 		}
-		if item.Title != title || item.UnitPriceMinor != price || item.Version != version {
+		if item.Title != row.title || item.UnitPriceMinor != row.price || item.Version != row.version {
 			return nil, 0, 0, 0, "", core.ErrCalculationExpired
 		}
-		line := price * item.Quantity
+		line := row.price * item.Quantity
 		if item.LineTotalMinor != line {
 			return nil, 0, 0, 0, "", core.ErrCalculationExpired
 		}
 		subtotal += line
 		revalidated = append(revalidated, core.CalculatedItem{
 			ItemID:         item.ItemID,
-			Title:          title,
-			UnitPriceMinor: price,
+			Title:          row.title,
+			UnitPriceMinor: row.price,
 			Quantity:       item.Quantity,
 			LineTotalMinor: line,
-			Version:        version,
+			Version:        row.version,
 		})
 	}
 	total := subtotal + currentDelivery
@@ -1503,14 +1776,8 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		}
 		return core.Order{}, err
 	}
-	for pos, item := range items {
-		_, err := tx.Exec(ctx, `
-			INSERT INTO order_items (order_id, menu_item_id, snapshot_title, unit_price_minor, quantity, line_total_minor, sort_order)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, orderID, item.ItemID, item.Title, item.UnitPriceMinor, item.Quantity, item.LineTotalMinor, pos)
-		if err != nil {
-			return core.Order{}, err
-		}
+	if err := copyOrderItemsTx(ctx, tx, orderID, items); err != nil {
+		return core.Order{}, err
 	}
 	_, err = tx.Exec(ctx, `UPDATE calculation_tokens SET used_at=now() WHERE token_hash=$1`, tokenHash)
 	if err != nil {
@@ -1575,6 +1842,37 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	return order, nil
 }
 
+func copyOrderItemsTx(ctx context.Context, tx pgx.Tx, orderID uuid.UUID, items []core.CalculatedItem) error {
+	rows := make([][]any, 0, len(items))
+	for pos, item := range items {
+		rows = append(rows, []any{
+			orderID,
+			item.ItemID,
+			item.Title,
+			item.UnitPriceMinor,
+			item.Quantity,
+			item.LineTotalMinor,
+			pos,
+		})
+	}
+	copied, err := tx.CopyFrom(ctx, pgx.Identifier{"order_items"}, []string{
+		"order_id",
+		"menu_item_id",
+		"snapshot_title",
+		"unit_price_minor",
+		"quantity",
+		"line_total_minor",
+		"sort_order",
+	}, pgx.CopyFromRows(rows))
+	if err != nil {
+		return err
+	}
+	if copied != int64(len(rows)) {
+		return fmt.Errorf("copy order items: copied %d of %d", copied, len(rows))
+	}
+	return nil
+}
+
 func (s *Store) KitchenOrders(ctx context.Context, sess core.Session) ([]core.Order, error) {
 	if sess.ActiveRole != core.RoleKitchen {
 		return nil, core.ErrForbidden
@@ -1589,18 +1887,73 @@ func (s *Store) CourierOrders(ctx context.Context, sess core.Session) ([]core.Or
 	return s.ordersByStatus(ctx, core.StatusOutForDelivery, true)
 }
 
-func (s *Store) ClientOrders(ctx context.Context, sess core.Session) ([]core.Order, error) {
+func (s *Store) ClientOrders(ctx context.Context, sess core.Session, filter ClientOrderFilter) (ClientOrdersPage, error) {
+	if sess.ActiveRole != core.RoleClient {
+		return ClientOrdersPage{}, core.ErrForbidden
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT o.id, o.public_number, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
+			COALESCE(u.photo_url, ''),
+			o.fulfillment_status, o.payment_method, o.payment_status,
+			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
+			o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.cash_location_verified_at, o.cash_location_distance_meters
+		FROM orders o
+		JOIN users u ON u.id=o.client_user_id
+		WHERE o.client_user_id=$1
+		ORDER BY o.created_at DESC
+		LIMIT $2 OFFSET $3
+	`, sess.UserID, limit+1, offset)
+	if err != nil {
+		return ClientOrdersPage{}, err
+	}
+	defer rows.Close()
+	orders, err := scanOrderSummaries(rows)
+	if err != nil {
+		return ClientOrdersPage{}, err
+	}
+	hasMore := len(orders) > limit
+	if hasMore {
+		orders = orders[:limit]
+	}
+	return ClientOrdersPage{Orders: orders, Limit: limit, Offset: offset, HasMore: hasMore}, nil
+}
+
+func (s *Store) ClientBootstrapOrders(ctx context.Context, sess core.Session) ([]core.OrderSummary, error) {
 	if sess.ActiveRole != core.RoleClient {
 		return nil, core.ErrForbidden
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id FROM orders WHERE client_user_id=$1 ORDER BY created_at DESC LIMIT 50
+		SELECT o.id, o.public_number, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
+			COALESCE(u.photo_url, ''),
+			o.fulfillment_status, o.payment_method, o.payment_status,
+			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
+			o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.cash_location_verified_at, o.cash_location_distance_meters
+		FROM orders o
+		JOIN users u ON u.id=o.client_user_id
+		WHERE o.client_user_id=$1
+		ORDER BY
+			CASE WHEN o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY') THEN 0 ELSE 1 END,
+			o.created_at DESC
+		LIMIT 1
 	`, sess.UserID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return s.ordersFromIDRows(ctx, rows, true)
+	return scanOrderSummaries(rows)
 }
 
 func (s *Store) ClientOrderByID(ctx context.Context, sess core.Session, orderID uuid.UUID) (core.Order, error) {
@@ -1625,8 +1978,11 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 		return AdminOrdersPage{}, core.ErrForbidden
 	}
 	limit := filter.Limit
-	if limit <= 0 || limit > 100 {
-		limit = 100
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
 	}
 	offset := filter.Offset
 	if offset < 0 {
@@ -1638,15 +1994,20 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 		if !validFulfillmentStatus(filter.Status) {
 			return AdminOrdersPage{}, core.ErrInvalidInput
 		}
-		where = append(where, fmt.Sprintf("fulfillment_status=$%d", len(args)+1))
+		where = append(where, fmt.Sprintf("o.fulfillment_status=$%d", len(args)+1))
 		args = append(args, filter.Status)
 	}
 	if filter.Date != "" {
-		if _, err := time.Parse("2006-01-02", filter.Date); err != nil {
+		loc, err := time.LoadLocation("Europe/Belgrade")
+		if err != nil {
+			loc = time.FixedZone("Europe/Belgrade", 3600)
+		}
+		from, err := time.ParseInLocation("2006-01-02", filter.Date, loc)
+		if err != nil {
 			return AdminOrdersPage{}, core.ErrInvalidInput
 		}
-		where = append(where, fmt.Sprintf("to_char(created_at AT TIME ZONE 'Europe/Belgrade', 'YYYY-MM-DD')=$%d", len(args)+1))
-		args = append(args, filter.Date)
+		args = append(args, from.UTC(), from.AddDate(0, 0, 1).UTC())
+		where = append(where, fmt.Sprintf("o.created_at >= $%d AND o.created_at < $%d", len(args)-1, len(args)))
 	}
 	query := strings.TrimSpace(filter.Query)
 	if query != "" {
@@ -1661,22 +2022,28 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 		}
 		likePlaceholder := len(args) + 1
 		args = append(args, "%"+strings.ToLower(query)+"%")
-		profilePredicate := fmt.Sprintf(`EXISTS (
-			SELECT 1 FROM users u
-			WHERE u.id=orders.client_user_id
-				AND (lower(u.username) LIKE $%d OR lower(u.first_name) LIKE $%d)
-		)`, likePlaceholder, likePlaceholder)
+		profilePredicate := fmt.Sprintf("(lower(COALESCE(u.username, '')) LIKE $%d OR lower(COALESCE(u.first_name, '')) LIKE $%d)", likePlaceholder, likePlaceholder)
 		if publicNumber, err := strconv.Atoi(query); err == nil {
 			publicNumberPlaceholder := len(args) + 1
 			args = append(args, publicNumber)
-			where = append(where, fmt.Sprintf("(public_number=$%d OR phone_hash IN (%s) OR %s)", publicNumberPlaceholder, strings.Join(phoneHashPlaceholders, ","), profilePredicate))
+			where = append(where, fmt.Sprintf("(o.public_number=$%d OR o.phone_hash IN (%s) OR %s)", publicNumberPlaceholder, strings.Join(phoneHashPlaceholders, ","), profilePredicate))
 		} else {
-			where = append(where, fmt.Sprintf("(phone_hash IN (%s) OR %s)", strings.Join(phoneHashPlaceholders, ","), profilePredicate))
+			where = append(where, fmt.Sprintf("(o.phone_hash IN (%s) OR %s)", strings.Join(phoneHashPlaceholders, ","), profilePredicate))
 		}
 	}
 	args = append(args, limit+1, offset)
 	sqlQuery := fmt.Sprintf(
-		`SELECT id FROM orders WHERE %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`,
+		`SELECT o.id, o.public_number, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
+			COALESCE(u.photo_url, ''),
+			o.fulfillment_status, o.payment_method, o.payment_status,
+			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
+			o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.cash_location_verified_at, o.cash_location_distance_meters
+		FROM orders o
+		JOIN users u ON u.id=o.client_user_id
+		WHERE %s
+		ORDER BY o.created_at DESC
+		LIMIT $%d OFFSET $%d`,
 		strings.Join(where, " AND "),
 		len(args)-1,
 		len(args),
@@ -1686,7 +2053,7 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 		return AdminOrdersPage{}, err
 	}
 	defer rows.Close()
-	orders, err := s.ordersFromIDRows(ctx, rows, true)
+	orders, err := scanOrderSummaries(rows)
 	if err != nil {
 		return AdminOrdersPage{}, err
 	}
@@ -2310,18 +2677,29 @@ func (s *Store) AdminAnalytics(ctx context.Context, sess core.Session, from, to 
 	return analytics, dailyRows.Err()
 }
 
-func (s *Store) AuditLog(ctx context.Context, sess core.Session) ([]core.AuditEntry, error) {
+func (s *Store) AuditLog(ctx context.Context, sess core.Session, filter AuditLogFilter) (AuditLogPage, error) {
 	if sess.ActiveRole != core.RoleAdmin {
-		return nil, core.ErrForbidden
+		return AuditLogPage{}, core.ErrForbidden
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, actor_role, action, target_type, target_id, reason, before_json, after_json, created_at
 		FROM audit_log
 		ORDER BY created_at DESC
-		LIMIT 100
-	`)
+		LIMIT $1 OFFSET $2
+	`, limit+1, offset)
 	if err != nil {
-		return nil, err
+		return AuditLogPage{}, err
 	}
 	defer rows.Close()
 	entries := []core.AuditEntry{}
@@ -2330,14 +2708,21 @@ func (s *Store) AuditLog(ctx context.Context, sess core.Session) ([]core.AuditEn
 		var targetID *uuid.UUID
 		var beforeRaw, afterRaw []byte
 		if err := rows.Scan(&entry.ID, &entry.ActorRole, &entry.Action, &entry.TargetType, &targetID, &entry.Reason, &beforeRaw, &afterRaw, &entry.CreatedAt); err != nil {
-			return nil, err
+			return AuditLogPage{}, err
 		}
 		entry.TargetID = targetID
 		_ = json.Unmarshal(beforeRaw, &entry.Before)
 		_ = json.Unmarshal(afterRaw, &entry.After)
 		entries = append(entries, entry)
 	}
-	return entries, rows.Err()
+	if err := rows.Err(); err != nil {
+		return AuditLogPage{}, err
+	}
+	hasMore := len(entries) > limit
+	if hasMore {
+		entries = entries[:limit]
+	}
+	return AuditLogPage{Entries: entries, Limit: limit, Offset: offset, HasMore: hasMore}, nil
 }
 
 func (s *Store) MarkReady(ctx context.Context, sess core.Session, orderID uuid.UUID, idempotencyKey, requestHash string) (core.Order, error) {
@@ -2581,34 +2966,169 @@ func (s *Store) OrderEvents(ctx context.Context, orderID uuid.UUID) ([]core.Orde
 
 func (s *Store) ordersByStatus(ctx context.Context, status core.FulfillmentStatus, includePII bool) ([]core.Order, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id FROM orders WHERE fulfillment_status=$1 ORDER BY updated_at ASC LIMIT 50
+		SELECT o.id, o.public_number, o.client_user_id, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
+			COALESCE(u.photo_url, ''),
+			o.fulfillment_status, o.payment_method, o.payment_status,
+			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency, o.phone_ciphertext, o.address_ciphertext,
+			o.customer_comment, o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.cash_location_verified_at, o.cash_location_distance_meters
+		FROM orders o
+		JOIN users u ON u.id=o.client_user_id
+		WHERE o.fulfillment_status=$1
+		ORDER BY o.updated_at ASC
+		LIMIT 50
 	`, string(status))
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return s.ordersFromIDRows(ctx, rows, includePII)
+	return s.scanOrdersWithItems(ctx, rows, includePII)
 }
 
-func (s *Store) ordersFromIDRows(ctx context.Context, rows pgx.Rows, includePII bool) ([]core.Order, error) {
-	ids := []uuid.UUID{}
+func scanOrderSummaries(rows pgx.Rows) ([]core.OrderSummary, error) {
+	summaries := []core.OrderSummary{}
 	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
+		var summary core.OrderSummary
+		var ready, delivered, cancelled sql.NullTime
+		var locationVerified sql.NullTime
+		var locationDistance sql.NullInt32
+		if err := rows.Scan(
+			&summary.ID, &summary.PublicNumber, &summary.ClientUsername, &summary.ClientFirstName, &summary.ClientPhotoURL,
+			&summary.FulfillmentStatus, &summary.PaymentMethod, &summary.PaymentStatus,
+			&summary.SubtotalMinor, &summary.DeliveryFeeMinor, &summary.TotalMinor, &summary.Currency,
+			&summary.Locale, &summary.Version, &summary.CreatedAt,
+			&ready, &delivered, &cancelled,
+			&locationVerified, &locationDistance,
+		); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
+		if ready.Valid {
+			summary.ReadyAt = &ready.Time
+		}
+		if delivered.Valid {
+			summary.DeliveredAt = &delivered.Time
+		}
+		if cancelled.Valid {
+			summary.CancelledAt = &cancelled.Time
+		}
+		if locationVerified.Valid {
+			summary.CashLocationVerifiedAt = &locationVerified.Time
+		}
+		if locationDistance.Valid {
+			value := int(locationDistance.Int32)
+			summary.CashLocationDistanceMeters = &value
+		}
+		summaries = append(summaries, summary)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	orders := make([]core.Order, 0, len(ids))
-	for _, id := range ids {
-		order, err := s.OrderByID(ctx, id, includePII)
-		if err != nil {
+	return summaries, nil
+}
+
+func (s *Store) ordersByIDs(ctx context.Context, ids []uuid.UUID, includePII bool) ([]core.Order, error) {
+	if len(ids) == 0 {
+		return []core.Order{}, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT o.id, o.public_number, o.client_user_id, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
+			COALESCE(u.photo_url, ''),
+			o.fulfillment_status, o.payment_method, o.payment_status,
+			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency, o.phone_ciphertext, o.address_ciphertext,
+			o.customer_comment, o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.cash_location_verified_at, o.cash_location_distance_meters
+		FROM orders o
+		JOIN users u ON u.id=o.client_user_id
+		WHERE o.id=ANY($1)
+		ORDER BY array_position($1::uuid[], o.id)
+	`, ids)
+	if err != nil {
+		return nil, err
+	}
+	return s.scanOrdersWithItems(ctx, rows, includePII)
+}
+
+func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includePII bool) ([]core.Order, error) {
+	defer rows.Close()
+	orders := []core.Order{}
+	ids := []uuid.UUID{}
+	indexByID := map[uuid.UUID]int{}
+	for rows.Next() {
+		var order core.Order
+		var phoneCipher, addressCipher string
+		var ready, delivered, cancelled sql.NullTime
+		var locationVerified sql.NullTime
+		var locationDistance sql.NullInt32
+		if err := rows.Scan(
+			&order.ID, &order.PublicNumber, &order.ClientUserID, &order.ClientUsername, &order.ClientFirstName, &order.ClientPhotoURL,
+			&order.FulfillmentStatus, &order.PaymentMethod,
+			&order.PaymentStatus, &order.SubtotalMinor, &order.DeliveryFeeMinor, &order.TotalMinor, &order.Currency,
+			&phoneCipher, &addressCipher, &order.CustomerComment, &order.Locale, &order.Version, &order.CreatedAt,
+			&ready, &delivered, &cancelled,
+			&locationVerified, &locationDistance,
+		); err != nil {
 			return nil, err
 		}
+		if includePII {
+			phone, err := s.box.Decrypt(phoneCipher)
+			if err != nil {
+				return nil, err
+			}
+			address, err := s.box.Decrypt(addressCipher)
+			if err != nil {
+				return nil, err
+			}
+			order.Phone = phone
+			order.Address = address
+		}
+		if ready.Valid {
+			order.ReadyAt = &ready.Time
+		}
+		if delivered.Valid {
+			order.DeliveredAt = &delivered.Time
+		}
+		if cancelled.Valid {
+			order.CancelledAt = &cancelled.Time
+		}
+		if locationVerified.Valid {
+			order.CashLocationVerifiedAt = &locationVerified.Time
+		}
+		if locationDistance.Valid {
+			value := int(locationDistance.Int32)
+			order.CashLocationDistanceMeters = &value
+		}
+		indexByID[order.ID] = len(orders)
+		ids = append(ids, order.ID)
 		orders = append(orders, order)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return []core.Order{}, nil
+	}
+
+	itemRows, err := s.pool.Query(ctx, `
+		SELECT order_id, menu_item_id, snapshot_title, unit_price_minor, quantity, line_total_minor
+		FROM order_items
+		WHERE order_id=ANY($1)
+		ORDER BY order_id, sort_order
+	`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer itemRows.Close()
+	for itemRows.Next() {
+		var orderID uuid.UUID
+		var item core.OrderItem
+		if err := itemRows.Scan(&orderID, &item.MenuItemID, &item.SnapshotTitle, &item.UnitPriceMinor, &item.Quantity, &item.LineTotalMinor); err != nil {
+			return nil, err
+		}
+		if index, ok := indexByID[orderID]; ok {
+			orders[index].Items = append(orders[index].Items, item)
+		}
+	}
+	if err := itemRows.Err(); err != nil {
+		return nil, err
 	}
 	return orders, nil
 }
@@ -2673,21 +3193,47 @@ func (s *Store) adminCategoryByID(ctx context.Context, id uuid.UUID) (core.Admin
 
 func (s *Store) adminMenuItemByID(ctx context.Context, id uuid.UUID) (core.AdminMenuItem, error) {
 	var item core.AdminMenuItem
+	var thumbnailPath string
+	var thumbnailWidth, thumbnailHeight, displayWidth, displayHeight int
 	err := s.pool.QueryRow(ctx, `
 		SELECT mi.id, mi.category_id, mi.title_ru, mi.title_sr, mi.title_en, mi.description_ru, mi.description_sr,
 			mi.description_en, mi.price_minor, mi.currency, mi.photo_path, mi.weight_text, mi.min_quantity,
 			mi.allergen_text_ru, mi.allergen_text_sr, mi.allergen_text_en, mi.sort_order, mi.visible, mi.archived,
 			EXISTS (SELECT 1 FROM order_items oi WHERE oi.menu_item_id=mi.id) AS used_in_orders,
-			mi.version, mi.created_at, mi.updated_at
+			mi.version, mi.created_at, mi.updated_at,
+			COALESCE(mm.thumbnail_path, ''), COALESCE(mm.thumbnail_width, 0), COALESCE(mm.thumbnail_height, 0),
+			COALESCE(mm.display_width, 0), COALESCE(mm.display_height, 0)
 		FROM menu_items mi
+		LEFT JOIN menu_media mm ON mm.display_path=mi.photo_path
 		WHERE mi.id=$1
 	`, id).Scan(
 		&item.ID, &item.CategoryID, &item.TitleRU, &item.TitleSR, &item.TitleEN, &item.DescriptionRU, &item.DescriptionSR,
 		&item.DescriptionEN, &item.PriceMinor, &item.Currency, &item.PhotoPath, &item.WeightText, &item.MinQuantity,
 		&item.AllergenTextRU, &item.AllergenTextSR, &item.AllergenTextEN, &item.SortOrder, &item.Visible, &item.Archived, &item.UsedInOrders,
-		&item.Version, &item.CreatedAt, &item.UpdatedAt,
+		&item.Version, &item.CreatedAt, &item.UpdatedAt, &thumbnailPath, &thumbnailWidth, &thumbnailHeight, &displayWidth, &displayHeight,
 	)
-	return item, err
+	if err != nil {
+		return core.AdminMenuItem{}, err
+	}
+	item.PhotoVariants = menuPhotoVariants(item.PhotoPath, thumbnailPath, thumbnailWidth, thumbnailHeight, displayWidth, displayHeight)
+	return item, nil
+}
+
+func menuPhotoVariants(path, thumbnailPath string, thumbnailWidth, thumbnailHeight, displayWidth, displayHeight int) *core.PhotoVariants {
+	if !strings.HasPrefix(path, "/media/menu/") || !strings.HasSuffix(strings.ToLower(path), ".jpg") {
+		return nil
+	}
+	if thumbnailPath != "" && thumbnailWidth > 0 && thumbnailHeight > 0 && displayWidth > 0 && displayHeight > 0 {
+		return &core.PhotoVariants{
+			Thumbnail: core.PhotoVariant{URL: thumbnailPath, Width: thumbnailWidth, Height: thumbnailHeight},
+			Display:   core.PhotoVariant{URL: path, Width: displayWidth, Height: displayHeight},
+		}
+	}
+	thumbnail := strings.TrimSuffix(path, ".jpg") + "_thumb.jpg"
+	return &core.PhotoVariants{
+		Thumbnail: core.PhotoVariant{URL: thumbnail, Width: menumedia.ThumbnailMaxSide, Height: menumedia.ThumbnailMaxSide},
+		Display:   core.PhotoVariant{URL: path, Width: menumedia.DisplayMaxSide, Height: menumedia.DisplayMaxSide},
+	}
 }
 
 func (s *Store) staffByID(ctx context.Context, id uuid.UUID) (core.StaffMember, error) {
@@ -3102,11 +3648,35 @@ func validMenuItemInput(input UpsertMenuItemInput) bool {
 		optionalText(input.DescriptionRU, maxDescriptionLength) &&
 		optionalText(input.DescriptionSR, maxDescriptionLength) &&
 		optionalText(input.DescriptionEN, maxDescriptionLength) &&
-		optionalText(input.PhotoPath, maxURLLength) &&
+		validOptionalMenuPhotoPath(input.PhotoPath) &&
 		optionalText(input.WeightText, maxShortTextLength) &&
 		optionalText(input.AllergenTextRU, maxDescriptionLength) &&
 		optionalText(input.AllergenTextSR, maxDescriptionLength) &&
 		optionalText(input.AllergenTextEN, maxDescriptionLength)
+}
+
+func validMenuMediaInput(input MenuMediaInput) bool {
+	return validMenuMediaPath(input.DisplayPath) &&
+		validMenuMediaPath(input.ThumbnailPath) &&
+		input.DisplayWidth > 0 &&
+		input.DisplayHeight > 0 &&
+		input.DisplayBytes >= 0 &&
+		input.ThumbnailWidth > 0 &&
+		input.ThumbnailHeight > 0 &&
+		input.ThumbnailBytes >= 0
+}
+
+func validMenuMediaPath(value string) bool {
+	value = safe(value)
+	return optionalText(value, maxURLLength) &&
+		strings.HasPrefix(value, "/media/menu/") &&
+		strings.HasSuffix(strings.ToLower(value), ".jpg") &&
+		!strings.Contains(value, "..")
+}
+
+func validOptionalMenuPhotoPath(value string) bool {
+	value = safe(value)
+	return value == "" || validMenuMediaPath(value)
 }
 
 func requiredText(value string, maxRunes int) bool {

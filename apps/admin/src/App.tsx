@@ -1,4 +1,7 @@
-import type { AdminAnalytics, AdminCategory, AdminDashboard, AdminMenuItem, AuditEntry, Order, ScheduleDay, Settings, StaffMember } from "@tk-delivery/api-client/generated";
+import type { AdminAnalytics, AdminCategory, AdminDashboard, AdminMenuItem, AuditEntry, AuditLogResponse, Order, OrderSummary, ScheduleDay, Settings, StaffMember } from "@tk-delivery/api-client/generated";
+import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry";
+import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
+import { startVisiblePolling } from "@tk-delivery/api-client/polling";
 import type { Role } from "@tk-delivery/api-client/generated";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
 import {
@@ -6,6 +9,7 @@ import {
   isAuthError,
   money,
   statusText,
+  type AdminBootstrapResponse,
   type AdminMenuResponse,
   type AdminOrdersResponse,
   type AdminSession,
@@ -85,22 +89,29 @@ export function App() {
   const [menu, setMenu] = useState<AdminMenuResponse>({ categories: [], items: [] });
   const [settings, setSettings] = useState<Settings | null>(null);
   const [schedule, setSchedule] = useState<ScheduleDay[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [ordersPage, setOrdersPage] = useState<Pick<AdminOrdersResponse, "limit" | "offset" | "has_more">>({ limit: 100, offset: 0, has_more: false });
+  const [orders, setOrders] = useState<OrderSummary[]>([]);
+  const [ordersPage, setOrdersPage] = useState<Pick<AdminOrdersResponse, "limit" | "offset" | "has_more">>({ limit: 20, offset: 0, has_more: false });
   const [ordersInitialView, setOrdersInitialView] = useState<OrdersView>("active");
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [auditPage, setAuditPage] = useState<Pick<AuditLogResponse, "limit" | "offset" | "has_more">>({ limit: 50, offset: 0, has_more: false });
   const [range, setRange] = useState<AnalyticsRange>("today");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
-  const authRefreshRef = useRef<Promise<string> | null>(null);
+  const skipInitialLoadRef = useRef(false);
   const activeItem = navItem(tab);
   const activeOrdersCount = (dashboard?.new_orders || 0) + (dashboard?.out_for_delivery || 0);
   const ownerAccess = isOwnerTelegramId(session?.telegram_user_id);
+  const authRetry = useMemo(() => createSingleFlightAuthRetry({
+    authenticate,
+    isAuthError,
+  }), []);
+
+  useEffect(() => installPerformanceBeacon("admin", () => tabFromHash()), []);
 
   function applySession(nextSession: AdminSession) {
     setSession(nextSession);
@@ -113,32 +124,20 @@ export function App() {
   }
 
   async function refreshAuth() {
-    if (!authRefreshRef.current) {
-      authRefreshRef.current = authenticate().finally(() => {
-        authRefreshRef.current = null;
-      });
-    }
-    return authRefreshRef.current;
+    return authRetry.refreshAuth();
   }
 
   async function withAuth<T>(action: (authToken: string) => Promise<T>, authToken = token): Promise<T> {
-    const currentToken = authToken || (await refreshAuth());
-    try {
-      return await action(currentToken);
-    } catch (err) {
-      if (!isAuthError(err)) throw err;
-      const freshToken = await refreshAuth();
-      return action(freshToken);
-    }
+    return authRetry.withAuth(action, authToken);
   }
 
-  async function load(authToken = token, analyticsRange = range) {
+  async function load(authToken = token, analyticsRange = range, targetTab = tab) {
     setLoading(true);
     setError("");
     try {
-      let results = await loadAdminSections(authToken || (await refreshAuth()), analyticsRange);
+      let results = await loadAdminSections(authToken || (await refreshAuth()), analyticsRange, targetTab);
       if (results.some((entry) => !entry.ok && isAuthError(entry.reason))) {
-        results = await loadAdminSections(await refreshAuth(), analyticsRange);
+        results = await loadAdminSections(await refreshAuth(), analyticsRange, targetTab);
       }
 
       const failed: AdminLoadKey[] = [];
@@ -171,7 +170,8 @@ export function App() {
             setAnalytics(entry.value as AdminAnalytics);
             break;
           case "audit":
-            setAudit((entry.value as { entries: AuditEntry[] }).entries);
+            setAudit((entry.value as AuditLogResponse).entries);
+            setAuditPage(auditPageMeta(entry.value as AuditLogResponse));
             break;
         }
       }
@@ -182,6 +182,24 @@ export function App() {
       setError(errorText(err));
     } finally {
       setLoading(false);
+    }
+  }
+
+  function applyBootstrap(response: AdminBootstrapResponse) {
+    applySession(response.session);
+    setDashboard(response.dashboard);
+    if (response.menu) setMenu(response.menu);
+    if (response.settings) setSettings(response.settings);
+    if (response.schedule) setSchedule(response.schedule.schedule);
+    if (response.orders) {
+      setOrders(response.orders.orders);
+      setOrdersPage(orderPageMeta(response.orders));
+    }
+    if (response.staff) setStaff(response.staff.staff);
+    if (response.analytics) setAnalytics(response.analytics);
+    if (response.audit) {
+      setAudit(response.audit.entries);
+      setAuditPage(auditPageMeta(response.audit));
     }
   }
 
@@ -209,17 +227,25 @@ export function App() {
     setToast(message);
   }
 
-  async function loadAdminSections(authToken: string, analyticsRange: AnalyticsRange) {
-    const sections: Array<readonly [AdminLoadKey, Promise<unknown>]> = [
-      ["dashboard", api.dashboard(authToken)],
-      ["menu", api.menu(authToken)],
-      ["settings", api.settings(authToken)],
-      ["schedule", api.schedule(authToken)],
-      ["orders", api.orders(authToken)],
-      ["staff", api.staff(authToken)],
-      ["analytics", api.analytics(authToken, analyticsRange)],
-      ["audit", api.audit(authToken)],
-    ];
+  async function loadAdminSections(authToken: string, analyticsRange: AnalyticsRange, targetTab: AdminTab) {
+    const sections: Array<readonly [AdminLoadKey, Promise<unknown>]> = [["dashboard", api.dashboard(authToken)]];
+    if (targetTab === "home") {
+      sections.push(["settings", api.settings(authToken)]);
+    } else if (targetTab === "menu") {
+      sections.push(["menu", api.menu(authToken)]);
+    } else if (targetTab === "orders") {
+      sections.push(["orders", api.orders(authToken, { limit: 20, offset: 0 })]);
+    } else if (targetTab === "staff") {
+      sections.push(["staff", api.staff(authToken)]);
+    } else if (targetTab === "schedule") {
+      sections.push(["schedule", api.schedule(authToken)]);
+    } else if (targetTab === "settings") {
+      sections.push(["settings", api.settings(authToken)]);
+    } else if (targetTab === "analytics") {
+      sections.push(["analytics", api.analytics(authToken, analyticsRange)]);
+    } else if (targetTab === "audit") {
+      sections.push(["audit", api.audit(authToken, auditPage.limit || 50, auditPage.offset || 0)]);
+    }
     return Promise.all(sections.map(async ([key, promise]) => {
       try {
         return { key, ok: true as const, value: await promise };
@@ -229,63 +255,71 @@ export function App() {
     }));
   }
 
-  async function refreshHomeSection(authToken = token) {
+  async function refreshHomeSection(signal?: AbortSignal, authToken = token) {
     setError("");
     try {
       const currentToken = authToken || (await refreshAuth());
       const [nextDashboard, nextSettings] = await Promise.all([
-        withAuth((nextToken) => api.dashboard(nextToken), currentToken),
-        withAuth((nextToken) => api.settings(nextToken), currentToken),
+        withAuth((nextToken) => api.dashboard(nextToken, signal), currentToken),
+        withAuth((nextToken) => api.settings(nextToken, signal), currentToken),
       ]);
       setDashboard(nextDashboard);
       setSettings(nextSettings);
     } catch (err) {
+      if (signal?.aborted) return;
       setError(errorText(err));
     }
   }
 
-  async function refreshOrdersSection(authToken = token) {
+  async function refreshOrdersSection(signal?: AbortSignal, authToken = token) {
     setError("");
     try {
       const currentToken = authToken || (await refreshAuth());
       const [page, nextDashboard] = await Promise.all([
-        withAuth((nextToken) => api.orders(nextToken, { limit: 100, offset: 0 }), currentToken),
-        withAuth((nextToken) => api.dashboard(nextToken), currentToken),
+        withAuth((nextToken) => api.orders(nextToken, { limit: 20, offset: 0 }, signal), currentToken),
+        withAuth((nextToken) => api.dashboard(nextToken, signal), currentToken),
       ]);
       setOrders(page.orders);
       setOrdersPage(orderPageMeta(page));
       setDashboard(nextDashboard);
     } catch (err) {
+      if (signal?.aborted) return;
       setError(errorText(err));
     }
   }
 
   async function refreshVisibleSection() {
-    if (tab === "home") {
-      await refreshHomeSection();
-      return;
-    }
     if (tab === "orders") {
       await refreshOrdersSection();
       return;
     }
-    await load();
+    await load(token, range, tab);
   }
 
   useEffect(() => {
     let stopped = false;
-    api.authenticate().then((session) => {
+    api.bootstrap(tab, bootstrapOptions(tab, range)).then((response) => {
       if (stopped) return;
-      const nextToken = applySession(session);
-      void load(nextToken);
+      skipInitialLoadRef.current = true;
+      applyBootstrap(response);
     }).catch((err) => {
       if (!stopped) setError(errorText(err));
-      setLoading(false);
+    }).finally(() => {
+      if (!stopped) setLoading(false);
     });
     return () => {
       stopped = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    if (skipInitialLoadRef.current) {
+      skipInitialLoadRef.current = false;
+      return;
+    }
+    void load(token, range, tab);
+  }, [tab, token]);
 
   useEffect(() => {
     const onRouteChange = () => {
@@ -308,10 +342,7 @@ export function App() {
 
   useEffect(() => {
     if (!token || tab !== "home") return undefined;
-    const timer = window.setInterval(() => {
-      void refreshHomeSection();
-    }, 10000);
-    return () => window.clearInterval(timer);
+    return startVisiblePolling((signal) => refreshHomeSection(signal), 10000);
   }, [tab, token]);
 
   async function run<T>(action: (authToken: string) => Promise<T>): Promise<T | undefined> {
@@ -327,14 +358,15 @@ export function App() {
     }
   }
 
-  async function loadOrders(filter: { status?: string; q?: string; date?: string; limit?: number; offset?: number }) {
+  async function loadOrders(filter: { status?: string; q?: string; date?: string; limit?: number; offset?: number }, signal?: AbortSignal) {
     setError("");
     try {
-      const page = await withAuth((authToken) => api.orders(authToken, filter));
+      const page = await withAuth((authToken) => api.orders(authToken, filter, signal));
       setOrders(page.orders);
       setOrdersPage(orderPageMeta(page));
       return page;
     } catch (err) {
+      if (signal?.aborted) return undefined;
       setError(errorText(err));
       return undefined;
     }
@@ -357,6 +389,21 @@ export function App() {
       downloadBlob(blob, `tk-analytics-${currentRange}.csv`);
     } catch (err) {
       setError(errorText(err));
+    }
+  }
+
+  async function loadAuditPage(offset: number) {
+    setLoading(true);
+    setError("");
+    try {
+      const limit = auditPage.limit || 50;
+      const response = await withAuth((authToken) => api.audit(authToken, limit, offset));
+      setAudit(response.entries);
+      setAuditPage(auditPageMeta(response));
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -398,7 +445,7 @@ export function App() {
     if (tab === "settings") {
       return settings ? <SettingsTab settings={settings} demoMode={api.mode === "demo"} onSave={(input) => run((authToken) => api.updateSettings(authToken, input)).then(() => undefined)} /> : <SectionSkeleton title="Настройки" />;
     }
-    if (tab === "audit") return <AuditTab entries={audit} />;
+    if (tab === "audit") return <AuditTab entries={audit} page={auditPage} onPageChange={loadAuditPage} />;
     return <StaffTab staff={staff} onAction={run} />;
   }
 
@@ -847,12 +894,15 @@ function DishForm({
   onUpload(file: File): Promise<unknown>;
 }) {
   const [form, setForm] = useState(item);
-  const previewURL = adminPhotoURL(form.photo_path);
+  const preview = adminPhotoPreview(form);
   async function upload(file?: File) {
     if (!file) return;
     const response = await onUpload(file);
     const photoPath = typeof response === "object" && response && "photo_path" in response ? String((response as { photo_path?: unknown }).photo_path || "") : "";
-    if (photoPath) setForm((current) => ({ ...current, photo_path: photoPath }));
+    const photoVariants = typeof response === "object" && response && "photo_variants" in response
+      ? (response as { photo_variants?: AdminMenuItem["photo_variants"] }).photo_variants
+      : undefined;
+    if (photoPath) setForm((current) => ({ ...current, photo_path: photoPath, photo_variants: photoVariants }));
   }
   return (
     <div className="panel editor">
@@ -885,11 +935,11 @@ function DishForm({
         <Text label="Аллергены SR-Latn" value={form.allergen_text_sr} onChange={(allergen_text_sr) => setForm({ ...form, allergen_text_sr })} />
         <Text label="Аллергены EN" value={form.allergen_text_en} onChange={(allergen_text_en) => setForm({ ...form, allergen_text_en })} />
       </div>
-      <Text label="Фото / URL / путь" value={form.photo_path} onChange={(photo_path) => setForm({ ...form, photo_path })} />
+      <Text label="Фото (/media/menu/*.jpg)" value={form.photo_path} onChange={(photo_path) => setForm({ ...form, photo_path, photo_variants: undefined })} />
       <label className="upload"><Upload size={16} /> Загрузить фото <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void upload(event.target.files?.[0])} /></label>
-      {previewURL && (
+      {preview.url && (
         <div className="photo-preview">
-          <img src={previewURL} alt="" loading="lazy" />
+          <img src={preview.url} width={preview.width} height={preview.height} alt="" loading="lazy" decoding="async" />
           <span>Preview фото блюда</span>
         </div>
       )}
@@ -911,10 +961,10 @@ function OrdersTab({
   onLoadOrder,
   onAction,
 }: {
-  orders: Order[];
+  orders: OrderSummary[];
   page: Pick<AdminOrdersResponse, "limit" | "offset" | "has_more">;
   initialView: OrdersView;
-  onLoad(filter: { status?: string; q?: string; date?: string; limit?: number; offset?: number }): Promise<AdminOrdersResponse | undefined>;
+  onLoad(filter: { status?: string; q?: string; date?: string; limit?: number; offset?: number }, signal?: AbortSignal): Promise<AdminOrdersResponse | undefined>;
   onLoadOrder(id: string): Promise<Order | undefined>;
   onAction: AdminActionRunner;
 }) {
@@ -927,7 +977,7 @@ function OrdersTab({
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionMenuID, setActionMenuID] = useState("");
   const [dialog, setDialog] = useState<OrderDialogState | null>(null);
-  const limit = page.limit || 100;
+  const limit = page.limit || 20;
   const offset = page.offset || 0;
   const counts = useMemo(() => ({
     active: orders.filter((order) => orderMatchesView(order, "active")).length,
@@ -939,7 +989,7 @@ function OrdersTab({
     const q = query.trim().toLowerCase();
     return orders.filter((order) => orderMatchesView(order, view) && orderSearchMatch(order, q) && orderDateMatch(order, date));
   }, [date, orders, query, view]);
-  const selectedOrder = detail || orders.find((order) => order.id === selectedID) || null;
+  const selectedOrder = detail;
 
   useEffect(() => {
     setView(initialView);
@@ -949,10 +999,7 @@ function OrdersTab({
   }, [initialView]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      void onLoad(ordersLoadFilter(view, query, date, limit, 0));
-    }, 5000);
-    return () => window.clearInterval(timer);
+    return startVisiblePolling((signal) => onLoad(ordersLoadFilter(view, query, date, limit, 0), signal).then(() => undefined), 5000);
   }, [date, limit, onLoad, query, view]);
 
   async function applyFilter(nextOffset = 0) {
@@ -973,14 +1020,14 @@ function OrdersTab({
     await onLoad({ limit, offset: 0 });
   }
 
-  async function selectOrder(order: Order) {
+  async function selectOrder(order: OrderSummary) {
     setSelectedID(order.id);
-    setDetail(order);
+    setDetail(null);
     setActionMenuID("");
     setDetailLoading(true);
     try {
       const loaded = await onLoadOrder(order.id);
-      setDetail(loaded || order);
+      setDetail(loaded || null);
     } finally {
       setDetailLoading(false);
     }
@@ -1010,7 +1057,7 @@ function OrdersTab({
   }
 
   return (
-    <section className={`orders-workspace ${selectedOrder ? "has-detail" : ""}`}>
+    <section className={`orders-workspace ${selectedID ? "has-detail" : ""}`}>
       <div className="orders-list-panel">
         <div className="order-segments" role="tablist" aria-label="Фильтр заказов">
           {orderViewOptions.map((entry) => (
@@ -1125,7 +1172,7 @@ function OrdersTab({
   );
 }
 
-function OrderRow({ order, selected, onSelect }: { order: Order; selected: boolean; onSelect(): void }) {
+function OrderRow({ order, selected, onSelect }: { order: OrderSummary; selected: boolean; onSelect(): void }) {
   return (
     <button className={`order-row ${selected ? "is-selected" : ""} ${order.fulfillment_status === "NEW" ? "is-new" : ""}`} type="button" onClick={onSelect}>
       <span className="order-avatar" aria-hidden="true">
@@ -1137,7 +1184,7 @@ function OrderRow({ order, selected, onSelect }: { order: Order; selected: boole
           <span>{createdText(order.created_at)}</span>
         </span>
         <span className="order-row-client">{orderClientLabel(order)}</span>
-        <span className="order-row-items">{orderItemsSummary(order)}</span>
+        <span className="order-row-items">{adminPaymentText(order)}</span>
       </span>
       <span className="order-row-side">
         <StatusBadge status={order.fulfillment_status} />
@@ -1184,8 +1231,8 @@ function OrderDetailPanel({
     return (
       <aside className="order-detail empty-detail">
         <ClipboardList size={32} />
-        <strong>Выберите заказ</strong>
-        <span>Детали и действия откроются здесь.</span>
+        <strong>{loading ? "Загружаем заказ" : "Выберите заказ"}</strong>
+        <span>{loading ? "Контакты, состав и события загружаются отдельным запросом." : "Детали и действия откроются здесь."}</span>
       </aside>
     );
   }
@@ -1537,7 +1584,17 @@ function AnalyticsTab({ analytics, range, onRange, onExport }: { analytics: Admi
   );
 }
 
-function AuditTab({ entries }: { entries: AuditEntry[] }) {
+function AuditTab({
+  entries,
+  page,
+  onPageChange,
+}: {
+  entries: AuditEntry[];
+  page: Pick<AuditLogResponse, "limit" | "offset" | "has_more">;
+  onPageChange(offset: number): Promise<void>;
+}) {
+  const limit = page.limit || 50;
+  const offset = page.offset || 0;
   return (
     <section className="panel">
       {entries.length === 0 ? <p className="muted">Журнал пуст</p> : entries.map((entry) => (
@@ -1547,6 +1604,13 @@ function AuditTab({ entries }: { entries: AuditEntry[] }) {
           {entry.reason && <p>{entry.reason}</p>}
         </div>
       ))}
+      {(offset > 0 || page.has_more) && (
+        <div className="orders-pagination audit-pagination">
+          <button disabled={offset === 0} onClick={() => void onPageChange(Math.max(0, offset - limit))}>Назад</button>
+          <span>{entries.length ? `${offset + 1}–${offset + entries.length}` : "0"}</span>
+          <button disabled={!page.has_more} onClick={() => void onPageChange(offset + limit)}>Дальше</button>
+        </div>
+      )}
     </section>
   );
 }
@@ -1660,9 +1724,25 @@ function replace<T>(items: T[], index: number, value: T): T[] {
 
 function orderPageMeta(page: AdminOrdersResponse): Pick<AdminOrdersResponse, "limit" | "offset" | "has_more"> {
   return {
-    limit: page.limit || 100,
+    limit: page.limit || 20,
     offset: page.offset || 0,
     has_more: Boolean(page.has_more),
+  };
+}
+
+function auditPageMeta(page: AuditLogResponse): Pick<AuditLogResponse, "limit" | "offset" | "has_more"> {
+  return {
+    limit: page.limit || 50,
+    offset: page.offset || 0,
+    has_more: Boolean(page.has_more),
+  };
+}
+
+function bootstrapOptions(tab: AdminTab, range: AnalyticsRange) {
+  return {
+    range,
+    limit: tab === "audit" ? 50 : 20,
+    offset: 0,
   };
 }
 
@@ -1676,25 +1756,23 @@ function ordersLoadFilter(view: OrdersView, query: string, date: string, limit: 
   };
 }
 
-function orderMatchesView(order: Order, view: OrdersView): boolean {
+function orderMatchesView(order: OrderSummary, view: OrdersView): boolean {
   if (view === "active") return order.fulfillment_status === "NEW" || order.fulfillment_status === "OUT_FOR_DELIVERY";
   if (view === "new") return order.fulfillment_status === "NEW";
   if (view === "delivery") return order.fulfillment_status === "OUT_FOR_DELIVERY";
   return order.fulfillment_status === "DELIVERED" || order.fulfillment_status === "CANCELLED";
 }
 
-function orderSearchMatch(order: Order, query: string): boolean {
+function orderSearchMatch(order: OrderSummary, query: string): boolean {
   if (!query) return true;
   return [
     String(order.public_number),
-    order.phone || "",
-    order.address || "",
     order.client_username || "",
     order.client_first_name || "",
   ].some((value) => value.toLowerCase().includes(query));
 }
 
-function orderDateMatch(order: Order, date: string): boolean {
+function orderDateMatch(order: OrderSummary, date: string): boolean {
   if (!date) return true;
   return order.created_at.slice(0, 10) === date;
 }
@@ -1714,7 +1792,7 @@ function orderItemsSummary(order: Order): string {
   return order.items.length > 2 ? `${preview} +${order.items.length - 2}` : preview;
 }
 
-function orderAvatarLetters(order: Order): string {
+function orderAvatarLetters(order: OrderSummary): string {
   const username = telegramUsername(order);
   const name = username || order.client_first_name || "TL";
   return name.slice(0, 2).toUpperCase();
@@ -1781,24 +1859,24 @@ function OrderClientLink({ order }: { order: Order }) {
   );
 }
 
-function orderClientLabel(order: Order): string {
+function orderClientLabel(order: OrderSummary): string {
   const username = telegramUsername(order);
   if (username) return `@${username}`;
   return order.client_first_name || "Клиент Telegram";
 }
 
-function adminPaymentText(order: Order): string {
+function adminPaymentText(order: OrderSummary): string {
   if (order.payment_method === "crypto") return order.payment_status === "PAID" ? "Crypto TEST · PAID" : "Crypto TEST";
   if (order.payment_method === "card") return order.payment_status === "PAID" ? "Карта · PAID" : "Карта";
   return order.payment_status === "PAID" ? "Наличные · PAID" : "Наличные";
 }
 
-function telegramUsername(order: Order): string {
+function telegramUsername(order: OrderSummary): string {
   const username = (order.client_username || "").trim().replace(/^@+/, "");
   return /^[A-Za-z0-9_]{5,32}$/.test(username) ? username : "";
 }
 
-function telegramUserLink(order: Order, draftText = ""): string | undefined {
+function telegramUserLink(order: OrderSummary, draftText = ""): string | undefined {
   const username = telegramUsername(order);
   if (!username) return undefined;
   const query = draftText ? `?text=${encodeURIComponent(draftText)}` : "";
@@ -1915,4 +1993,23 @@ function adminPhotoURL(path: string): string {
   }
   if (value.startsWith("/")) return value;
   return `/${value.replace(/^\/+/, "")}`;
+}
+
+function adminPhotoPreview(item: AdminMenuItem): { url: string; width?: number; height?: number } {
+  const variant = item.photo_variants?.thumbnail?.url
+    ? item.photo_variants.thumbnail
+    : item.photo_variants?.display?.url
+      ? item.photo_variants.display
+      : undefined;
+  if (!variant) return { url: adminPhotoURL(item.photo_path) };
+
+  return {
+    url: adminPhotoURL(variant.url),
+    width: positiveDimension(variant.width),
+    height: positiveDimension(variant.height),
+  };
+}
+
+function positiveDimension(value: number): number | undefined {
+  return value > 0 ? value : undefined;
 }

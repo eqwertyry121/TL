@@ -1,6 +1,8 @@
 import type { Order } from "@tk-delivery/api-client/generated";
+export { startVisiblePolling } from "@tk-delivery/api-client/polling";
 
 const demoOrdersKey = "tk-client-demo-orders-v1";
+const getCache = new Map<string, { etag: string; payload: unknown }>();
 
 export type StaffRole = "KITCHEN" | "COURIER";
 
@@ -16,9 +18,10 @@ export interface StaffSession {
 
 export interface StaffApi {
   mode: "real" | "demo";
+  bootstrap(role: StaffRole): Promise<{ session: StaffSession; orders: Order[] }>;
   authenticate(role: StaffRole): Promise<StaffSession>;
-  listKitchenOrders(token: string): Promise<{ orders: Order[] }>;
-  listCourierOrders(token: string): Promise<{ orders: Order[] }>;
+  listKitchenOrders(token: string, signal?: AbortSignal): Promise<{ orders: Order[] }>;
+  listCourierOrders(token: string, signal?: AbortSignal): Promise<{ orders: Order[] }>;
   sendCourierETA(token: string, id: string, minutes: number): Promise<{ ok: boolean }>;
   markReady(token: string, id: string, idempotencyKey: string): Promise<Order>;
   markDelivered(token: string, id: string, idempotencyKey: string): Promise<Order>;
@@ -132,25 +135,40 @@ export function isAuthError(error: unknown): boolean {
 }
 
 function realApi(baseURL: string, appEnv: string): StaffApi {
+  const authenticate = async (role: StaffRole) => {
+    const initData = rawInitData();
+    if (appEnv === "production" && !initData) {
+      throw staffApiError("TELEGRAM_INIT_DATA_MISSING");
+    }
+    const response =
+      appEnv === "production"
+        ? await post(`${baseURL}/api/v1/auth/telegram`, {
+            audience: "staff",
+            role,
+            init_data: initData,
+          })
+        : await post(`${baseURL}/api/v1/dev/session`, { telegram_user_id: 1048084234, role });
+    return response.session;
+  };
   return {
     mode: "real",
-    async authenticate(role) {
+    async bootstrap(role) {
       const initData = rawInitData();
-      if (appEnv === "production" && !initData) {
-        throw staffApiError("TELEGRAM_INIT_DATA_MISSING");
+      try {
+        const response = await post(`${baseURL}/api/v1/bootstrap/staff`, { role, init_data: initData });
+        return { session: response.session, orders: response.orders };
+      } catch (err) {
+        if (!isMissingEndpoint(err)) throw err;
       }
-      const response =
-        appEnv === "production"
-          ? await post(`${baseURL}/api/v1/auth/telegram`, {
-              audience: "staff",
-              role,
-              init_data: initData,
-            })
-          : await post(`${baseURL}/api/v1/dev/session`, { telegram_user_id: 1048084234, role });
-      return response.session;
+      const session = await authenticate(role);
+      const orders = role === "KITCHEN"
+        ? await get(`${baseURL}/api/v1/kitchen/orders`, session.token)
+        : await get(`${baseURL}/api/v1/courier/orders`, session.token);
+      return { session, orders: orders.orders };
     },
-    listKitchenOrders: (token) => get(`${baseURL}/api/v1/kitchen/orders`, token),
-    listCourierOrders: (token) => get(`${baseURL}/api/v1/courier/orders`, token),
+    authenticate,
+    listKitchenOrders: (token, signal) => get(`${baseURL}/api/v1/kitchen/orders`, token, signal),
+    listCourierOrders: (token, signal) => get(`${baseURL}/api/v1/courier/orders`, token, signal),
     sendCourierETA: (token, id, minutes) => post(`${baseURL}/api/v1/courier/orders/${id}/eta`, { minutes }, token),
     markReady: (token, id, idempotencyKey) => post(`${baseURL}/api/v1/kitchen/orders/${id}/ready`, {}, token, { "Idempotency-Key": idempotencyKey }),
     markDelivered: (token, id, idempotencyKey) => post(`${baseURL}/api/v1/courier/orders/${id}/delivered`, {}, token, { "Idempotency-Key": idempotencyKey }),
@@ -158,16 +176,21 @@ function realApi(baseURL: string, appEnv: string): StaffApi {
 }
 
 function demoApi(role: StaffRole): StaffApi {
+  const authenticate = async () => ({
+    token: `demo-${role.toLowerCase()}-token`,
+    telegram_user_id: 1048084234,
+    active_role: role,
+    expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  } satisfies StaffSession);
+  const listOrders = () => role === "KITCHEN"
+    ? loadDemoOrders().filter((order) => order.fulfillment_status === "NEW").map(stripDemo)
+    : loadDemoOrders().filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").map(stripDemo);
   return {
     mode: "demo",
-    async authenticate() {
-      return {
-        token: `demo-${role.toLowerCase()}-token`,
-        telegram_user_id: 1048084234,
-        active_role: role,
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      };
+    async bootstrap() {
+      return { session: await authenticate(), orders: listOrders() };
     },
+    authenticate,
     async listKitchenOrders() {
       return { orders: loadDemoOrders().filter((order) => order.fulfillment_status === "NEW").map(stripDemo) };
     },
@@ -192,6 +215,7 @@ function unconfiguredApi(): StaffApi {
   };
   return {
     mode: "real",
+    bootstrap: () => fail() as Promise<{ session: StaffSession; orders: Order[] }>,
     authenticate: () => fail() as Promise<StaffSession>,
     listKitchenOrders: fail,
     listCourierOrders: fail,
@@ -224,9 +248,13 @@ declare global {
   }
 }
 
-async function get(url: string, token?: string) {
-  const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-  return read(response);
+async function get(url: string, token?: string, signal?: AbortSignal) {
+  const cacheKey = `${token || "public"}\n${url}`;
+  const cached = getCache.get(cacheKey);
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  if (cached?.etag) headers["If-None-Match"] = cached.etag;
+  const response = await fetch(url, { headers, signal });
+  return read(response, cacheKey);
 }
 
 async function post(url: string, body: unknown, token?: string, headers: Record<string, string> = {}) {
@@ -242,17 +270,29 @@ async function post(url: string, body: unknown, token?: string, headers: Record<
   return read(response);
 }
 
-async function read(response: Response) {
+async function read(response: Response, cacheKey?: string) {
+  if (response.status === 304 && cacheKey) {
+    const cached = getCache.get(cacheKey);
+    if (cached) return cached.payload;
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const code = payload?.error?.code || "SERVER_UNAVAILABLE";
     throw staffApiError(code, response.status);
+  }
+  const etag = response.headers.get("ETag");
+  if (cacheKey && etag) {
+    getCache.set(cacheKey, { etag, payload });
   }
   return payload;
 }
 
 function staffApiError(code: string, status?: number): StaffApiError {
   return Object.assign(new Error(code), { code, status } satisfies Pick<StaffApiError, "code" | "status">);
+}
+
+function isMissingEndpoint(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "status" in error && (error as { status?: number }).status === 404;
 }
 
 function loadDemoOrders(): DemoOrder[] {

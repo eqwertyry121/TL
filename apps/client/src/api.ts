@@ -1,13 +1,14 @@
 import type { AdminCategory, AdminMenuItem, Category, Order, Runtime, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
 import { demoCategories, demoRuntime } from "./fixtures";
 import { rawInitData, telegramUser } from "./telegram";
-import type { Api, Calculation, CashLocationChallenge, CreateOrderInput, Locale, Session } from "./types";
+import type { Api, Calculation, CashLocationChallenge, ClientBootstrapData, CreateOrderInput, Locale, Session } from "./types";
 
 const demoOrdersKey = "tk-client-demo-orders-v1";
 const demoCalculationsKey = "tk-client-demo-calculations-v1";
 const demoMenuKey = "tk-admin-demo-menu-v1";
 const demoSettingsKey = "tk-admin-demo-settings-v1";
 const demoCryptoTestMigrationKey = "tk-demo-crypto-test-enabled-v1";
+const getCache = new Map<string, { etag: string; payload: unknown }>();
 
 export function createApi(): Api {
   const appEnv = import.meta.env.VITE_APP_ENV || (import.meta.env.PROD ? "production" : "development");
@@ -19,45 +20,84 @@ export function createApi(): Api {
 }
 
 function realApi(baseURL: string): Api {
+  const authenticate = async (_locale: Locale) => {
+    const response = await post(`${baseURL}/api/v1/auth/telegram`, {
+      audience: "client",
+      role: "CLIENT",
+      init_data: rawInitData(),
+    });
+    return response.session;
+  };
   return {
     mode: "real",
-    async authenticate(_locale) {
-      const response = await post(`${baseURL}/api/v1/auth/telegram`, {
-        audience: "client",
-        role: "CLIENT",
-        init_data: rawInitData(),
-      });
-      return response.session;
+    async bootstrap(locale) {
+      try {
+        return await post(`${baseURL}/api/v1/bootstrap/client`, {
+          locale,
+          init_data: rawInitData(),
+        });
+      } catch (err) {
+        if (!isMissingEndpoint(err)) throw err;
+      }
+
+      const [runtime, menu] = await Promise.all([
+        get(`${baseURL}/api/v1/runtime`),
+        get(`${baseURL}/api/v1/menu?locale=${locale}`),
+      ]);
+      const fallback = {
+        runtime,
+        categories: menu.categories,
+        menu_revision: menu.menu_revision ?? 0,
+        orders: [],
+        contact: { verified: false },
+      } satisfies ClientBootstrapData;
+      if (!rawInitData()) return fallback;
+      const session = await authenticate(locale);
+      return { ...fallback, session };
     },
-    runtime: () => get(`${baseURL}/api/v1/runtime`),
+    authenticate,
+    runtime: (signal) => get(`${baseURL}/api/v1/runtime`, undefined, signal),
     menu: (locale) => get(`${baseURL}/api/v1/menu?locale=${locale}`),
     calculate: (token, items) => post(`${baseURL}/api/v1/orders/calculate`, { items }, token),
     contact: (token) => get(`${baseURL}/api/v1/contact`, token),
     createCashLocationChallenge: (token, input) => post(`${baseURL}/api/v1/cash-location/challenges`, input, token),
-    getCashLocationChallenge: (token, id) => get(`${baseURL}/api/v1/cash-location/challenges/${id}`, token),
+    getCashLocationChallenge: (token, id, signal) => get(`${baseURL}/api/v1/cash-location/challenges/${id}`, token, signal),
     verifyCashLocationChallenge: (token, id, input) => post(`${baseURL}/api/v1/cash-location/challenges/${id}/telegram-webapp-location`, input, token),
     createOrder: (token, input, idempotencyKey) =>
       post(`${baseURL}/api/v1/orders`, input, token, { "Idempotency-Key": idempotencyKey }),
-    getOrder: (token, id) => get(`${baseURL}/api/v1/orders/${id}`, token),
-    listOrders: (token) => get(`${baseURL}/api/v1/orders`, token),
+    getOrder: (token, id, signal) => get(`${baseURL}/api/v1/orders/${id}`, token, signal),
+    listOrders: (token, filter = {}, signal) => get(`${baseURL}/api/v1/orders?${new URLSearchParams(clean(filter))}`, token, signal),
   };
 }
 
 function demoApi(): Api {
+  const authenticate = async () => {
+    const profile = demoTelegramProfile();
+    return {
+      token: "demo-client-token",
+      telegram_user_id: profile.telegram_user_id,
+      username: profile.username,
+      first_name: profile.first_name,
+      photo_url: profile.photo_url,
+      active_role: "CLIENT",
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    } satisfies Session;
+  };
   return {
     mode: "demo",
-    async authenticate() {
-      const profile = demoTelegramProfile();
+    async bootstrap() {
+      const session = await authenticate();
       return {
-        token: "demo-client-token",
-        telegram_user_id: profile.telegram_user_id,
-        username: profile.username,
-        first_name: profile.first_name,
-        photo_url: profile.photo_url,
-        active_role: "CLIENT",
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        session,
+        roles: ["CLIENT"],
+        runtime: await this.runtime(),
+        categories: loadDemoCategories(),
+        menu_revision: 1,
+        orders: [],
+        contact: { verified: false },
       };
     },
+    authenticate,
     async runtime() {
       return { ...loadDemoRuntime(), server_time: new Date().toISOString() };
     },
@@ -165,8 +205,11 @@ function demoApi(): Api {
       if (!order) throw apiError("FORBIDDEN");
       return stripDemo(order);
     },
-    async listOrders() {
-      return { orders: loadDemoOrders().map(stripDemo) };
+    async listOrders(_token, filter = {}) {
+      const limit = Math.min(Math.max(filter.limit || 20, 1), 50);
+      const offset = Math.max(filter.offset || 0, 0);
+      const orders = loadDemoOrders().map(stripDemo);
+      return { orders: orders.slice(offset, offset + limit), limit, offset, has_more: orders.length > offset + limit };
     },
   };
 }
@@ -199,6 +242,7 @@ function unconfiguredApi(): Api {
   };
   return {
     mode: "real",
+    bootstrap: fail,
     authenticate: fail,
     runtime: fail,
     menu: fail,
@@ -213,9 +257,13 @@ function unconfiguredApi(): Api {
   };
 }
 
-async function get(url: string, token?: string) {
-  const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
-  return read(response);
+async function get(url: string, token?: string, signal?: AbortSignal) {
+  const cacheKey = `${token || "public"}\n${url}`;
+  const cached = getCache.get(cacheKey);
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  if (cached?.etag) headers["If-None-Match"] = cached.etag;
+  const response = await fetch(url, { headers, signal });
+  return read(response, cacheKey);
 }
 
 async function post(url: string, body: unknown, token?: string, headers: Record<string, string> = {}) {
@@ -231,12 +279,32 @@ async function post(url: string, body: unknown, token?: string, headers: Record<
   return read(response);
 }
 
-async function read(response: Response) {
+async function read(response: Response, cacheKey?: string) {
+  if (response.status === 304 && cacheKey) {
+    const cached = getCache.get(cacheKey);
+    if (cached) return cached.payload;
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw apiError(payload?.error?.code || "SERVER_UNAVAILABLE");
+    throw apiError(payload?.error?.code || "SERVER_UNAVAILABLE", response.status);
+  }
+  const etag = response.headers.get("ETag");
+  if (cacheKey && etag) {
+    getCache.set(cacheKey, { etag, payload });
   }
   return payload;
+}
+
+function isMissingEndpoint(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "status" in err && (err as { status?: number }).status === 404;
+}
+
+function clean(filter: Record<string, string | number | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(filter)
+      .filter(([, value]) => value !== undefined && value !== "")
+      .map(([key, value]) => [key, String(value)]),
+  );
 }
 
 function menuLookup(categories: Category[]) {
@@ -521,6 +589,6 @@ function loadDemoCalculation(token: string): Calculation {
   return calculation;
 }
 
-function apiError(code: string) {
-  return Object.assign(new Error(code), { code });
+function apiError(code: string, status?: number) {
+  return Object.assign(new Error(code), { code, status });
 }

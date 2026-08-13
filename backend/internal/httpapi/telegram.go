@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -241,6 +242,32 @@ func (s *Server) sendLocationPrompt(ctx context.Context, chatID int64) (int64, e
 	return s.sendClientBotMessage(ctx, chatID, "Нужно отправить геолокацию, не текст.\n\nНажмите кнопку ниже: «Отправить моё местоположение».\n\nЕсли кнопки нет — отправьте /share, я покажу её снова.\n\nС компьютера это часто не работает. Тогда откройте заказ на телефоне.", replyMarkup)
 }
 
+func newTelegramHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 8 * time.Second,
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   3 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			MaxIdleConns:          16,
+			MaxIdleConnsPerHost:   4,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   5 * time.Second,
+			ResponseHeaderTimeout: 5 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+}
+
+func (s *Server) telegramClient() *http.Client {
+	if s.telegramHTTPClient != nil {
+		return s.telegramHTTPClient
+	}
+	return newTelegramHTTPClient()
+}
+
 func isShareLocationCommand(text string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(text))
 	return normalized == "/share" || strings.HasPrefix(normalized, "/share@")
@@ -263,8 +290,7 @@ func (s *Server) sendClientBotMessage(ctx context.Context, chatID int64, text st
 		return 0, err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 8 * time.Second}
-	response, err := client.Do(request)
+	response, err := s.telegramClient().Do(request)
 	if err != nil {
 		return 0, fmt.Errorf("telegram_network_error")
 	}

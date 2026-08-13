@@ -1,4 +1,4 @@
-import type { Category, MenuItem, Order, PaymentMethod, Runtime } from "@tk-delivery/api-client/generated";
+import type { Category, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Runtime } from "@tk-delivery/api-client/generated";
 
 export type Locale = "ru" | "sr" | "en";
 export type Route =
@@ -88,21 +88,33 @@ export interface CheckoutDraft {
 
 export interface Api {
   mode: "real" | "demo";
+  bootstrap(locale: Locale): Promise<ClientBootstrapData>;
   authenticate(locale: Locale): Promise<Session>;
-  runtime(): Promise<Runtime>;
+  runtime(signal?: AbortSignal): Promise<Runtime>;
   menu(locale: Locale): Promise<{ categories: Category[] }>;
   calculate(token: string, items: Array<{ item_id: string; quantity: number }>): Promise<Calculation>;
   contact(token: string): Promise<VerifiedContact>;
   createCashLocationChallenge(token: string, input: { calculation_token: string; send_prompt?: boolean }): Promise<CashLocationChallenge>;
-  getCashLocationChallenge(token: string, id: string): Promise<CashLocationChallenge>;
+  getCashLocationChallenge(token: string, id: string, signal?: AbortSignal): Promise<CashLocationChallenge>;
   verifyCashLocationChallenge(
     token: string,
     id: string,
     input: { latitude: number; longitude: number; horizontal_accuracy?: number | null },
   ): Promise<CashLocationChallenge>;
   createOrder(token: string, input: CreateOrderInput, idempotencyKey: string): Promise<Order>;
-  getOrder(token: string, id: string): Promise<Order>;
-  listOrders(token: string): Promise<{ orders: Order[] }>;
+  getOrder(token: string, id: string, signal?: AbortSignal): Promise<Order>;
+  listOrders(token: string, filter?: { limit?: number; offset?: number }, signal?: AbortSignal): Promise<OrderSummaryPage>;
+}
+
+export interface ClientBootstrapData {
+  session?: Session;
+  roles?: string[];
+  runtime: Runtime;
+  runtime_revision?: number;
+  categories: Category[];
+  menu_revision?: number;
+  orders: OrderSummary[];
+  contact: VerifiedContact;
 }
 
 export interface CreateOrderInput {
@@ -120,7 +132,7 @@ export interface AppData {
   session: Session | null;
   runtime: Runtime | null;
   categories: Category[];
-  orders: Order[];
+  orders: OrderSummary[];
 }
 
 export type ItemLookup = Map<string, MenuItem>;

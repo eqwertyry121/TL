@@ -3,6 +3,12 @@ export type FulfillmentStatus = "NEW" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANC
 export type PaymentMethod = "cash" | "card" | "crypto";
 export type PaymentStatus = "CASH_PENDING" | "PAID" | "FAILED" | "REFUNDED";
 
+export interface VersionInfo {
+  service: string;
+  build_sha: string;
+  api_contract: string;
+}
+
 export interface Runtime {
   server_time: string;
   timezone: "Europe/Belgrade";
@@ -37,6 +43,7 @@ export interface MenuItem {
   price_minor: number;
   currency: "RSD";
   photo_path: string;
+  photo_variants?: PhotoVariants;
   weight_text: string;
   min_quantity: number;
   allergen_text: string;
@@ -44,11 +51,39 @@ export interface MenuItem {
   version: number;
 }
 
+export interface PhotoVariants {
+  thumbnail: PhotoVariant;
+  display: PhotoVariant;
+}
+
+export interface PhotoVariant {
+  url: string;
+  width: number;
+  height: number;
+}
+
 export interface Category {
   id: string;
   title: string;
   sort_order: number;
   items: MenuItem[];
+}
+
+export interface Session {
+  token: string;
+  telegram_user_id?: number;
+  username?: string;
+  first_name?: string;
+  photo_url?: string;
+  active_role: Role;
+  expires_at: string;
+}
+
+export interface VerifiedContact {
+  verified: boolean;
+  phone?: string;
+  masked?: string;
+  verified_at?: string;
 }
 
 export interface AdminCategory {
@@ -77,6 +112,7 @@ export interface AdminMenuItem {
   price_minor: number;
   currency: "RSD";
   photo_path: string;
+  photo_variants?: PhotoVariants;
   weight_text: string;
   min_quantity: number;
   allergen_text_ru: string;
@@ -99,7 +135,7 @@ export interface OrderItem {
   line_total_minor: number;
 }
 
-export interface Order {
+export interface OrderSummary {
   id: string;
   public_number: number;
   client_username?: string;
@@ -112,9 +148,6 @@ export interface Order {
   delivery_fee_minor: number;
   total_minor: number;
   currency: "RSD";
-  phone?: string;
-  address?: string;
-  customer_comment: string;
   locale: string;
   version: number;
   created_at: string;
@@ -123,6 +156,12 @@ export interface Order {
   cancelled_at?: string;
   cash_location_verified_at?: string;
   cash_location_distance_meters?: number;
+}
+
+export interface Order extends OrderSummary {
+  phone?: string;
+  address?: string;
+  customer_comment: string;
   items: OrderItem[];
   events?: OrderEvent[];
 }
@@ -182,6 +221,68 @@ export interface AdminDashboard {
   generated_at: string;
 }
 
+export interface PublicBootstrap {
+  runtime: Runtime;
+  runtime_revision: number;
+  categories: Category[];
+  menu_revision: number;
+}
+
+export interface ClientBootstrap extends PublicBootstrap {
+  session?: Session;
+  roles: Role[];
+  orders: OrderSummary[];
+  contact: VerifiedContact;
+}
+
+export interface OrderSummaryPage {
+  orders: OrderSummary[];
+  limit?: number;
+  offset?: number;
+  has_more?: boolean;
+}
+
+export interface StaffBootstrap {
+  session: Session;
+  roles: Role[];
+  orders: Order[];
+}
+
+export interface AdminBootstrap {
+  session: Session;
+  roles: Role[];
+  dashboard: AdminDashboard;
+  menu?: {
+    categories: AdminCategory[];
+    items: AdminMenuItem[];
+  };
+  orders?: {
+    orders: OrderSummary[];
+    limit?: number;
+    offset?: number;
+    has_more?: boolean;
+  };
+  settings?: Settings;
+  schedule?: {
+    schedule: ScheduleDay[];
+  };
+  staff?: {
+    staff: StaffMember[];
+  };
+  analytics?: AdminAnalytics;
+  audit?: AuditLogResponse;
+}
+
+export interface PerformanceBeacon {
+  app: "client" | "kitchen" | "courier" | "admin";
+  route: string;
+  build: string;
+  ttfb_ms?: number;
+  lcp_ms?: number;
+  cls?: number;
+  inp_ms?: number;
+}
+
 export interface AnalyticsSummary {
   all_orders: number;
   delivered_orders: number;
@@ -232,4 +333,11 @@ export interface AuditEntry {
   before?: Record<string, unknown>;
   after?: Record<string, unknown>;
   created_at: string;
+}
+
+export interface AuditLogResponse {
+  entries: AuditEntry[];
+  limit?: number;
+  offset?: number;
+  has_more?: boolean;
 }

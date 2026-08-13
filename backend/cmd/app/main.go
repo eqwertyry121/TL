@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 	"github.com/eqwertyry121/TL/backend/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var buildSHA = "dev"
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -33,10 +36,24 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	cfgBuildSHA := strings.TrimSpace(cfg.BuildSHA)
+	if cfgBuildSHA == "" || cfgBuildSHA == "dev" || cfgBuildSHA == "unknown" {
+		cfg.BuildSHA = strings.TrimSpace(buildSHA)
+		if cfg.BuildSHA == "" || cfg.BuildSHA == "dev" {
+			cfg.BuildSHA = "dev"
+		}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	poolConfig.MaxConns = cfg.PostgresMaxConns
+	poolConfig.MinConns = cfg.PostgresMinConns
+	poolConfig.MaxConnIdleTime = cfg.PostgresMaxConnIdleTime
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return err
 	}
@@ -64,13 +81,17 @@ func run(logger *slog.Logger) error {
 		}
 	}
 
-	worker := notifications.New(pool, box, cfg.NotificationPollInterval, cfg.NotificationDryRun, cfg.ClientBotToken, cfg.StaffBotToken, cfg.PublicBaseURL, logger)
+	worker := notifications.New(pool, box, cfg.NotificationPollInterval, cfg.NotificationDryRun, cfg.NotificationConcurrency, cfg.NotificationBacklogAfter, cfg.ClientBotToken, cfg.StaffBotToken, cfg.PublicBaseURL, logger)
 	go worker.Run(ctx)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(cfg, st).Routes(),
+		Handler:           httpapi.New(cfg, st, logger).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 	go func() {
 		logger.Info("http server listening", "addr", cfg.HTTPAddr)
