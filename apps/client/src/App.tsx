@@ -16,11 +16,10 @@ import {
   ShoppingCart,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { createApi } from "./api";
 import { orderStatusText } from "./fixtures";
 import { t } from "./i18n";
-import { isPublicInformationRoute, LegalFooter, legalContactText, legalProfile, Privacy, Returns, Terms } from "./legal";
 import { maskPhone, money } from "./money";
 import { currentRoute, navigate, replaceRoute, routeToHash } from "./route";
 import {
@@ -55,6 +54,13 @@ import type { Api, AppData, Calculation, CashLocationChallenge, CartLine, CartSt
 
 const api = createApi();
 const clientBotMiniAppURL = "https://t.me/TakoLako_main_bot?startapp";
+const Terms = lazy(() => import("./legal").then((module) => ({ default: module.Terms })));
+const Returns = lazy(() => import("./legal").then((module) => ({ default: module.Returns })));
+const Privacy = lazy(() => import("./legal").then((module) => ({ default: module.Privacy })));
+
+function isPublicInformationRoute(route: Route): boolean {
+  return route.name === "terms" || route.name === "returns" || route.name === "privacy" || route.name === "support";
+}
 
 export function App() {
   const [entryRoute, setEntryRoute] = useState<Route>(currentRoute);
@@ -581,16 +587,9 @@ function ClientMiniApp() {
   }
 
   if (publicInformationRoute) {
-    const publicContent = route.name === "terms"
-      ? <Terms locale={locale} />
-      : route.name === "returns"
-        ? <Returns locale={locale} />
-        : route.name === "privacy"
-          ? <Privacy locale={locale} />
-          : <Support support={data.runtime?.support_text || "@Tako_Lako"} locale={locale} />;
     return (
       <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header="Tako Lako - Грузинская кухня" runtime={data.runtime} session={data.session}>
-        {publicContent}
+        <PublicInformation route={route} locale={locale} support={data.runtime?.support_text || "@Tako_Lako"} />
       </Shell>
     );
   }
@@ -657,14 +656,6 @@ function ClientMiniApp() {
       <OrderScreen order={fullOrderFromCache(data.orders, route.id)} locale={locale} onAdd={() => navigate({ name: "add", id: route.id })} />
     ) : route.name === "orders" ? (
       <Orders orders={data.orders} page={ordersPage} locale={locale} onLoadMore={loadMoreOrders} />
-    ) : route.name === "support" ? (
-      <Support support={data.runtime?.support_text || "@Tako_Lako"} locale={locale} />
-    ) : route.name === "terms" ? (
-      <Terms locale={locale} />
-    ) : route.name === "returns" ? (
-      <Returns locale={locale} />
-    ) : route.name === "privacy" ? (
-      <Privacy locale={locale} />
     ) : (
       <Menu categories={data.categories} cart={cart} onSetLine={setLine} />
     );
@@ -759,6 +750,39 @@ function TelegramBotButton({ label, compact = false }: { label: string; compact?
       {label}
       <ChevronRight size={18} />
     </a>
+  );
+}
+
+function PublicInformation({ route, locale, support }: { route: Route; locale: Locale; support: string }) {
+  if (route.name === "support") return <Support support={support} locale={locale} />;
+
+  const Page = route.name === "terms"
+    ? Terms
+    : route.name === "returns"
+      ? Returns
+      : Privacy;
+
+  return (
+    <Suspense fallback={<div className="state">Загрузка...</div>}>
+      <Page locale={locale} />
+    </Suspense>
+  );
+}
+
+function LegalFooter({ locale }: { locale: Locale }) {
+  const labels: Record<Locale, { terms: string; returns: string; privacy: string }> = {
+    ru: { terms: "Условия", returns: "Возврат", privacy: "Приватность" },
+    sr: { terms: "Uslovi", returns: "Reklamacije", privacy: "Privatnost" },
+    en: { terms: "Terms", returns: "Refunds", privacy: "Privacy" },
+  };
+  const copy = labels[locale];
+
+  return (
+    <footer className="legal-footer">
+      <a href="#/terms">{copy.terms}</a>
+      <a href="#/returns">{copy.returns}</a>
+      <a href="#/privacy">{copy.privacy}</a>
+    </footer>
   );
 }
 
@@ -1477,16 +1501,31 @@ function Orders({
 
 function Support({ support, locale }: { support: string; locale: Locale }) {
   const handle = support.replace("@", "") || "Tako_Lako";
-  const copy = legalContactText(locale);
+  const supportCopy: Record<Locale, { title: string; intro: string; telegram: string }> = {
+    ru: {
+      title: "Поддержка",
+      intro: "Если вопрос по заказу — напишите нам в Telegram.",
+      telegram: "Написать в поддержку",
+    },
+    sr: {
+      title: "Podrška",
+      intro: "Ako imate pitanje o porudžbini, pišite nam u Telegram.",
+      telegram: "Piši podršci",
+    },
+    en: {
+      title: "Support",
+      intro: "For order questions, message us in Telegram.",
+      telegram: "Message support",
+    },
+  };
+  const copy = supportCopy[locale];
+
   return (
     <div className="page narrow">
       <h1>{copy.title}</h1>
       <p className="lead">{copy.intro}</p>
       <div className="support-actions">
-        <a className="primary full as-link" href={`https://t.me/${handle}`}>{copy.telegramLabel}: @{handle}</a>
-        {legalProfile.email
-          ? <a className="secondary full as-link" href={`mailto:${legalProfile.email}`}>{copy.emailLabel}: {legalProfile.email}</a>
-          : <p className="legal-contact-warning">{copy.missingEmail}</p>}
+        <a className="primary full as-link" href={`https://t.me/${handle}`}>{copy.telegram}: @{handle}</a>
       </div>
       <section className="developer-support">
         <h2>Разработчик</h2>
