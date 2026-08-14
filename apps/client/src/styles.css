@@ -1790,21 +1790,32 @@ textarea {
 }
 
 .developer-support {
+  position: relative;
+  overflow: hidden;
   display: grid;
   gap: 0.72rem;
   padding: clamp(0.95rem, 2.5vw, 1.2rem);
-  border-color: rgba(200, 155, 60, 0.42);
+  padding-left: clamp(1.15rem, 3vw, 1.45rem);
+  border-color: rgba(200, 155, 60, 0.2);
   background:
-    radial-gradient(circle at 100% 0%, rgba(200, 155, 60, 0.22), transparent 42%),
-    linear-gradient(180deg, rgba(255, 250, 232, 0.98), rgba(250, 241, 212, 0.92));
-  box-shadow: 0 1rem 2.4rem rgba(200, 155, 60, 0.12);
+    radial-gradient(circle at 100% 0%, rgba(200, 155, 60, 0.08), transparent 38%),
+    linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(248, 241, 229, 0.9));
+  box-shadow: 0 0.85rem 2rem rgba(67, 20, 27, 0.06);
+}
+
+.developer-support::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.28rem;
+  background: linear-gradient(180deg, rgba(200, 155, 60, 0.92), rgba(185, 85, 50, 0.72));
 }
 
 .developer-support h2 {
   font-family: var(--font-body);
   font-size: clamp(1.28rem, 3.4vw, 1.62rem);
   letter-spacing: 0;
-  color: #8f6418;
+  color: var(--color-primary);
 }
 
 .developer-support p {
