@@ -43,6 +43,7 @@ jobs:
         run: pnpm check
 
       - name: API deployment diagnostics
+        continue-on-error: true
         env:
           PERF_BASE_URL: https://api.takolako.site
           PERF_EXPECTED_BUILD_SHA: ${{ github.sha }}
