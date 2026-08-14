@@ -1169,28 +1169,84 @@ textarea {
 }
 
 .contact-share {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-  min-height: clamp(3.35rem, 8dvh, 4rem);
-  border: 1px solid #e3d6c7;
+  justify-content: stretch;
+  gap: clamp(0.72rem, 2.2vw, 0.95rem);
+  width: 100%;
+  min-height: clamp(4.35rem, 10dvh, 5rem);
+  border: 2px solid rgba(107, 31, 42, 0.35);
   border-radius: var(--radius-md);
   background:
-    radial-gradient(circle at 10% 0%, rgba(200, 155, 60, 0.17), transparent 34%),
-    linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(248, 241, 229, 0.92));
-  color: var(--text);
-  font-size: clamp(0.98rem, 2.5vw, 1.12rem);
-  font-weight: 800;
+    radial-gradient(circle at 12% 0%, rgba(200, 155, 60, 0.28), transparent 34%),
+    linear-gradient(135deg, #b95532 0%, #6b1f2a 58%, #43141b 100%);
+  color: #fff;
+  text-align: left;
   letter-spacing: 0;
-  box-shadow: 0 0.75rem 1.75rem rgba(67, 20, 27, 0.08);
+  box-shadow: 0 0.9rem 2rem rgba(107, 31, 42, 0.18);
   transition: transform 170ms ease, border 170ms ease, box-shadow 170ms ease;
 }
 
+.contact-share:disabled {
+  opacity: 0.76;
+}
+
+.contact-share-icon {
+  display: grid;
+  width: clamp(2.55rem, 8vw, 3rem);
+  height: clamp(2.55rem, 8vw, 3rem);
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 253, 248, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 253, 248, 0.24);
+}
+
+.contact-share-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.16rem;
+}
+
+.contact-share-copy strong {
+  overflow: hidden;
+  font-size: clamp(1.08rem, 3.4vw, 1.28rem);
+  font-weight: 950;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-share-copy small {
+  overflow: hidden;
+  color: rgba(255, 253, 248, 0.78);
+  font-size: clamp(0.78rem, 2.4vw, 0.92rem);
+  font-weight: 750;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-share-arrow {
+  opacity: 0.9;
+}
+
 .active-contact {
-  border-color: rgba(185, 85, 50, 0.24);
-  background: #f5eadf;
-  color: var(--copper-dark);
+  border-color: rgba(94, 107, 58, 0.34);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(200, 155, 60, 0.16), transparent 34%),
+    linear-gradient(135deg, rgba(94, 107, 58, 0.12), rgba(255, 253, 248, 0.95));
+  color: var(--text);
+  box-shadow: none;
+}
+
+.active-contact .contact-share-icon {
+  background: var(--color-secondary);
+  color: #fff;
+}
+
+.active-contact .contact-share-copy small {
+  color: var(--muted);
 }
 
 .notice {

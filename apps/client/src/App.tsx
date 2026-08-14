@@ -993,9 +993,21 @@ function Checkout({
     <div className="page narrow checkout-page">
       <h1>{t(locale, "checkout")}</h1>
       <div className="form">
-        <button className={contactVerified ? "contact-share active-contact" : "contact-share"} onClick={() => void onConfirmContact()} disabled={contactLoading}>
-          <Phone size={18} />
-          {contactLoading ? "Ждём Telegram contact…" : contactVerified ? `Телефон подтверждён: ${verifiedContact?.masked || maskPhone(draft.phone)}` : "Поделиться телефоном для связи"}
+        <button
+          className={contactVerified ? "contact-share active-contact" : "contact-share"}
+          type="button"
+          onClick={() => void onConfirmContact()}
+          disabled={contactLoading}
+          aria-label={contactVerified ? "Телефон подтверждён" : "Поделиться телефоном через Telegram"}
+        >
+          <span className="contact-share-icon" aria-hidden="true">
+            {contactVerified ? <Check size={22} /> : <Phone size={22} />}
+          </span>
+          <span className="contact-share-copy">
+            <strong>{contactLoading ? "Ожидаем Telegram" : contactVerified ? "Телефон подтверждён" : "Поделиться телефоном"}</strong>
+            <small>{contactVerified ? (verifiedContact?.masked || maskPhone(draft.phone)) : "Нажмите, Telegram покажет системное окно"}</small>
+          </span>
+          {!contactVerified && <ChevronRight className="contact-share-arrow" size={22} aria-hidden="true" />}
         </button>
         <div className="address-grid main-address-grid">
           <label>
