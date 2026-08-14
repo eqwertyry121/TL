@@ -57,6 +57,13 @@ jobs:
           VITE_API_BASE_URL: https://api.takolako.site
           VITE_BASE_PATH: "/"
           VITE_BUILD_SHA: ${{ github.sha }}
+          VITE_LEGAL_BUSINESS_NAME: ${{ vars.LEGAL_BUSINESS_NAME }}
+          VITE_LEGAL_REGISTRATION_NUMBER: ${{ vars.LEGAL_REGISTRATION_NUMBER }}
+          VITE_LEGAL_TAX_ID: ${{ vars.LEGAL_TAX_ID }}
+          VITE_LEGAL_REGISTERED_ADDRESS: ${{ vars.LEGAL_REGISTERED_ADDRESS }}
+          VITE_LEGAL_RESTAURANT_ADDRESS: ${{ vars.LEGAL_RESTAURANT_ADDRESS }}
+          VITE_LEGAL_EMAIL: ${{ vars.LEGAL_EMAIL }}
+          VITE_LEGAL_PHONE: ${{ vars.LEGAL_PHONE }}
 
       - name: Build kitchen Mini App
         run: pnpm --filter @tk-delivery/kitchen build

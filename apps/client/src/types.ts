@@ -4,12 +4,15 @@ export type Locale = "ru" | "sr" | "en";
 export type Route =
   | { name: "menu" }
   | { name: "dish"; id: string }
+  | { name: "add"; id: string }
   | { name: "cart" }
   | { name: "checkout" }
   | { name: "order"; id: string }
   | { name: "orders" }
   | { name: "support" }
-  | { name: "terms" };
+  | { name: "terms" }
+  | { name: "returns" }
+  | { name: "privacy" };
 
 export interface Session {
   token: string;
@@ -52,6 +55,8 @@ export interface Calculation {
   total_minor: number;
   currency: "RSD";
   expires_at: string;
+  order_subtotal_minor?: number;
+  order_total_minor?: number;
 }
 
 export type CashLocationStatus = "PENDING" | "VERIFIED" | "REJECTED" | "EXPIRED" | "USED";
@@ -93,6 +98,7 @@ export interface Api {
   runtime(signal?: AbortSignal): Promise<Runtime>;
   menu(locale: Locale): Promise<{ categories: Category[] }>;
   calculate(token: string, items: Array<{ item_id: string; quantity: number }>): Promise<Calculation>;
+  calculateAddition(token: string, orderId: string, items: Array<{ item_id: string; quantity: number }>): Promise<Calculation>;
   contact(token: string): Promise<VerifiedContact>;
   createCashLocationChallenge(token: string, input: { calculation_token: string; send_prompt?: boolean }): Promise<CashLocationChallenge>;
   getCashLocationChallenge(token: string, id: string, signal?: AbortSignal): Promise<CashLocationChallenge>;
@@ -102,6 +108,7 @@ export interface Api {
     input: { latitude: number; longitude: number; horizontal_accuracy?: number | null },
   ): Promise<CashLocationChallenge>;
   createOrder(token: string, input: CreateOrderInput, idempotencyKey: string): Promise<Order>;
+  addOrderItems(token: string, orderId: string, input: AddOrderItemsInput, idempotencyKey: string): Promise<Order>;
   getOrder(token: string, id: string, signal?: AbortSignal): Promise<Order>;
   listOrders(token: string, filter?: { limit?: number; offset?: number }, signal?: AbortSignal): Promise<OrderSummaryPage>;
 }
@@ -126,6 +133,11 @@ export interface CreateOrderInput {
   payment_method: Extract<PaymentMethod, "cash" | "crypto">;
   terms_accepted: boolean;
   locale: Locale;
+}
+
+export interface AddOrderItemsInput {
+  calculation_token: string;
+  expected_version: number;
 }
 
 export interface AppData {

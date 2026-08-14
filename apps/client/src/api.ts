@@ -59,12 +59,15 @@ function realApi(baseURL: string): Api {
     runtime: (signal) => get(`${baseURL}/api/v1/runtime`, undefined, signal),
     menu: (locale) => get(`${baseURL}/api/v1/menu?locale=${locale}`),
     calculate: (token, items) => post(`${baseURL}/api/v1/orders/calculate`, { items }, token),
+    calculateAddition: (token, orderId, items) => post(`${baseURL}/api/v1/orders/${orderId}/addition/calculate`, { items }, token),
     contact: (token) => get(`${baseURL}/api/v1/contact`, token),
     createCashLocationChallenge: (token, input) => post(`${baseURL}/api/v1/cash-location/challenges`, input, token),
     getCashLocationChallenge: (token, id, signal) => get(`${baseURL}/api/v1/cash-location/challenges/${id}`, token, signal),
     verifyCashLocationChallenge: (token, id, input) => post(`${baseURL}/api/v1/cash-location/challenges/${id}/telegram-webapp-location`, input, token),
     createOrder: (token, input, idempotencyKey) =>
       post(`${baseURL}/api/v1/orders`, input, token, { "Idempotency-Key": idempotencyKey }),
+    addOrderItems: (token, orderId, input, idempotencyKey) =>
+      post(`${baseURL}/api/v1/orders/${orderId}/addition`, input, token, { "Idempotency-Key": idempotencyKey }),
     getOrder: (token, id, signal) => get(`${baseURL}/api/v1/orders/${id}`, token, signal),
     listOrders: (token, filter = {}, signal) => get(`${baseURL}/api/v1/orders?${new URLSearchParams(clean(filter))}`, token, signal),
   };
@@ -135,6 +138,46 @@ function demoApi(): Api {
       saveDemoCalculation(calculation);
       return calculation;
     },
+    async calculateAddition(_token, orderId, items) {
+      const order = loadDemoOrders().find((entry) => entry.id === orderId);
+      if (!order || order.fulfillment_status !== "NEW" || order.payment_method !== "cash" || order.latest_addition) {
+        throw apiError("ORDER_STATUS_CONFLICT");
+      }
+      const categories = loadDemoCategories();
+      const lookup = menuLookup(categories);
+      const calculationItems = items.map(({ item_id, quantity }) => {
+        const item = lookup.get(item_id);
+        const currentQty = order.items
+          .filter((entry) => entry.menu_item_id === item_id)
+          .reduce((sum, entry) => sum + entry.quantity, 0);
+        const minQuantity = item?.min_quantity || 1;
+        if (!item || quantity <= 0 || currentQty + quantity > 99 || (currentQty === 0 && quantity < minQuantity)) {
+          throw apiError("INVALID_QUANTITY");
+        }
+        return {
+          item_id,
+          title: item.title,
+          unit_price_minor: item.price_minor,
+          quantity,
+          line_total_minor: item.price_minor * quantity,
+          version: item.version,
+        };
+      });
+      const subtotal = calculationItems.reduce((sum, item) => sum + item.line_total_minor, 0);
+      const calculation = {
+        calculation_token: crypto.randomUUID(),
+        items: calculationItems,
+        subtotal_minor: subtotal,
+        delivery_fee_minor: 0,
+        total_minor: subtotal,
+        currency: "RSD",
+        expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        order_subtotal_minor: order.subtotal_minor + subtotal,
+        order_total_minor: order.total_minor + subtotal,
+      } satisfies Calculation;
+      saveDemoCalculation(calculation);
+      return calculation;
+    },
     async contact() {
       return {
         verified: true,
@@ -188,6 +231,8 @@ function demoApi(): Api {
         locale: input.locale,
         version: 1,
         created_at: new Date().toISOString(),
+        can_add_items: true,
+        add_items_until: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
         items: decoded.items.map((item) => ({
           menu_item_id: item.item_id,
           snapshot_title: item.title,
@@ -198,6 +243,46 @@ function demoApi(): Api {
         __key: idempotencyKey,
       };
       saveDemoOrders([order, ...orders]);
+      return stripDemo(order);
+    },
+    async addOrderItems(_token, orderId, input, idempotencyKey) {
+      const orders = loadDemoOrders();
+      const order = orders.find((entry) => entry.id === orderId);
+      if (!order || order.fulfillment_status !== "NEW" || order.payment_method !== "cash" || order.latest_addition || order.version !== input.expected_version) {
+        throw apiError("ORDER_STATUS_CONFLICT");
+      }
+      const existing = (order as DemoOrder & { __additionKey?: string }).__additionKey === idempotencyKey;
+      if (existing) return stripDemo(order);
+      const calculation = loadDemoCalculation(input.calculation_token);
+      const additionId = crypto.randomUUID();
+      const createdAt = new Date().toISOString();
+      order.items = [
+        ...order.items,
+        ...calculation.items.map((item) => ({
+          menu_item_id: item.item_id,
+          snapshot_title: item.title,
+          unit_price_minor: item.unit_price_minor,
+          quantity: item.quantity,
+          line_total_minor: item.line_total_minor,
+          addition_id: additionId,
+          addition_revision: 1,
+          addition_created_at: createdAt,
+        })),
+      ];
+      order.subtotal_minor += calculation.subtotal_minor;
+      order.total_minor += calculation.subtotal_minor;
+      order.version += 1;
+      order.latest_addition = {
+        id: additionId,
+        revision: 1,
+        subtotal_minor: calculation.subtotal_minor,
+        currency: "RSD",
+        created_at: createdAt,
+      };
+      order.can_add_items = false;
+      order.add_items_reason = "already_added";
+      (order as DemoOrder & { __additionKey?: string }).__additionKey = idempotencyKey;
+      saveDemoOrders(orders);
       return stripDemo(order);
     },
     async getOrder(_token, id) {
@@ -247,11 +332,13 @@ function unconfiguredApi(): Api {
     runtime: fail,
     menu: fail,
     calculate: fail,
+    calculateAddition: fail,
     contact: fail,
     createCashLocationChallenge: fail,
     getCashLocationChallenge: fail,
     verifyCashLocationChallenge: fail,
     createOrder: fail,
+    addOrderItems: fail,
     getOrder: fail,
     listOrders: fail,
   };
@@ -547,6 +634,7 @@ function loadJSON<T>(key: string, fallback: T): T {
 
 interface DemoOrder extends Order {
   __key: string;
+  __additionKey?: string;
 }
 
 function loadDemoOrders(): DemoOrder[] {
@@ -562,8 +650,9 @@ function saveDemoOrders(orders: DemoOrder[]): void {
 }
 
 function stripDemo(order: DemoOrder): Order {
-  const { __key, ...clean } = order;
+  const { __key, __additionKey, ...clean } = order;
   void __key;
+  void __additionKey;
   return clean;
 }
 

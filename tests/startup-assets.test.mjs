@@ -54,6 +54,21 @@ test("client root fallback with Telegram initData does not trigger a second docu
   assertNotIncludes(source, "function TelegramMainRedirect");
 });
 
+test("client legal pages stay available without Telegram authentication", () => {
+  const appSource = readSource("apps/client/src/App.tsx");
+  const routeSource = readSource("apps/client/src/route.ts");
+  const legalSource = readSource("apps/client/src/legal.tsx");
+  const appBody = sliceBetween(appSource, "export function App()", "function ClientMiniApp()");
+
+  assertIncludes(appBody, "if (isPublicInformationRoute(entryRoute)) return <ClientMiniApp />;");
+  for (const route of ["terms", "returns", "privacy"]) {
+    assertIncludes(routeSource, `if (parts[0] === "${route}")`);
+    assertIncludes(legalSource, `route.name === "${route}"`);
+  }
+  assertIncludes(legalSource, "Telegram initData is verified by the server and is not written to application logs.");
+  assertIncludes(legalSource, "Kartična porudžbina smatra se plaćenom samo posle potvrde pružaoca platnih usluga.");
+});
+
 function readSource(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 }

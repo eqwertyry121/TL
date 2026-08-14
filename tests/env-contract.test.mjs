@@ -11,6 +11,16 @@ const optimizationEnvKeys = [
   "SERVER_TIMING_ENABLED",
 ];
 
+const publicLegalEnvKeys = [
+  "VITE_LEGAL_BUSINESS_NAME",
+  "VITE_LEGAL_REGISTRATION_NUMBER",
+  "VITE_LEGAL_TAX_ID",
+  "VITE_LEGAL_REGISTERED_ADDRESS",
+  "VITE_LEGAL_RESTAURANT_ADDRESS",
+  "VITE_LEGAL_EMAIL",
+  "VITE_LEGAL_PHONE",
+];
+
 test("optimization runtime knobs are documented in env templates", () => {
   const rootExample = readSource(".env.example");
   const productionExample = readSource("deploy/env.production.example");
@@ -68,6 +78,18 @@ test("production frontend workflows stamp builds with the commit sha", () => {
     assertBuildStepHasCommitSHA(pagesWorkflow, `Build ${appName} Mini App`);
   }
   assertBuildStepHasCommitSHA(performanceWorkflow, "Production build");
+});
+
+test("client production build exposes the public merchant identity contract", () => {
+  const rootExample = readSource(".env.example");
+  const pagesWorkflow = readSource(".github/workflows/pages.yml");
+  const clientStep = sliceWorkflowStep(pagesWorkflow, "Build client Mini App");
+
+  for (const key of publicLegalEnvKeys) {
+    assertEnvKey(rootExample, key, ".env.example");
+    const variableName = key.replace(/^VITE_/, "");
+    assert.match(clientStep, new RegExp(`^          ${key}: \\$\\{\\{ vars\\.${variableName} \\}\\}$`, "m"));
+  }
 });
 
 test("backend CI runs the full PostgreSQL integration gate", () => {

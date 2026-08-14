@@ -6,6 +6,7 @@ const CHECKOUT_KEY = "tk-client-checkout-v1";
 const CHECKOUT_PROGRESS_KEY = "tk-client-checkout-progress-v1";
 const LOCALE_KEY = "tk-client-locale";
 const IDEMPOTENCY_KEY = "tk-client-pending-intent";
+const ADDITION_IDEMPOTENCY_KEY_PREFIX = "tk-client-pending-addition.";
 const PUBLIC_DATA_KEY_PREFIX = "tk.menu.v2.";
 const LEGACY_PUBLIC_DATA_KEY = "tk-client-public-menu-v2";
 const CHECKOUT_DRAFT_TTL_MS = 12 * 60 * 60 * 1000;
@@ -245,6 +246,30 @@ export function pendingIdempotencyKey(): string {
 
 export function resetPendingIdempotencyKey(): void {
   sessionStorage.removeItem(IDEMPOTENCY_KEY);
+}
+
+export function pendingAdditionIdempotencyKey(orderId: string, signature: string): string {
+  clearLegacySensitiveLocalStorage();
+  const key = `${ADDITION_IDEMPOTENCY_KEY_PREFIX}${orderId}.${signature}`;
+  let value = sessionStorage.getItem(key);
+  if (!value) {
+    value = crypto.randomUUID();
+    sessionStorage.setItem(key, value);
+  }
+  return value;
+}
+
+export function resetPendingAdditionIdempotencyKey(orderId: string): void {
+  try {
+    for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = sessionStorage.key(index);
+      if (key?.startsWith(`${ADDITION_IDEMPOTENCY_KEY_PREFIX}${orderId}.`)) {
+        sessionStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // ignore storage access errors
+  }
 }
 
 function isFuture(value: string | undefined): boolean {

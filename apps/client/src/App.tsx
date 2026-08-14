@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createApi } from "./api";
 import { orderStatusText } from "./fixtures";
 import { t } from "./i18n";
+import { isPublicInformationRoute, LegalFooter, legalContactText, legalProfile, Privacy, Returns, Terms } from "./legal";
 import { maskPhone, money } from "./money";
 import { currentRoute, navigate, replaceRoute, routeToHash } from "./route";
 import {
@@ -31,7 +32,9 @@ import {
   loadCheckoutDraft,
   loadCheckoutProgress,
   loadLocale,
+  pendingAdditionIdempotencyKey,
   pendingIdempotencyKey,
+  resetPendingAdditionIdempotencyKey,
   resetPendingIdempotencyKey,
   saveCart,
   saveCachedPublicData,
@@ -54,8 +57,17 @@ const api = createApi();
 const clientBotMiniAppURL = "https://t.me/TakoLako_main_bot?startapp";
 
 export function App() {
+  const [entryRoute, setEntryRoute] = useState<Route>(currentRoute);
+
+  useEffect(() => {
+    const onHash = () => setEntryRoute(currentRoute());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
   if (isPortalPath()) {
     if (rawInitData()) return <ClientMiniApp />;
+    if (isPublicInformationRoute(entryRoute)) return <ClientMiniApp />;
     return <PortalLanding />;
   }
   return <ClientMiniApp />;
@@ -65,6 +77,7 @@ function ClientMiniApp() {
   const [route, setRoute] = useState<Route>(currentRoute);
   const [locale, setLocale] = useState<Locale>(() => loadLocale(initialLocale()));
   const [cart, setCart] = useState<CartState>(loadCart);
+  const [additionCart, setAdditionCart] = useState<CartState>({ version: 1, lines: {} });
   const [draft, setDraft] = useState<CheckoutDraft>(loadCheckoutDraft);
   const [data, setData] = useState<AppData>(() => {
     const cached = loadCachedPublicData(locale);
@@ -72,6 +85,7 @@ function ClientMiniApp() {
   });
   const [ordersPage, setOrdersPage] = useState<Pick<OrderSummaryPage, "limit" | "offset" | "has_more">>({ limit: 20, offset: 0, has_more: false });
   const [calculation, setCalculation] = useState<Calculation | null>(null);
+  const [additionCalculation, setAdditionCalculation] = useState<Calculation | null>(null);
   const [verifiedContact, setVerifiedContact] = useState<VerifiedContact | null>(null);
   const [cashLocation, setCashLocation] = useState<CashLocationChallenge | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<Extract<PaymentMethod, "cash" | "crypto">>("cash");
@@ -81,16 +95,22 @@ function ClientMiniApp() {
   const [restoredCheckoutSignature, setRestoredCheckoutSignature] = useState("");
   const [loading, setLoading] = useState(!data.runtime && data.categories.length === 0);
   const [submitting, setSubmitting] = useState(false);
+  const [additionSubmitting, setAdditionSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   const token = data.session?.token || "";
   const items = useMemo(() => data.categories.flatMap((category) => category.items), [data.categories]);
   const itemLookup = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const cartLines = useMemo(() => Object.values(cart.lines), [cart.lines]);
+  const additionLines = useMemo(() => Object.values(additionCart.lines), [additionCart.lines]);
   const availableCartLines = useMemo(() => cartLines.filter((line) => itemLookup.has(line.itemId)), [cartLines, itemLookup]);
+  const availableAdditionLines = useMemo(() => additionLines.filter((line) => itemLookup.has(line.itemId)), [additionLines, itemLookup]);
   const checkoutSignature = useMemo(() => checkoutCartSignature(availableCartLines), [availableCartLines]);
+  const additionSignature = useMemo(() => checkoutCartSignature(availableAdditionLines), [availableAdditionLines]);
   const cartQuantity = availableCartLines.reduce((sum, line) => sum + line.quantity, 0);
+  const additionQuantity = availableAdditionLines.reduce((sum, line) => sum + line.quantity, 0);
   const subtotal = availableCartLines.reduce((sum, line) => sum + line.quantity * line.unitPriceMinor, 0);
+  const additionSubtotal = availableAdditionLines.reduce((sum, line) => sum + line.quantity * line.unitPriceMinor, 0);
   const total = subtotal;
   const checkoutOpen = Boolean(data.runtime?.accepting_orders);
   const dayOffBlocked = isDayOffRuntime(data.runtime) && !isOwnerTelegramId(data.session?.telegram_user_id);
@@ -98,10 +118,14 @@ function ClientMiniApp() {
   const cashLocationRequired = data.runtime?.cash_location_required ?? true;
   const routedOrder = route.name === "order"
     ? data.orders.find((order) => order.id === route.id)
+    : route.name === "add"
+      ? data.orders.find((order) => order.id === route.id)
     : undefined;
+  const routedOrderId = route.name === "order" || route.name === "add" ? route.id : "";
   const routeOrderTerminal = routedOrder
     ? isFullOrder(routedOrder) && isTerminalOrderStatus(routedOrder.fulfillment_status)
     : false;
+  const publicInformationRoute = isPublicInformationRoute(route);
 
   useEffect(() => installPerformanceBeacon("client", () => currentRoute().name), []);
 
@@ -134,6 +158,10 @@ function ClientMiniApp() {
   }, [locale]);
 
   useEffect(() => {
+    if (publicInformationRoute) {
+      setLoading(false);
+      return;
+    }
     let alive = true;
     setLoading(data.categories.length === 0);
     bootstrap()
@@ -142,14 +170,15 @@ function ClientMiniApp() {
     return () => {
       alive = false;
     };
-  }, [bootstrap]);
+  }, [bootstrap, publicInformationRoute]);
 
   useEffect(() => {
+    if (publicInformationRoute) return;
     return startVisiblePolling(async (signal) => {
       const runtime = await api.runtime(signal);
       setData((current) => ({ ...current, runtime }));
     }, 10000);
-  }, []);
+  }, [publicInformationRoute]);
 
   useEffect(() => {
     const onHash = () => setRoute(currentRoute());
@@ -235,7 +264,7 @@ function ClientMiniApp() {
   }, [route.name, token, withAuth]);
 
   useEffect(() => {
-    if (route.name !== "order" || !token || routeOrderTerminal) return;
+    if (!(route.name === "order" || route.name === "add") || !token || routeOrderTerminal) return;
     return startVisiblePolling(async (signal) => {
       try {
         const order = await withAuth((authToken) => api.getOrder(authToken, route.id, signal), token);
@@ -246,6 +275,11 @@ function ClientMiniApp() {
       }
     }, 10000, true);
   }, [route, token, routeOrderTerminal, withAuth]);
+
+  useEffect(() => {
+    setAdditionCalculation(null);
+    setAdditionCart({ version: 1, lines: {} });
+  }, [routedOrderId]);
 
   function updateLocale(next: Locale) {
     setLocale(next);
@@ -277,6 +311,21 @@ function ClientMiniApp() {
     setCalculation(null);
     setCashLocation(null);
     clearCheckoutProgress();
+    haptic();
+  }
+
+  function setAdditionLine(item: MenuItem, quantity: number) {
+    const nextQuantity = quantity <= 0 ? 0 : Math.max(1, Math.min(99, quantity));
+    const line: CartLine = {
+      itemId: item.id,
+      title: item.title,
+      unitPriceMinor: item.price_minor,
+      quantity: nextQuantity,
+      menuVersion: item.version,
+      updatedAt: new Date().toISOString(),
+    };
+    setAdditionCart((current) => upsertCartLine(current, line));
+    setAdditionCalculation(null);
     haptic();
   }
 
@@ -354,6 +403,20 @@ function ClientMiniApp() {
     );
     setCalculation(result);
     setCashLocation(null);
+    return result;
+  }
+
+  async function calculateAddition(orderId: string) {
+    if (!token || availableAdditionLines.length === 0) return null;
+    const result = await withAuth(
+      (authToken) => api.calculateAddition(
+        authToken,
+        orderId,
+        availableAdditionLines.map((line) => ({ item_id: line.itemId, quantity: line.quantity })),
+      ),
+      token,
+    );
+    setAdditionCalculation(result);
     return result;
   }
 
@@ -457,6 +520,44 @@ function ClientMiniApp() {
     }
   }
 
+  async function submitAddition(order: Order) {
+    if (!token || additionSubmitting || !additionSignature) return;
+    if (!order.can_add_items) {
+      setError(additionBlockedText(order));
+      return;
+    }
+    setAdditionSubmitting(true);
+    setError("");
+    try {
+      const calc = additionCalculation || (await calculateAddition(order.id));
+      if (!calc) throw new Error("EMPTY_CART");
+      const updated = await withAuth((authToken) => api.addOrderItems(
+        authToken,
+        order.id,
+        {
+          calculation_token: calc.calculation_token,
+          expected_version: order.version,
+        },
+        pendingAdditionIdempotencyKey(order.id, additionSignature),
+      ), token);
+      resetPendingAdditionIdempotencyKey(order.id);
+      setAdditionCart({ version: 1, lines: {} });
+      setAdditionCalculation(null);
+      mergeOrder(updated);
+      replaceRoute({ name: "order", id: updated.id });
+    } catch (err) {
+      setError(errorText(err));
+      try {
+        const fresh = await withAuth((authToken) => api.getOrder(authToken, order.id), token);
+        mergeOrder(fresh);
+      } catch {
+        // Status refresh is best-effort after a failed addition.
+      }
+    } finally {
+      setAdditionSubmitting(false);
+    }
+  }
+
   function mergeOrder(order: Order) {
     setData((current) => ({
       ...current,
@@ -479,6 +580,21 @@ function ClientMiniApp() {
     setOrdersPage(orderPageMeta(response));
   }
 
+  if (publicInformationRoute) {
+    const publicContent = route.name === "terms"
+      ? <Terms locale={locale} />
+      : route.name === "returns"
+        ? <Returns locale={locale} />
+        : route.name === "privacy"
+          ? <Privacy locale={locale} />
+          : <Support support={data.runtime?.support_text || "@Tako_Lako"} locale={locale} />;
+    return (
+      <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header="Tako Lako - Грузинская кухня" runtime={data.runtime} session={data.session}>
+        {publicContent}
+      </Shell>
+    );
+  }
+
   if (loading && !data.runtime) {
     return <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={0} header="Tako Lako - Грузинская кухня"><div className="state">Загрузка...</div></Shell>;
   }
@@ -494,6 +610,19 @@ function ClientMiniApp() {
   const content =
     route.name === "dish" ? (
       <Dish item={itemLookup.get(route.id)} line={cart.lines[route.id]} onSetLine={setLine} locale={locale} />
+    ) : route.name === "add" ? (
+      <AddToOrder
+        order={fullOrderFromCache(data.orders, route.id)}
+        categories={data.categories}
+        lines={availableAdditionLines}
+        cart={additionCart}
+        subtotal={additionSubtotal}
+        calculation={additionCalculation}
+        submitting={additionSubmitting}
+        onSetLine={setAdditionLine}
+        onCalculate={calculateAddition}
+        onSubmit={submitAddition}
+      />
     ) : route.name === "cart" ? (
       <Cart lines={cartLines} itemLookup={itemLookup} subtotal={subtotal} total={total} checkoutOpen={checkoutOpen} locale={locale} onSetLine={setLine} onRemoveLine={removeCartLine} />
     ) : route.name === "checkout" ? (
@@ -525,13 +654,17 @@ function ClientMiniApp() {
         onSubmit={submitOrder}
       />
     ) : route.name === "order" ? (
-      <OrderScreen order={fullOrderFromCache(data.orders, route.id)} locale={locale} />
+      <OrderScreen order={fullOrderFromCache(data.orders, route.id)} locale={locale} onAdd={() => navigate({ name: "add", id: route.id })} />
     ) : route.name === "orders" ? (
       <Orders orders={data.orders} page={ordersPage} locale={locale} onLoadMore={loadMoreOrders} />
     ) : route.name === "support" ? (
-      <Support support={data.runtime?.support_text || "@Tako_Lako"} />
+      <Support support={data.runtime?.support_text || "@Tako_Lako"} locale={locale} />
     ) : route.name === "terms" ? (
-      <Terms />
+      <Terms locale={locale} />
+    ) : route.name === "returns" ? (
+      <Returns locale={locale} />
+    ) : route.name === "privacy" ? (
+      <Privacy locale={locale} />
     ) : (
       <Menu categories={data.categories} cart={cart} onSetLine={setLine} />
     );
@@ -546,7 +679,7 @@ function ClientMiniApp() {
       )}
       {route.name === "menu" && !data.session && <OpenInTelegramCard />}
       {content}
-      {cartQuantity > 0 && route.name !== "checkout" && route.name !== "cart" && (
+      {cartQuantity > 0 && route.name !== "checkout" && route.name !== "cart" && route.name !== "add" && (
         <button className="cart-float" onClick={() => navigate({ name: "cart" })}>
           <ShoppingCart size={18} />
           <span>{cartQuantity}</span>
@@ -649,6 +782,7 @@ function Shell({
   onLocale: (locale: Locale) => void;
 }) {
   const isRoot = route.name === "menu";
+  const showLocale = isRoot || isPublicInformationRoute(route);
   const dayOffBlocked = isDayOffRuntime(runtime) && !isOwnerTelegramId(session?.telegram_user_id);
   const showClosedBanner = runtime && !runtime.accepting_orders && !dayOffBlocked;
 
@@ -673,7 +807,7 @@ function Shell({
           </div>
           <div className="header-actions">
             <ProfileBadge session={session} />
-            {isRoot && (
+            {showLocale && (
               <div className="locale">
                 {(["ru", "sr", "en"] as Locale[]).map((entry) => (
                   <button key={entry} className={entry === locale ? "active" : ""} onClick={() => onLocale(entry)}>
@@ -702,6 +836,7 @@ function Shell({
         {isOwnerTelegramId(session?.telegram_user_id) && <OwnerRoleSwitch activeRole="CLIENT" />}
       </header>
       <main className="app-content" aria-hidden={dayOffBlocked ? "true" : undefined}>{children}</main>
+      <LegalFooter locale={locale} />
       {dayOffBlocked && <DayOffOverlay locale={locale} runtime={runtime} />}
     </div>
   );
@@ -793,6 +928,96 @@ function Menu({ categories, cart, onSetLine }: { categories: AppData["categories
     </div>
   );
 }
+
+function AddToOrder({
+  order,
+  categories,
+  lines,
+  cart,
+  subtotal,
+  calculation,
+  submitting,
+  onSetLine,
+  onCalculate,
+  onSubmit,
+}: {
+  order?: Order;
+  categories: AppData["categories"];
+  lines: CartLine[];
+  cart: CartState;
+  subtotal: number;
+  calculation: Calculation | null;
+  submitting: boolean;
+  onSetLine: (item: MenuItem, quantity: number) => void;
+  onCalculate: (orderId: string) => Promise<Calculation | null>;
+  onSubmit: (order: Order) => Promise<void>;
+}) {
+  useSecondTick();
+  const signature = lines.map((line) => `${line.itemId}:${line.quantity}:${line.unitPriceMinor}:${line.menuVersion}`).sort().join("|");
+  useEffect(() => {
+    if (order?.id && lines.length) void onCalculate(order.id).catch(() => undefined);
+  }, [order?.id, lines.length, signature]);
+  if (!order) return <div className="state">Загружаем заказ...</div>;
+  const flatItems = categories.flatMap((category, categoryIndex) => category.items.map((item, index) => ({ item, visualIndex: categoryIndex + index })));
+  const disabledReason = order.can_add_items ? "" : additionBlockedText(order);
+  const amount = calculation?.subtotal_minor || subtotal;
+  return (
+    <div className="page add-order-page">
+      <section className={order.can_add_items ? "addition-panel" : "addition-panel blocked"}>
+        <div>
+          <span className="eyebrow">Дозаказ</span>
+          <h1>К заказу #{order.public_number}</h1>
+          <p>{order.can_add_items ? `Осталось ${timeLeft(order.add_items_until)}` : disabledReason}</p>
+        </div>
+        <button className="secondary" type="button" onClick={() => navigate({ name: "order", id: order.id })}>
+          Назад к заказу
+        </button>
+      </section>
+      <section className="menu-section">
+        <div className="menu-grid">
+          {flatItems.map(({ item, visualIndex }) => {
+            const qty = cart.lines[item.id]?.quantity || 0;
+            const alreadyInOrder = order.items.some((entry) => entry.menu_item_id === item.id);
+            const startQuantity = alreadyInOrder ? 1 : itemMinQuantity(item);
+            const minSelectedQuantity = alreadyInOrder ? 1 : itemMinQuantity(item);
+            return (
+              <article className={qty > 0 ? "dish-card in-cart" : "dish-card"} key={item.id}>
+                <DishVisual item={item} visualIndex={visualIndex} />
+                <div className="dish-body">
+                  <strong className="plain-title">{item.title}</strong>
+                  <p>{item.description}</p>
+                  <div className="meta-row">
+                    <span>{item.weight_text}</span>
+                    <strong>{money(item.price_minor)}</strong>
+                  </div>
+                  <div className="row-actions">
+                    {qty > 0 ? (
+                      <Qty value={qty} onMinus={() => onSetLine(item, qty <= minSelectedQuantity ? 0 : qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />
+                    ) : (
+                      <button className="primary add-only" disabled={!order.can_add_items} onClick={() => onSetLine(item, startQuantity)}>
+                        Добавить{startQuantity > 1 ? ` · ${startQuantity} шт` : ""}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+      <div className="bottom-action add-bottom-action">
+        <div className="addition-total">
+          <span>{lines.length ? `${lines.reduce((sum, line) => sum + line.quantity, 0)} поз.` : "Ничего не выбрано"}</span>
+          <strong>{money(amount)}</strong>
+        </div>
+        <button className="primary full" disabled={!order.can_add_items || submitting || !lines.length} onClick={() => void onSubmit(order)}>
+          {submitting ? "..." : `Добавить к заказу · ${money(amount)}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartLine; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
   const [qty, setQty] = useState(line?.quantity || (item ? itemMinQuantity(item) : 1));
   if (!item) return <div className="state">Блюдо не найдено</div>;
@@ -1134,7 +1359,50 @@ function formatDistance(meters: number): string {
   return `${meters} м`;
 }
 
-function OrderScreen({ order, locale }: { order?: Order; locale: Locale }) {
+function useSecondTick(): void {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((value) => value + 1), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+}
+
+function timeLeft(value?: string): string {
+  if (!value) return "несколько минут";
+  const seconds = Math.max(0, Math.floor((new Date(value).getTime() - Date.now()) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+}
+
+function timeHHMM(value: string): string {
+  return new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function additionBlockedText(order: Order): string {
+  switch (order.add_items_reason) {
+    case "already_added":
+      return "Дозаказ уже был добавлен";
+    case "time_expired":
+      return "Прошло больше 5 минут";
+    case "manual_day_off":
+      return "Приём заказов закрыт";
+    case "schedule_closed":
+      return "Приём заказов завершён";
+    case "payment_method":
+      return "Доступно только для наличных";
+    case "status":
+      return "Заказ уже передан дальше";
+    default:
+      return order.can_add_items ? "" : "Сейчас добавить нельзя";
+  }
+}
+
+function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; onAdd: () => void }) {
+  useSecondTick();
   if (!order) return <div className="state">Загружаем заказ...</div>;
   return (
     <div className="page narrow order-page">
@@ -1145,12 +1413,24 @@ function OrderScreen({ order, locale }: { order?: Order; locale: Locale }) {
           <p>{localizedStatus(order, locale)}</p>
         </div>
       </div>
+      {order.fulfillment_status === "NEW" && (
+        <div className={order.can_add_items ? "add-order-cta" : "add-order-cta disabled"}>
+          <div>
+            <strong>{order.can_add_items ? "Забыли что-то?" : "Дозаказ недоступен"}</strong>
+            <span>{order.can_add_items ? `Можно добавить ещё ${timeLeft(order.add_items_until)}` : additionBlockedText(order)}</span>
+          </div>
+          <button className="primary" type="button" disabled={!order.can_add_items} onClick={onAdd}>
+            Добавить
+          </button>
+        </div>
+      )}
       <div className="list">
         {order.items.map((item) => (
-          <div className="line" key={item.menu_item_id}>
+          <div className={item.addition_id ? "line added-line" : "line"} key={`${item.menu_item_id}-${item.addition_id || "base"}`}>
             <div>
               <strong>{item.quantity} × {item.snapshot_title}</strong>
               <span>{money(item.line_total_minor)}</span>
+              {item.addition_id && <span className="addition-chip">Добавлено{item.addition_created_at ? ` в ${timeHHMM(item.addition_created_at)}` : ""}</span>}
             </div>
           </div>
         ))}
@@ -1195,22 +1475,24 @@ function Orders({
   );
 }
 
-function Support({ support }: { support: string }) {
+function Support({ support, locale }: { support: string; locale: Locale }) {
   const handle = support.replace("@", "") || "Tako_Lako";
+  const copy = legalContactText(locale);
   return (
     <div className="page narrow">
-      <h1>Поддержка</h1>
-      <p className="lead">По любому вопросу по заказу напишите менеджеру напрямую в Telegram.</p>
-      <a className="primary full as-link" href={`https://t.me/${handle}`}>Написать менеджеру @{handle}</a>
-    </div>
-  );
-}
-
-function Terms() {
-  return (
-    <div className="page narrow">
-      <h1>Условия доставки</h1>
-      <p className="lead">Доставка оформляется по текстовому адресу клиента. Проверьте телефон и адрес перед отправкой заказа. Реальная оплата сейчас производится наличными; crypto доступна только как тестовый sandbox-flow.</p>
+      <h1>{copy.title}</h1>
+      <p className="lead">{copy.intro}</p>
+      <div className="support-actions">
+        <a className="primary full as-link" href={`https://t.me/${handle}`}>{copy.telegramLabel}: @{handle}</a>
+        {legalProfile.email
+          ? <a className="secondary full as-link" href={`mailto:${legalProfile.email}`}>{copy.emailLabel}: {legalProfile.email}</a>
+          : <p className="legal-contact-warning">{copy.missingEmail}</p>}
+      </div>
+      <section className="developer-support">
+        <h2>Разработчик</h2>
+        <p>Нашли баг? Есть идея как улучшить приложение?</p>
+        <a className="secondary full as-link" href="https://t.me/eqwertyry">Напишите мне напрямую @eqwertyry</a>
+      </section>
     </div>
   );
 }
@@ -1433,6 +1715,10 @@ function errorText(err: unknown): string {
       return "Заказ уже отправляется. Проверьте статус";
     case "ACTIVE_ORDER_EXISTS":
       return "У вас уже есть активный заказ. Новый можно оформить после доставки текущего.";
+    case "ORDER_STATUS_CONFLICT":
+      return "Заказ уже изменился. Обновите экран и проверьте статус.";
+    case "CALCULATION_EXPIRED":
+      return "Цены или заказ изменились. Пересчитайте сумму.";
     case "AUTH_INVALID":
       return "Telegram авторизация не прошла";
     case "CONTACT_NOT_VERIFIED":

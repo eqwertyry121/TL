@@ -211,6 +211,21 @@ paths:
       responses:
         "200":
           description: Client-owned order detail
+  /orders/{id}/addition/calculate:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+      responses:
+        "200":
+          description: Server-side calculation for one client add-on inside an existing NEW cash order; delivery fee is not charged again.
+  /orders/{id}/addition:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      responses:
+        "200":
+          description: Atomically appends one add-on to a NEW cash order with expected_version conflict protection.
   /kitchen/orders:
     get:
       responses:

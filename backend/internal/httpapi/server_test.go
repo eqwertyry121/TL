@@ -86,7 +86,7 @@ func TestVersionEndpointExposesSafeBuildAndSupportsConditionalGET(t *testing.T) 
 
 func TestPerformanceBeaconRouteEnumMatchesApps(t *testing.T) {
 	accepted := map[string][]string{
-		"client":  {"menu", "dish", "cart", "checkout", "order", "orders", "support", "terms", "unknown"},
+		"client":  {"menu", "dish", "cart", "checkout", "order", "orders", "support", "terms", "returns", "privacy", "unknown"},
 		"kitchen": {"orders", "unknown"},
 		"courier": {"orders", "unknown"},
 		"admin":   {"home", "orders", "menu", "schedule", "analytics", "settings", "audit", "staff", "unknown"},

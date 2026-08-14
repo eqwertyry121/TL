@@ -107,6 +107,95 @@ func TestCreateCashOrderRejectsStaleHiddenItemCalculation(t *testing.T) {
 	}
 }
 
+func TestAddOrderItemsAppendsOnceAndProtectsKitchenVersion(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	now := time.Now().UTC()
+	clientSession, input := prepareCashOrderForCart(
+		t,
+		ctx,
+		st,
+		clientTelegramID,
+		"+38160111233",
+		"Novi Sad add items",
+		[]core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}},
+		now,
+	)
+	order, err := st.CreateCashOrder(ctx, clientSession, input, "idem-add-base-order", "request-hash-add-base-order", now)
+	if err != nil {
+		t.Fatalf("create cash order: %v", err)
+	}
+
+	addCalc, err := st.CalculateAddition(ctx, clientSession, order.ID, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 1}}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("calculate addition: %v", err)
+	}
+	if addCalc.DeliveryFeeMinor != 0 || addCalc.TotalMinor != addCalc.SubtotalMinor {
+		t.Fatalf("addition calculation charged delivery or wrong total: %+v", addCalc)
+	}
+	updated, err := st.AddOrderItems(ctx, clientSession, order.ID, store.AddOrderItemsInput{
+		CalculationToken: addCalc.Token,
+		ExpectedVersion:  order.Version,
+	}, "idem-add-items", "request-hash-add-items", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("add order items: %v", err)
+	}
+	if updated.Version != order.Version+1 {
+		t.Fatalf("updated version = %d, want %d", updated.Version, order.Version+1)
+	}
+	if updated.TotalMinor != order.TotalMinor+addCalc.SubtotalMinor {
+		t.Fatalf("updated total = %d, want %d", updated.TotalMinor, order.TotalMinor+addCalc.SubtotalMinor)
+	}
+	if updated.LatestAddition == nil {
+		t.Fatalf("latest addition missing")
+	}
+	hasAddedItem := false
+	for _, item := range updated.Items {
+		if item.AdditionID != nil && item.Quantity == 1 && item.MenuItemID == classicKhinkaliID {
+			hasAddedItem = true
+		}
+	}
+	if !hasAddedItem {
+		t.Fatalf("updated order missing added item marker: %+v", updated.Items)
+	}
+
+	if err := st.BootstrapOwner(ctx, ownerTelegramID); err != nil {
+		t.Fatalf("bootstrap owner: %v", err)
+	}
+	kitchenUser, err := st.UpsertTelegramUser(ctx, core.User{
+		TelegramUserID: ownerTelegramID,
+		Username:       "owner",
+		FirstName:      "Owner",
+		LanguageCode:   "ru",
+	})
+	if err != nil {
+		t.Fatalf("upsert kitchen owner: %v", err)
+	}
+	kitchenSession, _, err := st.CreateSession(ctx, kitchenUser, core.RoleKitchen, time.Hour)
+	if err != nil {
+		t.Fatalf("create kitchen session: %v", err)
+	}
+	if _, err := st.MarkReady(ctx, kitchenSession, order.ID, "idem-ready-stale-addition", "request-hash-ready-stale-addition", order.Version); !errors.Is(err, core.ErrOrderStatusConflict) {
+		t.Fatalf("expected stale ready conflict, got %v", err)
+	}
+
+	secondCalc, err := st.CalculateAddition(ctx, clientSession, order.ID, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 1}}, now.Add(2*time.Minute))
+	if err == nil {
+		_, err = st.AddOrderItems(ctx, clientSession, order.ID, store.AddOrderItemsInput{
+			CalculationToken: secondCalc.Token,
+			ExpectedVersion:  updated.Version + 1,
+		}, "idem-add-items-second", "request-hash-add-items-second", now.Add(2*time.Minute))
+	}
+	if !errors.Is(err, core.ErrOrderStatusConflict) {
+		t.Fatalf("expected second addition/status conflict, got %v", err)
+	}
+	if _, err := st.MarkReady(ctx, kitchenSession, order.ID, "idem-ready-fresh-addition", "request-hash-ready-fresh-addition", updated.Version); err != nil {
+		t.Fatalf("mark ready with fresh version: %v", err)
+	}
+}
+
 func TestMenuRevisionBumpsOnAdminMenuMutations(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)

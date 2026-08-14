@@ -5,12 +5,15 @@ export function currentRoute(): Route {
   const [path] = hash.split("?");
   const parts = path.split("/").filter(Boolean);
   if (parts[0] === "dish" && parts[1]) return { name: "dish", id: parts[1] };
+  if (parts[0] === "order" && parts[1] && parts[2] === "add") return { name: "add", id: parts[1] };
   if (parts[0] === "cart") return { name: "cart" };
   if (parts[0] === "checkout") return { name: "checkout" };
   if (parts[0] === "order" && parts[1]) return { name: "order", id: parts[1] };
   if (parts[0] === "orders") return { name: "orders" };
   if (parts[0] === "support") return { name: "support" };
   if (parts[0] === "terms") return { name: "terms" };
+  if (parts[0] === "returns") return { name: "returns" };
+  if (parts[0] === "privacy") return { name: "privacy" };
   return { name: "menu" };
 }
 
@@ -20,6 +23,8 @@ export function routeToHash(route: Route): string {
       return "#/";
     case "dish":
       return `#/dish/${route.id}`;
+    case "add":
+      return `#/order/${route.id}/add`;
     case "cart":
       return "#/cart";
     case "checkout":
@@ -32,6 +37,10 @@ export function routeToHash(route: Route): string {
       return "#/support";
     case "terms":
       return "#/terms";
+    case "returns":
+      return "#/returns";
+    case "privacy":
+      return "#/privacy";
   }
 }
 

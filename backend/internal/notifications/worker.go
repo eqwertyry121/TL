@@ -321,7 +321,7 @@ func (w *Worker) buildMessage(ctx context.Context, current job) (string, int64, 
 		if err != nil {
 			return "", 0, "", err
 		}
-		text, err := w.kitchenText(ctx, current.orderID)
+		text, err := w.kitchenText(ctx, current.orderID, current.template)
 		if err != nil {
 			return "", 0, "", err
 		}
@@ -364,7 +364,7 @@ func (w *Worker) staffTarget(ctx context.Context, role string) (int64, error) {
 	return chatID, err
 }
 
-func (w *Worker) kitchenText(ctx context.Context, orderID uuid.UUID) (string, error) {
+func (w *Worker) kitchenText(ctx context.Context, orderID uuid.UUID, template string) (string, error) {
 	var publicNumber, total int
 	var paymentMethod, comment string
 	err := w.pool.QueryRow(ctx, `
@@ -375,8 +375,12 @@ func (w *Worker) kitchenText(ctx context.Context, orderID uuid.UUID) (string, er
 	if err != nil {
 		return "", err
 	}
+	title := fmt.Sprintf("Новый заказ #%d", publicNumber)
+	if template == "kitchen_order_addition" {
+		title = fmt.Sprintf("Дозаказ к заказу #%d", publicNumber)
+	}
 	lines := []string{
-		fmt.Sprintf("Новый заказ #%d", publicNumber),
+		title,
 		fmt.Sprintf("Оплата: %s", paymentText(paymentMethod, total)),
 	}
 	items, err := w.orderItems(ctx, orderID)

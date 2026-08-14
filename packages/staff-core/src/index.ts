@@ -23,8 +23,8 @@ export interface StaffApi {
   listKitchenOrders(token: string, signal?: AbortSignal): Promise<{ orders: Order[] }>;
   listCourierOrders(token: string, signal?: AbortSignal): Promise<{ orders: Order[] }>;
   sendCourierETA(token: string, id: string, minutes: number): Promise<{ ok: boolean }>;
-  markReady(token: string, id: string, idempotencyKey: string): Promise<Order>;
-  markDelivered(token: string, id: string, idempotencyKey: string): Promise<Order>;
+  markReady(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
+  markDelivered(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
 }
 
 export interface StaffApiError extends Error {
@@ -170,8 +170,8 @@ function realApi(baseURL: string, appEnv: string): StaffApi {
     listKitchenOrders: (token, signal) => get(`${baseURL}/api/v1/kitchen/orders`, token, signal),
     listCourierOrders: (token, signal) => get(`${baseURL}/api/v1/courier/orders`, token, signal),
     sendCourierETA: (token, id, minutes) => post(`${baseURL}/api/v1/courier/orders/${id}/eta`, { minutes }, token),
-    markReady: (token, id, idempotencyKey) => post(`${baseURL}/api/v1/kitchen/orders/${id}/ready`, {}, token, { "Idempotency-Key": idempotencyKey }),
-    markDelivered: (token, id, idempotencyKey) => post(`${baseURL}/api/v1/courier/orders/${id}/delivered`, {}, token, { "Idempotency-Key": idempotencyKey }),
+    markReady: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/ready`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
+    markDelivered: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/courier/orders/${id}/delivered`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
   };
 }
 

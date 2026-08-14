@@ -133,6 +133,9 @@ export interface OrderItem {
   unit_price_minor: number;
   quantity: number;
   line_total_minor: number;
+  addition_id?: string;
+  addition_revision?: number;
+  addition_created_at?: string;
 }
 
 export interface OrderSummary {
@@ -156,6 +159,18 @@ export interface OrderSummary {
   cancelled_at?: string;
   cash_location_verified_at?: string;
   cash_location_distance_meters?: number;
+  can_add_items?: boolean;
+  add_items_until?: string;
+  add_items_reason?: string;
+  latest_addition?: OrderAddition;
+}
+
+export interface OrderAddition {
+  id: string;
+  revision: number;
+  subtotal_minor: number;
+  currency: "RSD";
+  created_at: string;
 }
 
 export interface Order extends OrderSummary {

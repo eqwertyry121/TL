@@ -7,7 +7,7 @@ import { AlertTriangle, Check, MoreVertical, RefreshCw, WifiOff } from "lucide-r
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const api = createStaffApi("KITCHEN");
-const kitchenSeenOrdersKey = "tk-kitchen-seen-orders-v1";
+const kitchenSeenOrdersKey = "tk-kitchen-seen-orders-v2";
 let notificationAudioContext: AudioContext | null = null;
 let pendingNotificationSound = false;
 
@@ -30,10 +30,11 @@ export function App() {
 
   useEffect(() => installPerformanceBeacon("kitchen", () => "orders"), []);
 
-  function markSeen(orderId: string) {
-    if (seenIdsRef.current.has(orderId)) return;
+  function markSeen(order: Order) {
+    const key = seenKey(order);
+    if (seenIdsRef.current.has(key)) return;
     const next = new Set(seenIdsRef.current);
-    next.add(orderId);
+    next.add(key);
     seenIdsRef.current = next;
     setSeenIds(next);
     saveSeenOrderIds(kitchenSeenOrdersKey, next);
@@ -61,8 +62,8 @@ export function App() {
   async function refresh(signal?: AbortSignal, authToken = token) {
     try {
       const response = await withAuth((currentToken) => api.listKitchenOrders(currentToken, signal), authToken);
-      const incoming = response.orders.filter((order) => !seenIdsRef.current.has(order.id) && !notifiedIds.current.has(order.id));
-      response.orders.forEach((order) => notifiedIds.current.add(order.id));
+      const incoming = response.orders.filter((order) => !seenIdsRef.current.has(seenKey(order)) && !notifiedIds.current.has(seenKey(order)));
+      response.orders.forEach((order) => notifiedIds.current.add(seenKey(order)));
       if (incoming.length) playBeep();
       setOrders(response.orders);
       setLastUpdated(new Date());
@@ -121,10 +122,10 @@ export function App() {
 
   async function markReady(order: Order) {
     if (!window.confirm(`Заказ #${order.public_number} готов и передаётся курьеру?`)) return;
-    markSeen(order.id);
+    markSeen(order);
     setBusy(order.id);
     try {
-      await withAuth((authToken) => api.markReady(authToken, order.id, `ready-${order.id}-${order.version}`));
+      await withAuth((authToken) => api.markReady(authToken, order.id, `ready-${order.id}-${order.version}`, order.version));
       setOrders((current) => current.filter((entry) => entry.id !== order.id));
     } catch {
       await refresh();
@@ -146,9 +147,10 @@ export function App() {
       {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="KITCHEN" />}
       <main className="list">
         {sortedOrders.length === 0 ? <div className="empty">Новых заказов нет</div> : sortedOrders.map((order) => {
-          const unread = !seenIds.has(order.id);
+          const unread = !seenIds.has(seenKey(order));
+          const addedAt = order.latest_addition?.created_at;
           return (
-            <article className={`order-row${unread ? " is-new" : ""}`} key={order.id} onClick={() => markSeen(order.id)}>
+            <article className={`order-row${unread ? " is-new" : ""}${order.latest_addition ? " has-addition" : ""}`} key={order.id} onClick={() => markSeen(order)}>
               <OrderAvatar order={order} unread={unread} />
               <div className="order-main">
                 <div className="order-top">
@@ -167,12 +169,16 @@ export function App() {
                 </div>
                 <ul className="items-compact" aria-label={`Блюда заказа #${order.public_number}`}>
                   {order.items.map((item, index) => (
-                    <li key={`${item.menu_item_id}-${index}`}>
+                    <li className={item.addition_id ? "is-added-item" : ""} key={`${item.menu_item_id}-${index}`}>
                       <b>{item.quantity}×</b>
-                      <span>{item.snapshot_title}</span>
+                      <span>
+                        {item.snapshot_title}
+                        {item.addition_id && <small>Добавлено{item.addition_created_at ? ` в ${timeHHMM(item.addition_created_at)}` : ""}</small>}
+                      </span>
                     </li>
                   ))}
                 </ul>
+                {addedAt && <p className="addition-note">Дозаказ добавлен в {timeHHMM(addedAt)}</p>}
                 {order.customer_comment && <p className="comment compact-comment"><AlertTriangle size={16} /> {order.customer_comment}</p>}
                 <button
                   className="primary compact-action"
@@ -271,6 +277,18 @@ function Menu({ order }: { order: Order }) {
 
 function secondsAgo(value: Date) {
   return Math.max(0, Math.floor((Date.now() - value.getTime()) / 1000));
+}
+
+function seenKey(order: Order): string {
+  const addition = order.latest_addition?.id || "base";
+  return `${order.id}:${order.version}:${addition}`;
+}
+
+function timeHHMM(value: string): string {
+  return new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function loadSeenOrderIds(key: string): Set<string> {

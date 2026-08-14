@@ -232,13 +232,15 @@ type CalculatedItem struct {
 }
 
 type Calculation struct {
-	Token            string           `json:"calculation_token,omitempty"`
-	Items            []CalculatedItem `json:"items"`
-	SubtotalMinor    int              `json:"subtotal_minor"`
-	DeliveryFeeMinor int              `json:"delivery_fee_minor"`
-	TotalMinor       int              `json:"total_minor"`
-	Currency         string           `json:"currency"`
-	ExpiresAt        time.Time        `json:"expires_at"`
+	Token              string           `json:"calculation_token,omitempty"`
+	Items              []CalculatedItem `json:"items"`
+	SubtotalMinor      int              `json:"subtotal_minor"`
+	DeliveryFeeMinor   int              `json:"delivery_fee_minor"`
+	TotalMinor         int              `json:"total_minor"`
+	Currency           string           `json:"currency"`
+	ExpiresAt          time.Time        `json:"expires_at"`
+	OrderSubtotalMinor int              `json:"order_subtotal_minor,omitempty"`
+	OrderTotalMinor    int              `json:"order_total_minor,omitempty"`
 }
 
 type CashLocationStatus string
@@ -296,6 +298,10 @@ type Order struct {
 	CancelledAt                *time.Time        `json:"cancelled_at,omitempty"`
 	CashLocationVerifiedAt     *time.Time        `json:"cash_location_verified_at,omitempty"`
 	CashLocationDistanceMeters *int              `json:"cash_location_distance_meters,omitempty"`
+	CanAddItems                bool              `json:"can_add_items"`
+	AddItemsUntil              *time.Time        `json:"add_items_until,omitempty"`
+	AddItemsReason             string            `json:"add_items_reason,omitempty"`
+	LatestAddition             *OrderAddition    `json:"latest_addition,omitempty"`
 	Items                      []OrderItem       `json:"items"`
 	Events                     []OrderEvent      `json:"events,omitempty"`
 }
@@ -321,14 +327,29 @@ type OrderSummary struct {
 	CancelledAt                *time.Time        `json:"cancelled_at,omitempty"`
 	CashLocationVerifiedAt     *time.Time        `json:"cash_location_verified_at,omitempty"`
 	CashLocationDistanceMeters *int              `json:"cash_location_distance_meters,omitempty"`
+	CanAddItems                bool              `json:"can_add_items"`
+	AddItemsUntil              *time.Time        `json:"add_items_until,omitempty"`
+	AddItemsReason             string            `json:"add_items_reason,omitempty"`
+	LatestAddition             *OrderAddition    `json:"latest_addition,omitempty"`
 }
 
 type OrderItem struct {
-	MenuItemID     uuid.UUID `json:"menu_item_id"`
-	SnapshotTitle  string    `json:"snapshot_title"`
-	UnitPriceMinor int       `json:"unit_price_minor"`
-	Quantity       int       `json:"quantity"`
-	LineTotalMinor int       `json:"line_total_minor"`
+	MenuItemID        uuid.UUID  `json:"menu_item_id"`
+	SnapshotTitle     string     `json:"snapshot_title"`
+	UnitPriceMinor    int        `json:"unit_price_minor"`
+	Quantity          int        `json:"quantity"`
+	LineTotalMinor    int        `json:"line_total_minor"`
+	AdditionID        *uuid.UUID `json:"addition_id,omitempty"`
+	AdditionRevision  int        `json:"addition_revision,omitempty"`
+	AdditionCreatedAt *time.Time `json:"addition_created_at,omitempty"`
+}
+
+type OrderAddition struct {
+	ID            uuid.UUID `json:"id"`
+	Revision      int       `json:"revision"`
+	SubtotalMinor int       `json:"subtotal_minor"`
+	Currency      string    `json:"currency"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type OrderEvent struct {

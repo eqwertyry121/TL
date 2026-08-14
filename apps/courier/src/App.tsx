@@ -92,7 +92,7 @@ export function App() {
     markSeen(order.id);
     setBusy(order.id);
     try {
-      await withAuth((authToken) => api.markDelivered(authToken, order.id, `delivered-${order.id}-${order.version}`));
+      await withAuth((authToken) => api.markDelivered(authToken, order.id, `delivered-${order.id}-${order.version}`, order.version));
       setOrders((current) => current.filter((entry) => entry.id !== order.id));
     } catch {
       await refresh();

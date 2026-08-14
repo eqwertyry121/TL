@@ -34,6 +34,7 @@ type Store struct {
 
 const (
 	phoneHashHMACPrefix       = "hmac-sha256:"
+	orderAdditionWindow       = 5 * time.Minute
 	maxPhoneLength            = 32
 	maxAddressLength          = 240
 	maxCustomerCommentLength  = 300
@@ -57,6 +58,11 @@ type CreateOrderInput struct {
 	PaymentMethod           core.PaymentMethod `json:"payment_method"`
 	TermsAccepted           bool               `json:"terms_accepted"`
 	Locale                  string             `json:"locale"`
+}
+
+type AddOrderItemsInput struct {
+	CalculationToken string `json:"calculation_token"`
+	ExpectedVersion  int    `json:"expected_version"`
 }
 
 type UpsertCategoryInput struct {
@@ -1245,9 +1251,172 @@ func (s *Store) Calculate(ctx context.Context, sess core.Session, input []core.C
 	}
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO calculation_tokens (token_hash, user_id, items_json, subtotal_minor, delivery_fee_minor,
-			total_minor, currency, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			total_minor, currency, expires_at, purpose)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'order')
 	`, tokenHash, sess.UserID, itemsJSON, calc.SubtotalMinor, calc.DeliveryFeeMinor, calc.TotalMinor, calc.Currency, calc.ExpiresAt)
+	if err != nil {
+		return core.Calculation{}, err
+	}
+	calc.Token = token
+	return calc, nil
+}
+
+func (s *Store) CalculateAddition(ctx context.Context, sess core.Session, orderID uuid.UUID, input []core.CartItemInput, now time.Time) (core.Calculation, error) {
+	if sess.ActiveRole != core.RoleClient {
+		return core.Calculation{}, core.ErrForbidden
+	}
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return core.Calculation{}, err
+	}
+	accept := core.CanAcceptOrder(now, settings)
+	if !accept.OK {
+		if accept.Reason == "manual_day_off" {
+			return core.Calculation{}, core.ErrManualDayOff
+		}
+		return core.Calculation{}, core.ErrRestaurantClosed
+	}
+
+	var status core.FulfillmentStatus
+	var paymentMethod core.PaymentMethod
+	var createdAt time.Time
+	var orderSubtotal, orderDelivery, orderTotal int
+	var orderCurrency string
+	err = s.pool.QueryRow(ctx, `
+		SELECT fulfillment_status, payment_method, created_at, subtotal_minor, delivery_fee_minor, total_minor, currency
+		FROM orders
+		WHERE id=$1 AND client_user_id=$2
+	`, orderID, sess.UserID).Scan(&status, &paymentMethod, &createdAt, &orderSubtotal, &orderDelivery, &orderTotal, &orderCurrency)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return core.Calculation{}, core.ErrForbidden
+	}
+	if err != nil {
+		return core.Calculation{}, err
+	}
+	if status != core.StatusNew || paymentMethod != core.PaymentCash {
+		return core.Calculation{}, core.ErrOrderStatusConflict
+	}
+	if !now.UTC().Before(createdAt.UTC().Add(orderAdditionWindow)) {
+		return core.Calculation{}, core.ErrOrderStatusConflict
+	}
+	var alreadyAdded bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM order_additions WHERE order_id=$1)`, orderID).Scan(&alreadyAdded); err != nil {
+		return core.Calculation{}, err
+	}
+	if alreadyAdded {
+		return core.Calculation{}, core.ErrOrderStatusConflict
+	}
+
+	existing, err := s.orderItemQuantities(ctx, orderID)
+	if err != nil {
+		return core.Calculation{}, err
+	}
+	calc, err := s.calculateItems(ctx, sess.UserID, input, existing, settings, now, "addition", orderID)
+	if err != nil {
+		return core.Calculation{}, err
+	}
+	if calc.Currency != orderCurrency {
+		return core.Calculation{}, core.ErrCalculationExpired
+	}
+	calc.DeliveryFeeMinor = 0
+	calc.TotalMinor = calc.SubtotalMinor
+	calc.OrderSubtotalMinor = orderSubtotal + calc.SubtotalMinor
+	calc.OrderTotalMinor = orderTotal + calc.SubtotalMinor
+	return calc, nil
+}
+
+func (s *Store) calculateItems(ctx context.Context, userID uuid.UUID, input []core.CartItemInput, existing map[uuid.UUID]int, settings core.Settings, now time.Time, purpose string, orderID uuid.UUID) (core.Calculation, error) {
+	quantities := map[uuid.UUID]int{}
+	ids := []uuid.UUID{}
+	for _, item := range input {
+		if item.Quantity <= 0 || item.Quantity > settings.MaxItemQuantity {
+			return core.Calculation{}, core.ErrInvalidQuantity
+		}
+		if _, ok := quantities[item.ItemID]; !ok {
+			ids = append(ids, item.ItemID)
+		}
+		quantities[item.ItemID] += item.Quantity
+		if quantities[item.ItemID] > settings.MaxItemQuantity {
+			return core.Calculation{}, core.ErrInvalidQuantity
+		}
+	}
+	if len(quantities) == 0 {
+		return core.Calculation{}, core.ErrInvalidQuantity
+	}
+
+	calc := core.Calculation{
+		Items:            make([]core.CalculatedItem, 0, len(quantities)),
+		DeliveryFeeMinor: 0,
+		Currency:         settings.Currency,
+		ExpiresAt:        now.UTC().Add(10 * time.Minute),
+	}
+	rows, err := s.pool.Query(ctx, `
+			SELECT mi.id, mi.title_ru, mi.price_minor, mi.version, mi.min_quantity
+			FROM menu_items mi
+			JOIN categories c ON c.id=mi.category_id
+			WHERE mi.id=ANY($1) AND mi.visible=true AND mi.archived=false AND c.visible=true AND c.archived=false
+	`, ids)
+	if err != nil {
+		return core.Calculation{}, err
+	}
+	defer rows.Close()
+	type menuCalcRow struct {
+		title       string
+		price       int
+		version     int
+		minQuantity int
+	}
+	menuRows := map[uuid.UUID]menuCalcRow{}
+	for rows.Next() {
+		var id uuid.UUID
+		var row menuCalcRow
+		if err := rows.Scan(&id, &row.title, &row.price, &row.version, &row.minQuantity); err != nil {
+			return core.Calculation{}, err
+		}
+		menuRows[id] = row
+	}
+	if err := rows.Err(); err != nil {
+		return core.Calculation{}, err
+	}
+	if len(menuRows) != len(ids) {
+		return core.Calculation{}, core.ErrItemUnavailable
+	}
+	for _, id := range ids {
+		qty := quantities[id]
+		row := menuRows[id]
+		existingQty := existing[id]
+		if existingQty == 0 && qty < row.minQuantity {
+			return core.Calculation{}, core.ErrInvalidQuantity
+		}
+		if existingQty+qty > settings.MaxItemQuantity {
+			return core.Calculation{}, core.ErrInvalidQuantity
+		}
+		line := row.price * qty
+		calc.SubtotalMinor += line
+		calc.Items = append(calc.Items, core.CalculatedItem{
+			ItemID:         id,
+			Title:          row.title,
+			UnitPriceMinor: row.price,
+			Quantity:       qty,
+			LineTotalMinor: line,
+			Version:        row.version,
+		})
+	}
+	calc.TotalMinor = calc.SubtotalMinor
+
+	token, tokenHash, err := randomToken()
+	if err != nil {
+		return core.Calculation{}, err
+	}
+	itemsJSON, err := json.Marshal(calc.Items)
+	if err != nil {
+		return core.Calculation{}, err
+	}
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO calculation_tokens (token_hash, user_id, items_json, subtotal_minor, delivery_fee_minor,
+			total_minor, currency, expires_at, purpose, order_id)
+		VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9)
+	`, tokenHash, userID, itemsJSON, calc.SubtotalMinor, calc.TotalMinor, calc.Currency, calc.ExpiresAt, purpose, uuidSQL(&orderID))
 	if err != nil {
 		return core.Calculation{}, err
 	}
@@ -1351,6 +1520,129 @@ func (s *Store) revalidateCalculationTx(ctx context.Context, tx pgx.Tx, items []
 	return revalidated, subtotal, currentDelivery, total, currentCurrency, nil
 }
 
+func (s *Store) revalidateAdditionCalculationTx(ctx context.Context, tx pgx.Tx, orderID uuid.UUID, items []core.CalculatedItem, storedSubtotal, storedDelivery, storedTotal int, storedCurrency string) ([]core.CalculatedItem, int, string, error) {
+	if len(items) == 0 {
+		return nil, 0, "", core.ErrInvalidQuantity
+	}
+
+	var currentCurrency string
+	var maxItemQuantity int
+	if err := tx.QueryRow(ctx, `
+		SELECT currency, max_item_quantity
+		FROM app_settings
+		WHERE id=true
+	`).Scan(&currentCurrency, &maxItemQuantity); err != nil {
+		return nil, 0, "", err
+	}
+	if storedCurrency != currentCurrency || storedDelivery != 0 || storedTotal != storedSubtotal {
+		return nil, 0, "", core.ErrCalculationExpired
+	}
+
+	existingRows, err := tx.Query(ctx, `
+		SELECT menu_item_id, COALESCE(SUM(quantity), 0)::int
+		FROM order_items
+		WHERE order_id=$1 AND menu_item_id IS NOT NULL
+		GROUP BY menu_item_id
+	`, orderID)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	existing := map[uuid.UUID]int{}
+	for existingRows.Next() {
+		var id uuid.UUID
+		var quantity int
+		if err := existingRows.Scan(&id, &quantity); err != nil {
+			existingRows.Close()
+			return nil, 0, "", err
+		}
+		existing[id] = quantity
+	}
+	if err := existingRows.Err(); err != nil {
+		existingRows.Close()
+		return nil, 0, "", err
+	}
+	existingRows.Close()
+
+	seen := map[uuid.UUID]bool{}
+	ids := make([]uuid.UUID, 0, len(items))
+	for _, item := range items {
+		if item.ItemID == uuid.Nil || seen[item.ItemID] || item.Quantity <= 0 || item.Quantity > maxItemQuantity {
+			return nil, 0, "", core.ErrInvalidQuantity
+		}
+		seen[item.ItemID] = true
+		ids = append(ids, item.ItemID)
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT mi.id, mi.title_ru, mi.price_minor, mi.version, mi.min_quantity
+		FROM menu_items mi
+		JOIN categories c ON c.id=mi.category_id
+		WHERE mi.id=ANY($1)
+			AND mi.visible=true
+			AND mi.archived=false
+			AND c.visible=true
+			AND c.archived=false
+	`, ids)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	defer rows.Close()
+	type menuCalcRow struct {
+		title       string
+		price       int
+		version     int
+		minQuantity int
+	}
+	menuRows := map[uuid.UUID]menuCalcRow{}
+	for rows.Next() {
+		var id uuid.UUID
+		var row menuCalcRow
+		if err := rows.Scan(&id, &row.title, &row.price, &row.version, &row.minQuantity); err != nil {
+			return nil, 0, "", err
+		}
+		menuRows[id] = row
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, "", err
+	}
+	if len(menuRows) != len(ids) {
+		return nil, 0, "", core.ErrItemUnavailable
+	}
+
+	revalidated := make([]core.CalculatedItem, 0, len(items))
+	subtotal := 0
+	for _, item := range items {
+		row := menuRows[item.ItemID]
+		existingQty := existing[item.ItemID]
+		if existingQty == 0 && item.Quantity < row.minQuantity {
+			return nil, 0, "", core.ErrInvalidQuantity
+		}
+		if existingQty+item.Quantity > maxItemQuantity {
+			return nil, 0, "", core.ErrInvalidQuantity
+		}
+		if item.Title != row.title || item.UnitPriceMinor != row.price || item.Version != row.version {
+			return nil, 0, "", core.ErrCalculationExpired
+		}
+		line := row.price * item.Quantity
+		if item.LineTotalMinor != line {
+			return nil, 0, "", core.ErrCalculationExpired
+		}
+		subtotal += line
+		revalidated = append(revalidated, core.CalculatedItem{
+			ItemID:         item.ItemID,
+			Title:          row.title,
+			UnitPriceMinor: row.price,
+			Quantity:       item.Quantity,
+			LineTotalMinor: line,
+			Version:        row.version,
+		})
+	}
+	if subtotal != storedSubtotal {
+		return nil, 0, "", core.ErrCalculationExpired
+	}
+	return revalidated, subtotal, currentCurrency, nil
+}
+
 func (s *Store) VerifiedContact(ctx context.Context, sess core.Session) (core.VerifiedContact, error) {
 	if sess.ActiveRole != core.RoleClient {
 		return core.VerifiedContact{}, core.ErrForbidden
@@ -1415,7 +1707,7 @@ func (s *Store) CreateCashLocationChallenge(ctx context.Context, sess core.Sessi
 	if err := s.pool.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM calculation_tokens
-			WHERE token_hash=$1 AND user_id=$2 AND used_at IS NULL AND expires_at > now()
+			WHERE token_hash=$1 AND user_id=$2 AND purpose='order' AND used_at IS NULL AND expires_at > now()
 		)
 	`, tokenHash, sess.UserID).Scan(&exists); err != nil {
 		return core.CashLocationChallenge{}, err
@@ -1722,7 +2014,7 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	err = tx.QueryRow(ctx, `
 		SELECT items_json, subtotal_minor, delivery_fee_minor, total_minor, currency
 		FROM calculation_tokens
-		WHERE token_hash=$1 AND user_id=$2 AND used_at IS NULL AND expires_at > now()
+		WHERE token_hash=$1 AND user_id=$2 AND purpose='order' AND used_at IS NULL AND expires_at > now()
 		FOR UPDATE
 	`, tokenHash, sess.UserID).Scan(&rawItems, &subtotal, &delivery, &total, &currency)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -2725,18 +3017,192 @@ func (s *Store) AuditLog(ctx context.Context, sess core.Session, filter AuditLog
 	return AuditLogPage{Entries: entries, Limit: limit, Offset: offset, HasMore: hasMore}, nil
 }
 
-func (s *Store) MarkReady(ctx context.Context, sess core.Session, orderID uuid.UUID, idempotencyKey, requestHash string) (core.Order, error) {
+func (s *Store) AddOrderItems(ctx context.Context, sess core.Session, orderID uuid.UUID, input AddOrderItemsInput, idempotencyKey, requestHash string, now time.Time) (core.Order, error) {
+	if sess.ActiveRole != core.RoleClient {
+		return core.Order{}, core.ErrForbidden
+	}
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return core.Order{}, core.ErrIdempotencyConflict
+	}
+	if input.ExpectedVersion <= 0 {
+		return core.Order{}, core.ErrInvalidInput
+	}
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return core.Order{}, err
+	}
+	accept := core.CanAcceptOrder(now, settings)
+	if !accept.OK {
+		if accept.Reason == "manual_day_off" {
+			return core.Order{}, core.ErrManualDayOff
+		}
+		return core.Order{}, core.ErrRestaurantClosed
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.Order{}, err
+	}
+	defer rollback(ctx, tx)
+
+	if existingID, replay, err := s.beginIdempotency(ctx, tx, sess.UserID, "orders.add_items", idempotencyKey, requestHash); err != nil {
+		return core.Order{}, err
+	} else if replay {
+		if err := tx.Commit(ctx); err != nil {
+			return core.Order{}, err
+		}
+		return s.OrderByID(ctx, existingID, true)
+	}
+
+	var status core.FulfillmentStatus
+	var paymentMethod core.PaymentMethod
+	var orderVersion int
+	var createdAt time.Time
+	var orderSubtotal, orderTotal int
+	var orderCurrency string
+	err = tx.QueryRow(ctx, `
+		SELECT fulfillment_status, payment_method, version, created_at, subtotal_minor, total_minor, currency
+		FROM orders
+		WHERE id=$1 AND client_user_id=$2
+		FOR UPDATE
+	`, orderID, sess.UserID).Scan(&status, &paymentMethod, &orderVersion, &createdAt, &orderSubtotal, &orderTotal, &orderCurrency)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return core.Order{}, core.ErrForbidden
+	}
+	if err != nil {
+		return core.Order{}, err
+	}
+	if status != core.StatusNew || paymentMethod != core.PaymentCash || orderVersion != input.ExpectedVersion {
+		return core.Order{}, core.ErrOrderStatusConflict
+	}
+	if !now.UTC().Before(createdAt.UTC().Add(orderAdditionWindow)) {
+		return core.Order{}, core.ErrOrderStatusConflict
+	}
+	var alreadyAdded bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM order_additions WHERE order_id=$1)`, orderID).Scan(&alreadyAdded); err != nil {
+		return core.Order{}, err
+	}
+	if alreadyAdded {
+		return core.Order{}, core.ErrOrderStatusConflict
+	}
+
+	tokenHash := hashString(input.CalculationToken)
+	var rawItems []byte
+	var subtotal, delivery, total int
+	var currency string
+	err = tx.QueryRow(ctx, `
+		SELECT items_json, subtotal_minor, delivery_fee_minor, total_minor, currency
+		FROM calculation_tokens
+		WHERE token_hash=$1 AND user_id=$2 AND purpose='addition' AND order_id=$3 AND used_at IS NULL AND expires_at > now()
+		FOR UPDATE
+	`, tokenHash, sess.UserID, orderID).Scan(&rawItems, &subtotal, &delivery, &total, &currency)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return core.Order{}, core.ErrCalculationExpired
+	}
+	if err != nil {
+		return core.Order{}, err
+	}
+	if currency != orderCurrency {
+		return core.Order{}, core.ErrCalculationExpired
+	}
+	var items []core.CalculatedItem
+	if err := json.Unmarshal(rawItems, &items); err != nil {
+		return core.Order{}, err
+	}
+	items, subtotal, currency, err = s.revalidateAdditionCalculationTx(ctx, tx, orderID, items, subtotal, delivery, total, currency)
+	if err != nil {
+		return core.Order{}, err
+	}
+
+	var additionID uuid.UUID
+	var additionCreatedAt time.Time
+	err = tx.QueryRow(ctx, `
+		INSERT INTO order_additions (order_id, client_user_id, revision, subtotal_minor, currency)
+		VALUES ($1, $2, 1, $3, $4)
+		RETURNING id, created_at
+	`, orderID, sess.UserID, subtotal, currency).Scan(&additionID, &additionCreatedAt)
+	if err != nil {
+		if isUniqueViolation(err, "order_additions_order_id_key") {
+			return core.Order{}, core.ErrOrderStatusConflict
+		}
+		return core.Order{}, err
+	}
+
+	var sortOrder int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(sort_order), -1) + 1 FROM order_items WHERE order_id=$1`, orderID).Scan(&sortOrder); err != nil {
+		return core.Order{}, err
+	}
+	for _, item := range items {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO order_items (
+				order_id, menu_item_id, snapshot_title, unit_price_minor, quantity, line_total_minor, sort_order, addition_id
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`, orderID, item.ItemID, item.Title, item.UnitPriceMinor, item.Quantity, item.LineTotalMinor, sortOrder, additionID); err != nil {
+			return core.Order{}, err
+		}
+		sortOrder++
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE orders
+		SET subtotal_minor=$2, total_minor=$3, updated_at=now(), version=version+1
+		WHERE id=$1
+	`, orderID, orderSubtotal+subtotal, orderTotal+subtotal)
+	if err != nil {
+		return core.Order{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE calculation_tokens SET used_at=now() WHERE token_hash=$1`, tokenHash); err != nil {
+		return core.Order{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO order_events (order_id, from_status, to_status, action, actor_user_id, actor_role, reason)
+		VALUES ($1, 'NEW', 'NEW', 'client_add_items', $2, 'CLIENT', $3)
+	`, orderID, sess.UserID, fmt.Sprintf("Дозаказ %d RSD", subtotal)); err != nil {
+		return core.Order{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
+		VALUES ($1, 'kitchen', 'kitchen_order_addition', $2)
+		ON CONFLICT (event_key, recipient_kind) DO NOTHING
+	`, orderID, fmt.Sprintf("order:%s:addition:%s", orderID, additionID)); err != nil {
+		return core.Order{}, err
+	}
+	if err := s.finishIdempotency(ctx, tx, sess.UserID, "orders.add_items", idempotencyKey, orderID); err != nil {
+		return core.Order{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.Order{}, err
+	}
+	order, err := s.OrderByID(ctx, orderID, true)
+	if err != nil {
+		return core.Order{}, err
+	}
+	if order.LatestAddition != nil {
+		order.LatestAddition.CreatedAt = additionCreatedAt
+	}
+	return order, nil
+}
+
+func (s *Store) MarkReady(ctx context.Context, sess core.Session, orderID uuid.UUID, idempotencyKey, requestHash string, expectedVersion ...int) (core.Order, error) {
 	if sess.ActiveRole != core.RoleKitchen {
 		return core.Order{}, core.ErrForbidden
 	}
-	return s.transition(ctx, sess, orderID, "orders.mark_ready", idempotencyKey, requestHash, core.StatusNew, core.StatusOutForDelivery)
+	return s.transition(ctx, sess, orderID, "orders.mark_ready", idempotencyKey, requestHash, core.StatusNew, core.StatusOutForDelivery, expectedVersionValue(expectedVersion))
 }
 
-func (s *Store) MarkDelivered(ctx context.Context, sess core.Session, orderID uuid.UUID, idempotencyKey, requestHash string) (core.Order, error) {
+func (s *Store) MarkDelivered(ctx context.Context, sess core.Session, orderID uuid.UUID, idempotencyKey, requestHash string, expectedVersion ...int) (core.Order, error) {
 	if sess.ActiveRole != core.RoleCourier {
 		return core.Order{}, core.ErrForbidden
 	}
-	return s.transition(ctx, sess, orderID, "orders.mark_delivered", idempotencyKey, requestHash, core.StatusOutForDelivery, core.StatusDelivered)
+	return s.transition(ctx, sess, orderID, "orders.mark_delivered", idempotencyKey, requestHash, core.StatusOutForDelivery, core.StatusDelivered, expectedVersionValue(expectedVersion))
+}
+
+func expectedVersionValue(values []int) int {
+	if len(values) == 0 {
+		return 0
+	}
+	return values[0]
 }
 
 func (s *Store) SendCourierETA(ctx context.Context, sess core.Session, orderID uuid.UUID, minutes int) error {
@@ -2784,7 +3250,7 @@ func (s *Store) SendCourierETA(ctx context.Context, sess core.Session, orderID u
 	return tx.Commit(ctx)
 }
 
-func (s *Store) transition(ctx context.Context, sess core.Session, orderID uuid.UUID, operation, idempotencyKey, requestHash string, from, to core.FulfillmentStatus) (core.Order, error) {
+func (s *Store) transition(ctx context.Context, sess core.Session, orderID uuid.UUID, operation, idempotencyKey, requestHash string, from, to core.FulfillmentStatus, expectedVersion int) (core.Order, error) {
 	if strings.TrimSpace(idempotencyKey) == "" {
 		return core.Order{}, core.ErrIdempotencyConflict
 	}
@@ -2812,17 +3278,17 @@ func (s *Store) transition(ctx context.Context, sess core.Session, orderID uuid.
 		err = tx.QueryRow(ctx, `
 			UPDATE orders
 			SET fulfillment_status='OUT_FOR_DELIVERY', ready_at=now(), updated_at=now(), version=version+1
-			WHERE id=$1 AND fulfillment_status='NEW'
+			WHERE id=$1 AND fulfillment_status='NEW' AND ($2::int <= 0 OR version=$2)
 			RETURNING id, 'NEW', version
-		`, orderID).Scan(&updatedID, &previous, &orderVersion)
+		`, orderID, expectedVersion).Scan(&updatedID, &previous, &orderVersion)
 	} else {
 		action = "mark_delivered"
 		err = tx.QueryRow(ctx, `
 			UPDATE orders
 			SET fulfillment_status='DELIVERED', payment_status='PAID', delivered_at=now(), updated_at=now(), version=version+1
-			WHERE id=$1 AND fulfillment_status='OUT_FOR_DELIVERY'
+			WHERE id=$1 AND fulfillment_status='OUT_FOR_DELIVERY' AND ($2::int <= 0 OR version=$2)
 			RETURNING id, 'OUT_FOR_DELIVERY', version
-		`, orderID).Scan(&updatedID, &previous, &orderVersion)
+		`, orderID, expectedVersion).Scan(&updatedID, &previous, &orderVersion)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.Order{}, core.ErrOrderStatusConflict
@@ -2921,13 +3387,20 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 		return core.Order{}, err
 	}
 	order.Items = items
+	if err := s.attachAdditionState(ctx, &order); err != nil {
+		return core.Order{}, err
+	}
 	return order, nil
 }
 
 func (s *Store) orderItems(ctx context.Context, orderID uuid.UUID) ([]core.OrderItem, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT menu_item_id, snapshot_title, unit_price_minor, quantity, line_total_minor
-		FROM order_items WHERE order_id=$1 ORDER BY sort_order
+		SELECT oi.menu_item_id, oi.snapshot_title, oi.unit_price_minor, oi.quantity, oi.line_total_minor,
+			oi.addition_id, COALESCE(oa.revision, 0), oa.created_at
+		FROM order_items oi
+		LEFT JOIN order_additions oa ON oa.id=oi.addition_id
+		WHERE oi.order_id=$1
+		ORDER BY oi.sort_order, oi.id
 	`, orderID)
 	if err != nil {
 		return nil, err
@@ -2936,12 +3409,104 @@ func (s *Store) orderItems(ctx context.Context, orderID uuid.UUID) ([]core.Order
 	items := []core.OrderItem{}
 	for rows.Next() {
 		var item core.OrderItem
-		if err := rows.Scan(&item.MenuItemID, &item.SnapshotTitle, &item.UnitPriceMinor, &item.Quantity, &item.LineTotalMinor); err != nil {
+		var additionID uuid.NullUUID
+		var additionCreated sql.NullTime
+		if err := rows.Scan(
+			&item.MenuItemID,
+			&item.SnapshotTitle,
+			&item.UnitPriceMinor,
+			&item.Quantity,
+			&item.LineTotalMinor,
+			&additionID,
+			&item.AdditionRevision,
+			&additionCreated,
+		); err != nil {
 			return nil, err
+		}
+		if additionID.Valid {
+			value := additionID.UUID
+			item.AdditionID = &value
+		}
+		if additionCreated.Valid {
+			value := additionCreated.Time
+			item.AdditionCreatedAt = &value
 		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (s *Store) orderItemQuantities(ctx context.Context, orderID uuid.UUID) (map[uuid.UUID]int, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT menu_item_id, COALESCE(SUM(quantity), 0)::int
+		FROM order_items
+		WHERE order_id=$1 AND menu_item_id IS NOT NULL
+		GROUP BY menu_item_id
+	`, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	quantities := map[uuid.UUID]int{}
+	for rows.Next() {
+		var id uuid.UUID
+		var quantity int
+		if err := rows.Scan(&id, &quantity); err != nil {
+			return nil, err
+		}
+		quantities[id] = quantity
+	}
+	return quantities, rows.Err()
+}
+
+func (s *Store) attachAdditionState(ctx context.Context, order *core.Order) error {
+	if order == nil || order.ID == uuid.Nil {
+		return nil
+	}
+	var addition core.OrderAddition
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, revision, subtotal_minor, currency, created_at
+		FROM order_additions
+		WHERE order_id=$1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, order.ID).Scan(&addition.ID, &addition.Revision, &addition.SubtotalMinor, &addition.Currency, &addition.CreatedAt)
+	if err == nil {
+		order.LatestAddition = &addition
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+
+	until := order.CreatedAt.UTC().Add(orderAdditionWindow)
+	if order.FulfillmentStatus != core.StatusNew {
+		order.AddItemsReason = "status"
+		return nil
+	}
+	if order.PaymentMethod != core.PaymentCash {
+		order.AddItemsReason = "payment_method"
+		return nil
+	}
+	if order.LatestAddition != nil {
+		order.AddItemsReason = "already_added"
+		return nil
+	}
+	order.AddItemsUntil = &until
+	now := time.Now().UTC()
+	if !now.Before(until) {
+		order.AddItemsReason = "time_expired"
+		return nil
+	}
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return err
+	}
+	accept := core.CanAcceptOrder(now, settings)
+	if !accept.OK {
+		order.AddItemsReason = accept.Reason
+		return nil
+	}
+	order.CanAddItems = true
+	return nil
 }
 
 func (s *Store) OrderEvents(ctx context.Context, orderID uuid.UUID) ([]core.OrderEvent, error) {
@@ -3108,10 +3673,12 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 	}
 
 	itemRows, err := s.pool.Query(ctx, `
-		SELECT order_id, menu_item_id, snapshot_title, unit_price_minor, quantity, line_total_minor
-		FROM order_items
-		WHERE order_id=ANY($1)
-		ORDER BY order_id, sort_order
+		SELECT oi.order_id, oi.menu_item_id, oi.snapshot_title, oi.unit_price_minor, oi.quantity, oi.line_total_minor,
+			oi.addition_id, COALESCE(oa.revision, 0), oa.created_at
+		FROM order_items oi
+		LEFT JOIN order_additions oa ON oa.id=oi.addition_id
+		WHERE oi.order_id=ANY($1)
+		ORDER BY oi.order_id, oi.sort_order, oi.id
 	`, ids)
 	if err != nil {
 		return nil, err
@@ -3120,8 +3687,28 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 	for itemRows.Next() {
 		var orderID uuid.UUID
 		var item core.OrderItem
-		if err := itemRows.Scan(&orderID, &item.MenuItemID, &item.SnapshotTitle, &item.UnitPriceMinor, &item.Quantity, &item.LineTotalMinor); err != nil {
+		var additionID uuid.NullUUID
+		var additionCreated sql.NullTime
+		if err := itemRows.Scan(
+			&orderID,
+			&item.MenuItemID,
+			&item.SnapshotTitle,
+			&item.UnitPriceMinor,
+			&item.Quantity,
+			&item.LineTotalMinor,
+			&additionID,
+			&item.AdditionRevision,
+			&additionCreated,
+		); err != nil {
 			return nil, err
+		}
+		if additionID.Valid {
+			value := additionID.UUID
+			item.AdditionID = &value
+		}
+		if additionCreated.Valid {
+			value := additionCreated.Time
+			item.AdditionCreatedAt = &value
 		}
 		if index, ok := indexByID[orderID]; ok {
 			orders[index].Items = append(orders[index].Items, item)
@@ -3129,6 +3716,11 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 	}
 	if err := itemRows.Err(); err != nil {
 		return nil, err
+	}
+	for index := range orders {
+		if err := s.attachAdditionState(ctx, &orders[index]); err != nil {
+			return nil, err
+		}
 	}
 	return orders, nil
 }

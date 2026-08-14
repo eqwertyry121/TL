@@ -135,6 +135,8 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/orders", s.createOrder)
 			r.Get("/orders", s.clientOrders)
 			r.Get("/orders/{id}", s.clientOrder)
+			r.Post("/orders/{id}/addition/calculate", s.calculateOrderAddition)
+			r.Post("/orders/{id}/addition", s.addOrderItems)
 
 			r.Get("/kitchen/orders", s.kitchenOrders)
 			r.Post("/kitchen/orders/{id}/ready", s.markReady)
@@ -556,7 +558,7 @@ func validBeaconRoute(app string, route string) bool {
 	switch app {
 	case "client":
 		switch route {
-		case "menu", "dish", "cart", "checkout", "order", "orders", "support", "terms", "unknown":
+		case "menu", "dish", "cart", "checkout", "order", "orders", "support", "terms", "returns", "privacy", "unknown":
 			return true
 		default:
 			return false
@@ -891,6 +893,51 @@ func (s *Server) clientOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	order, err := s.store.ClientOrderByID(r.Context(), mustSession(r), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *Server) calculateOrderAddition(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		Items []core.CartItemInput `json:"items"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	calc, err := s.store.CalculateAddition(r.Context(), mustSession(r), id, req.Items, s.now())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, calc)
+}
+
+func (s *Server) addOrderItems(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req store.AddOrderItemsInput
+	if err := json.Unmarshal(raw, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	order, err := s.store.AddOrderItems(r.Context(), mustSession(r), id, req, r.Header.Get("Idempotency-Key"), bodyHash(raw), s.now())
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1311,7 +1358,23 @@ func (s *Server) markReady(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	order, err := s.store.MarkReady(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash([]byte(id.String())))
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		ExpectedVersion int `json:"expected_version"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if req.ExpectedVersion <= 0 {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	order, err := s.store.MarkReady(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash(raw), req.ExpectedVersion)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1325,7 +1388,23 @@ func (s *Server) markDelivered(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	order, err := s.store.MarkDelivered(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash([]byte(id.String())))
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		ExpectedVersion int `json:"expected_version"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if req.ExpectedVersion <= 0 {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	order, err := s.store.MarkDelivered(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash(raw), req.ExpectedVersion)
 	if err != nil {
 		writeError(w, err)
 		return
