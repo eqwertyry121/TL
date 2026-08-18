@@ -891,6 +891,7 @@ function DishForm({
 }) {
   const [form, setForm] = useState(item);
   const preview = adminPhotoPreview(form);
+  const update = (patch: Partial<AdminMenuItem>) => setForm((current) => ({ ...current, ...patch }));
   async function upload(file?: File) {
     if (!file) return;
     const response = await onUpload(file);
@@ -909,40 +910,55 @@ function DishForm({
         </div>
         <button onClick={onCancel}>Закрыть</button>
       </div>
-      <div className="form-grid">
-        <label><span>Категория</span><select value={form.category_id} onChange={(event) => setForm({ ...form, category_id: event.target.value })}>
-          {categories.map((category) => <option key={category.id} value={category.id}>{category.title_ru}</option>)}
-        </select></label>
-        <Text label="Название RU" value={form.title_ru} onChange={(title_ru) => setForm({ ...form, title_ru })} />
-        <Text label="Название SR-Latn" value={form.title_sr} onChange={(title_sr) => setForm({ ...form, title_sr })} />
-        <Text label="Название EN" value={form.title_en} onChange={(title_en) => setForm({ ...form, title_en })} />
-        <NumberInput label="Цена, RSD" value={form.price_minor} onChange={(price_minor) => setForm({ ...form, price_minor })} />
-        <NumberInput label="Минимум, шт" value={form.min_quantity || 1} onChange={(min_quantity) => setForm({ ...form, min_quantity: Math.max(1, min_quantity) })} />
-        <Text label="Вес/порция" value={form.weight_text} onChange={(weight_text) => setForm({ ...form, weight_text })} />
-        <NumberInput label="Порядок" value={form.sort_order} onChange={(sort_order) => setForm({ ...form, sort_order })} />
-      </div>
-      <Textarea label="Описание RU" value={form.description_ru} onChange={(description_ru) => setForm({ ...form, description_ru })} />
-      <div className="form-grid">
-        <Textarea label="Описание SR-Latn" value={form.description_sr} onChange={(description_sr) => setForm({ ...form, description_sr })} />
-        <Textarea label="Описание EN" value={form.description_en} onChange={(description_en) => setForm({ ...form, description_en })} />
-      </div>
-      <div className="form-grid">
-        <Text label="Аллергены RU" value={form.allergen_text_ru} onChange={(allergen_text_ru) => setForm({ ...form, allergen_text_ru })} />
-        <Text label="Аллергены SR-Latn" value={form.allergen_text_sr} onChange={(allergen_text_sr) => setForm({ ...form, allergen_text_sr })} />
-        <Text label="Аллергены EN" value={form.allergen_text_en} onChange={(allergen_text_en) => setForm({ ...form, allergen_text_en })} />
-      </div>
-      <Text label="Фото (/media/menu/*.jpg)" value={form.photo_path} onChange={(photo_path) => setForm({ ...form, photo_path, photo_variants: undefined })} />
-      <label className="upload"><Upload size={16} /> Загрузить фото <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void upload(event.target.files?.[0])} /></label>
-      {preview.url && (
-        <div className="photo-preview">
-          <img src={preview.url} width={preview.width} height={preview.height} alt="" loading="lazy" decoding="async" />
-          <span>Preview фото блюда</span>
+      <div className="editor-layout">
+        <div className="editor-main">
+          <div className="form-grid primary-fields">
+            <label><span>Категория</span><select value={form.category_id} onChange={(event) => update({ category_id: event.target.value })}>
+              {categories.map((category) => <option key={category.id} value={category.id}>{category.title_ru}</option>)}
+            </select></label>
+            <Text label="Название" value={form.title_ru} onChange={(title_ru) => update({ title_ru })} />
+            <NumberInput label="Цена, RSD" value={form.price_minor} onChange={(price_minor) => update({ price_minor })} />
+          </div>
+          <Textarea label="Описание" value={form.description_ru} onChange={(description_ru) => update({ description_ru })} />
+          <div className="form-grid compact-fields">
+            <Text label="Вес/порция" value={form.weight_text} onChange={(weight_text) => update({ weight_text })} />
+            <NumberInput label="Порядок" value={form.sort_order} onChange={(sort_order) => update({ sort_order })} />
+            <NumberInput label="Минимум, шт" value={form.min_quantity || 1} onChange={(min_quantity) => update({ min_quantity: Math.max(1, min_quantity) })} />
+          </div>
+          <label className="check"><input type="checkbox" checked={form.visible} onChange={(event) => update({ visible: event.target.checked })} /> Показывать клиентам</label>
         </div>
-      )}
-      <label className="check"><input type="checkbox" checked={form.visible} onChange={(event) => setForm({ ...form, visible: event.target.checked })} /> Показывать клиентам</label>
+        <div className="photo-panel">
+          <label className="upload primary-upload"><Upload size={16} /> Загрузить фото <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void upload(event.target.files?.[0])} /></label>
+          {preview.url && (
+            <div className="photo-preview">
+              <img src={preview.url} width={preview.width} height={preview.height} alt="" loading="lazy" decoding="async" />
+              <span>Preview фото блюда</span>
+            </div>
+          )}
+          <Text label="Путь фото" value={form.photo_path} onChange={(photo_path) => update({ photo_path, photo_variants: undefined })} />
+        </div>
+      </div>
+      <details className="advanced-fields">
+        <summary>Переводы и аллергены</summary>
+        <div className="advanced-fields-body">
+          <div className="form-grid">
+            <Text label="Название SR-Latn" value={form.title_sr} onChange={(title_sr) => update({ title_sr })} />
+            <Text label="Название EN" value={form.title_en} onChange={(title_en) => update({ title_en })} />
+          </div>
+          <div className="form-grid">
+            <Textarea label="Описание SR-Latn" value={form.description_sr} onChange={(description_sr) => update({ description_sr })} />
+            <Textarea label="Описание EN" value={form.description_en} onChange={(description_en) => update({ description_en })} />
+          </div>
+          <div className="form-grid">
+            <Text label="Аллергены RU" value={form.allergen_text_ru} onChange={(allergen_text_ru) => update({ allergen_text_ru })} />
+            <Text label="Аллергены SR-Latn" value={form.allergen_text_sr} onChange={(allergen_text_sr) => update({ allergen_text_sr })} />
+            <Text label="Аллергены EN" value={form.allergen_text_en} onChange={(allergen_text_en) => update({ allergen_text_en })} />
+          </div>
+        </div>
+      </details>
       {item.id && item.price_minor !== form.price_minor && <div className="warn">Цена меняется: {money(item.price_minor)} → {money(form.price_minor)}. Старые заказы останутся с прежней ценой.</div>}
       <div className="actions">
-        <button className="primary" onClick={() => void onSave(form)}><Save size={16} /> Сохранить</button>
+        <button className="primary" onClick={() => void onSave(dishInputFromForm(form))}><Save size={16} /> Сохранить</button>
         <button onClick={onCancel}>Отмена</button>
       </div>
     </div>
@@ -1693,6 +1709,31 @@ function emptyItem(categoryID: string): AdminMenuItem {
     version: 1,
     created_at: now,
     updated_at: now,
+  };
+}
+
+function dishInputFromForm(form: AdminMenuItem): MenuItemInput {
+  const titleRU = form.title_ru.trim();
+  const descriptionRU = form.description_ru.trim();
+  const allergenRU = form.allergen_text_ru.trim();
+  return {
+    category_id: form.category_id,
+    title_ru: titleRU,
+    title_sr: form.title_sr.trim() || titleRU,
+    title_en: form.title_en.trim() || titleRU,
+    description_ru: descriptionRU,
+    description_sr: form.description_sr.trim() || descriptionRU,
+    description_en: form.description_en.trim() || descriptionRU,
+    price_minor: Math.max(0, Math.round(form.price_minor || 0)),
+    photo_path: form.photo_path.trim(),
+    weight_text: form.weight_text.trim(),
+    min_quantity: Math.max(1, Math.round(form.min_quantity || 1)),
+    allergen_text_ru: allergenRU,
+    allergen_text_sr: form.allergen_text_sr.trim() || allergenRU,
+    allergen_text_en: form.allergen_text_en.trim() || allergenRU,
+    sort_order: Math.round(form.sort_order || 100),
+    visible: form.visible,
+    version: form.version,
   };
 }
 

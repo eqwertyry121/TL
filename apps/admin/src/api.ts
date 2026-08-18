@@ -14,7 +14,7 @@ import type {
 } from "@tk-delivery/api-client/generated";
 
 const demoOrdersKey = "tk-client-demo-orders-v1";
-const demoMenuKey = "tk-admin-demo-menu-v2";
+const demoMenuKey = "tk-admin-demo-menu-v3";
 const demoSettingsKey = "tk-admin-demo-settings-v1";
 const demoStaffKey = "tk-admin-demo-staff-v1";
 const demoAuditKey = "tk-admin-demo-audit-v1";
@@ -765,7 +765,7 @@ function seedMenu(): AdminMenuResponse {
     categorySeed("33333333-3333-3333-3333-333333333003", "Супы", "Supe", "Soups", 30),
     categorySeed("33333333-3333-3333-3333-333333333004", "Салаты и закуски", "Salate i predjela", "Salads and appetizers", 40),
     categorySeed("33333333-3333-3333-3333-333333333005", "Десерты", "Deserti", "Desserts", 50),
-    categorySeed("33333333-3333-3333-3333-333333333006", "Напитки", "Pica", "Drinks", 60),
+    categorySeed("33333333-3333-3333-3333-333333333006", "Напитки", "Pica", "Drinks", 1),
   ];
   const items: AdminMenuItem[] = [
     itemSeed(
@@ -960,16 +960,31 @@ function seedMenu(): AdminMenuResponse {
     itemSeed(
       "44444444-4444-4444-4444-444444444013",
       categories[5].id,
-      "Натакхари с грушей 1 л",
-      "Natakhtari sa kruskom 1 l",
-      "Natakhtari pear 1 l",
+      "Натакхари с грушей 0.5 л",
+      "Natakhtari sa kruskom 0.5 l",
+      "Natakhtari pear 0.5 l",
       "Рекомендация от разработчика: Грузинский газированный лимонад со вкусом груши.",
       "Preporuka developera: Gruzijsko gazirano pice sa ukusom kruske.",
       "Chef's recommendation: Georgian sparkling lemonade with pear flavor.",
+      "588",
+      "0.5 л",
+      1,
+      1,
+      media("natakhtari-pear-05l"),
+    ),
+    itemSeed(
+      "44444444-4444-4444-4444-444444444021",
+      categories[5].id,
+      "Натакхари с грушей 1 л",
+      "Natakhtari sa kruskom 1 l",
+      "Natakhtari pear 1 l",
+      "Грузинский газированный лимонад со вкусом груши.",
+      "Gruzijsko gazirano pice sa ukusom kruske.",
+      "Georgian sparkling lemonade with pear flavor.",
       "910",
       "1 л",
       1,
-      10,
+      20,
       media("natakhtari-pear-1l"),
     ),
     itemSeed(
@@ -984,7 +999,7 @@ function seedMenu(): AdminMenuResponse {
       "140",
       "",
       1,
-      20,
+      30,
     ),
     itemSeed(
       "44444444-4444-4444-4444-444444444015",
@@ -998,7 +1013,7 @@ function seedMenu(): AdminMenuResponse {
       "280",
       "",
       1,
-      30,
+      40,
     ),
     itemSeed(
       "44444444-4444-4444-4444-444444444016",
@@ -1012,7 +1027,7 @@ function seedMenu(): AdminMenuResponse {
       "588",
       "0.5 л",
       1,
-      40,
+      50,
       media("natakhtari-grape-05l"),
     ),
     itemSeed(
@@ -1027,7 +1042,7 @@ function seedMenu(): AdminMenuResponse {
       "868",
       "",
       1,
-      50,
+      60,
       media("kombucha"),
     ),
     itemSeed(
@@ -1042,7 +1057,7 @@ function seedMenu(): AdminMenuResponse {
       "280",
       "0.33 л",
       1,
-      60,
+      70,
     ),
     itemSeed(
       "44444444-4444-4444-4444-444444444019",
@@ -1056,7 +1071,7 @@ function seedMenu(): AdminMenuResponse {
       "350",
       "0.5 л",
       1,
-      70,
+      80,
     ),
     itemSeed(
       "44444444-4444-4444-4444-444444444020",
@@ -1070,11 +1085,14 @@ function seedMenu(): AdminMenuResponse {
       "460",
       "1 л",
       1,
-      80,
+      90,
     ),
   ].map((item) => ({ ...item, created_at: now, updated_at: now }));
   refreshCategoryCounts({ categories, items });
-  return { categories, items };
+  return {
+    categories: [...categories].sort((a, b) => a.sort_order - b.sort_order || a.title_ru.localeCompare(b.title_ru, "ru")),
+    items: [...items].sort((a, b) => a.sort_order - b.sort_order || a.title_ru.localeCompare(b.title_ru, "ru")),
+  };
 }
 
 function categorySeed(id: string, ru: string, sr: string, en: string, sort: number): AdminCategory {
@@ -1381,7 +1399,10 @@ function saveMenu(menu: AdminMenuResponse): void {
 function normalizeDemoMenu(menu: AdminMenuResponse): AdminMenuResponse {
   return {
     ...menu,
-    items: menu.items.map((item) => ({ ...item, min_quantity: Math.max(1, item.min_quantity || 1) })),
+    categories: [...menu.categories].sort((a, b) => a.sort_order - b.sort_order || a.title_ru.localeCompare(b.title_ru, "ru")),
+    items: menu.items
+      .map((item) => ({ ...item, min_quantity: Math.max(1, item.min_quantity || 1) }))
+      .sort((a, b) => Number(a.archived) - Number(b.archived) || a.sort_order - b.sort_order || a.title_ru.localeCompare(b.title_ru, "ru")),
   };
 }
 

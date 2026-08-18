@@ -828,6 +828,76 @@ p {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem);
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.editor-main,
+.photo-panel,
+.advanced-fields-body {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.primary-fields {
+  grid-template-columns: minmax(11rem, 1fr) minmax(16rem, 2fr) minmax(8rem, 0.8fr);
+}
+
+.compact-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.photo-panel,
+.advanced-fields {
+  border: 1px solid rgba(107, 31, 42, 0.13);
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(200, 155, 60, 0.12), transparent 34%),
+    rgba(255, 253, 248, 0.7);
+}
+
+.photo-panel {
+  padding: 0.75rem;
+}
+
+.primary-upload {
+  justify-content: center;
+  min-height: 4.8rem;
+}
+
+.advanced-fields {
+  overflow: hidden;
+}
+
+.advanced-fields > summary {
+  padding: 0.85rem 1rem;
+  color: var(--color-primary);
+  font-weight: 900;
+  cursor: pointer;
+  list-style: none;
+}
+
+.advanced-fields > summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-fields > summary::after {
+  float: right;
+  content: "↓";
+  color: var(--muted);
+}
+
+.advanced-fields[open] > summary::after {
+  content: "↑";
+}
+
+.advanced-fields-body {
+  padding: 0 0.85rem 0.85rem;
+}
+
 .check {
   display: flex;
   align-items: center;
@@ -1699,6 +1769,12 @@ p {
   }
 
   .form-grid.three {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-layout,
+  .primary-fields,
+  .compact-fields {
     grid-template-columns: 1fr;
   }
 }

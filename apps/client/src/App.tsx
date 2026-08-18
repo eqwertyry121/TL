@@ -937,7 +937,7 @@ function Menu({ categories, cart, onSetLine }: { categories: AppData["categories
           {flatItems.map(({ item, visualIndex }) => {
             const qty = cart.lines[item.id]?.quantity || 0;
             const minQuantity = itemMinQuantity(item);
-            const { description, recommendationBadge } = splitRecommendationDescription(item.description);
+            const { description } = splitRecommendationDescription(item.description);
             return (
               <article className={qty > 0 ? "dish-card in-cart" : "dish-card"} key={item.id}>
                 <DishVisual item={item} visualIndex={visualIndex} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
@@ -945,7 +945,6 @@ function Menu({ categories, cart, onSetLine }: { categories: AppData["categories
                   <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
                     {item.title}
                   </button>
-                  {recommendationBadge && <span className="dish-badge">{recommendationBadge}</span>}
                   <p>{description}</p>
                   <div className="meta-row">
                     <span>{item.weight_text}</span>
@@ -1021,13 +1020,12 @@ function AddToOrder({
             const alreadyInOrder = order.items.some((entry) => entry.menu_item_id === item.id);
             const startQuantity = alreadyInOrder ? 1 : itemMinQuantity(item);
             const minSelectedQuantity = alreadyInOrder ? 1 : itemMinQuantity(item);
-            const { description, recommendationBadge } = splitRecommendationDescription(item.description);
+            const { description } = splitRecommendationDescription(item.description);
             return (
               <article className={qty > 0 ? "dish-card in-cart" : "dish-card"} key={item.id}>
                 <DishVisual item={item} visualIndex={visualIndex} />
                 <div className="dish-body">
                   <strong className="plain-title">{item.title}</strong>
-                  {recommendationBadge && <span className="dish-badge">{recommendationBadge}</span>}
                   <p>{description}</p>
                   <div className="meta-row">
                     <span>{item.weight_text}</span>
@@ -1065,13 +1063,12 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
   const [qty, setQty] = useState(line?.quantity || (item ? itemMinQuantity(item) : 1));
   if (!item) return <div className="state">Блюдо не найдено</div>;
   const minQuantity = itemMinQuantity(item);
-  const { description, recommendationBadge } = splitRecommendationDescription(item.description);
+  const { description } = splitRecommendationDescription(item.description);
   return (
     <div className="page narrow dish-page">
       <DishVisual item={item} visualIndex={2} hero />
       <span className="eyebrow">Tako Lako special</span>
       <h1>{item.title}</h1>
-      {recommendationBadge && <span className="dish-badge">{recommendationBadge}</span>}
       <p className="lead">{description}</p>
       <div className="panel-list">
         <div className="split">
@@ -1108,9 +1105,11 @@ function DishVisual({
   const src = menuPhotoURL(item.photo_path);
   const srcSet = menuPhotoSrcSet(item);
   const dimensions = menuPhotoDimensions(item, hero);
+  const { recommendationBadge } = splitRecommendationDescription(item.description);
   const className = `${hero ? "hero-art" : "dish-art"} art-${visualIndex % 6}${src ? " has-photo" : ""}`;
   const content = (
     <>
+      {recommendationBadge && <span className="recommendation-badge">{recommendationBadge}</span>}
       {src && (
         <img
           className="dish-photo"

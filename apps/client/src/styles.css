@@ -765,6 +765,38 @@ body.has-day-off-overlay {
   transform: none;
 }
 
+.recommendation-badge {
+  position: absolute;
+  top: clamp(0.55rem, 1.7vw, 0.8rem);
+  right: clamp(0.55rem, 1.7vw, 0.8rem);
+  left: clamp(0.55rem, 1.7vw, 0.8rem);
+  z-index: 2;
+  border: 1px solid rgba(98, 64, 14, 0.25);
+  border-radius: 999px;
+  padding: 0.36rem 0.6rem;
+  background: linear-gradient(135deg, #ffe8a3 0%, #f2c25c 45%, #c89b3c 100%);
+  color: #3d2810;
+  box-shadow:
+    0 0.45rem 1rem rgba(61, 40, 16, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.52);
+  font-size: clamp(0.63rem, 1.7vw, 0.74rem);
+  font-weight: 900;
+  line-height: 1.08;
+  text-align: center;
+}
+
+.recommendation-badge ~ .dish-badge {
+  top: auto;
+  bottom: clamp(0.55rem, 1.7vw, 0.8rem);
+}
+
+.hero-art .recommendation-badge {
+  right: auto;
+  max-width: min(22rem, calc(100% - 1.1rem));
+  padding-inline: 0.8rem;
+  font-size: clamp(0.74rem, 2vw, 0.88rem);
+}
+
 .dish-badge {
   position: absolute;
   top: clamp(0.55rem, 1.7vw, 0.8rem);
@@ -2075,6 +2107,7 @@ textarea {
   .app-header,
   .dish-card,
   .dish-badge,
+  .recommendation-badge,
   .cart-float,
   .bottom-action,
   .line,
@@ -2374,6 +2407,7 @@ body {
 }
 
 .dish-badge,
+.recommendation-badge,
 .cart-float,
 .bottom-action {
   backdrop-filter: none;
