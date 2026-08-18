@@ -1672,9 +1672,15 @@ function foodVisual(title: string): string {
   const lower = title.toLowerCase();
   if (lower.includes("хинкали")) return "🥟";
   if (lower.includes("хачапури")) return "🧀";
+  if (lower.includes("чкмерули") || lower.includes("chkm") || lower.includes("ckm")) return "🍗";
+  if (lower.includes("оджахури") || lower.includes("ojakhuri") || lower.includes("adzahuri")) return "🍲";
   if (lower.includes("чахохбили")) return "🍗";
   if (lower.includes("лобио")) return "🍲";
-  if (lower.includes("лимонад")) return "🥤";
+  if (lower.includes("салат") || lower.includes("salata")) return "🥗";
+  if (lower.includes("баклажан") || lower.includes("patlid")) return "🍆";
+  if (lower.includes("медовик") || lower.includes("картошка") || lower.includes("medovik") || lower.includes("kolac")) return "🍰";
+  if (lower.includes("соус") || lower.includes("sos") || lower.includes("sacebeli")) return "🥣";
+  if (lower.includes("лимонад") || lower.includes("натакхари") || lower.includes("natakhtari") || lower.includes("комбуч") || lower.includes("kombu") || lower.includes("coca-cola") || lower.includes("вода")) return "🥤";
   if (lower.includes("морс")) return "🍓";
   return "🍽️";
 }

@@ -5,7 +5,7 @@ import type { Api, Calculation, CashLocationChallenge, ClientBootstrapData, Crea
 
 const demoOrdersKey = "tk-client-demo-orders-v1";
 const demoCalculationsKey = "tk-client-demo-calculations-v1";
-const demoMenuKey = "tk-admin-demo-menu-v1";
+const demoMenuKey = "tk-admin-demo-menu-v2";
 const demoSettingsKey = "tk-admin-demo-settings-v1";
 const demoCryptoTestMigrationKey = "tk-demo-crypto-test-enabled-v1";
 const getCache = new Map<string, { etag: string; payload: unknown }>();
@@ -586,7 +586,7 @@ function loadDemoCategories(): Category[] {
       id: category.id,
       title: category.title_ru,
       sort_order: category.sort_order,
-      items: menu.items
+      items: items
         .filter((item) => item.category_id === category.id && item.visible && !item.archived)
         .sort((a, b) => a.sort_order - b.sort_order)
         .map((item) => ({
@@ -607,27 +607,6 @@ function loadDemoCategories(): Category[] {
 }
 
 function normalizeDemoMenuItem(item: AdminMenuItem): AdminMenuItem {
-  if (item.id === "22222222-2222-2222-2222-222222222001") {
-    return {
-      ...item,
-      description_ru: "Замороженные хинкали с говядиной и зеленью. Минимум 5 шт",
-      weight_text: "от 5 шт",
-      min_quantity: 5,
-    };
-  }
-  if (item.id === "22222222-2222-2222-2222-222222222002") {
-    return {
-      ...item,
-      title_ru: "Хинкали без кинзы",
-      title_sr: "Hinkali bez korijandera",
-      title_en: "Khinkali without cilantro",
-      description_ru: "Замороженные хинкали с говядиной без кинзы. Минимум 5 шт",
-      description_sr: "Zamrznuti hinkali sa govedinom bez korijandera. Minimum 5 kom",
-      description_en: "Frozen beef khinkali without cilantro. Minimum 5 pcs",
-      weight_text: "от 5 шт",
-      min_quantity: 5,
-    };
-  }
   return { ...item, min_quantity: Math.max(1, item.min_quantity || 1) };
 }
 
