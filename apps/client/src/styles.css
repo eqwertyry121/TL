@@ -768,7 +768,7 @@ body.has-day-off-overlay {
 .recommendation-badge {
   position: absolute;
   top: clamp(0.48rem, 1.45vw, 0.68rem);
-  left: clamp(0.48rem, 1.45vw, 0.68rem);
+  right: clamp(0.48rem, 1.45vw, 0.68rem);
   z-index: 2;
   max-width: min(8.9rem, calc(100% - 0.96rem));
   border: 0;

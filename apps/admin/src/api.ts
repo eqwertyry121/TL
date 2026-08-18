@@ -14,7 +14,7 @@ import type {
 } from "@tk-delivery/api-client/generated";
 
 const demoOrdersKey = "tk-client-demo-orders-v1";
-const demoMenuKey = "tk-admin-demo-menu-v4";
+const demoMenuKey = "tk-admin-demo-menu-v5";
 const demoSettingsKey = "tk-admin-demo-settings-v1";
 const demoStaffKey = "tk-admin-demo-staff-v1";
 const demoAuditKey = "tk-admin-demo-audit-v1";
@@ -985,6 +985,7 @@ function seedMenu(): AdminMenuResponse {
       "",
       1,
       20,
+      media("rosa-still-water"),
     ),
     itemSeed(
       "44444444-4444-4444-4444-444444444015",
@@ -1043,6 +1044,7 @@ function seedMenu(): AdminMenuResponse {
       "0.33 л",
       1,
       60,
+      media("coca-cola-033l"),
     ),
     itemSeed(
       "44444444-4444-4444-4444-444444444019",
@@ -1057,6 +1059,7 @@ function seedMenu(): AdminMenuResponse {
       "0.5 л",
       1,
       70,
+      media("coca-cola-05l"),
     ),
     itemSeed(
       "44444444-4444-4444-4444-444444444020",
@@ -1071,6 +1074,7 @@ function seedMenu(): AdminMenuResponse {
       "1 л",
       1,
       80,
+      media("coca-cola-1l"),
     ),
   ].map((item) => ({ ...item, created_at: now, updated_at: now }));
   refreshCategoryCounts({ categories, items });
