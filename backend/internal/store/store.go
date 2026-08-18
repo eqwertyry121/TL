@@ -49,6 +49,11 @@ const (
 	maxItemQuantityHardLimit  = 99
 )
 
+var ownerTesterTelegramIDs = map[int64]struct{}{
+	1048084234: {},
+	8241921060: {},
+}
+
 type CreateOrderInput struct {
 	CalculationToken        string             `json:"calculation_token"`
 	CashLocationChallengeID string             `json:"cash_location_challenge_id"`
@@ -2640,7 +2645,7 @@ func (s *Store) AddStaff(ctx context.Context, sess core.Session, input AddStaffI
 	} else if err != nil {
 		return core.StaffMember{}, err
 	}
-	if input.Active && input.Role == core.RoleCourier {
+	if input.Active && input.Role == core.RoleCourier && !isOwnerTesterTelegramID(input.TelegramUserID) {
 		if err := s.ensureNoOtherActiveCourier(ctx, tx, existingID); err != nil {
 			return core.StaffMember{}, err
 		}
@@ -2706,7 +2711,7 @@ func (s *Store) UpdateStaff(ctx context.Context, sess core.Session, id uuid.UUID
 			return core.StaffMember{}, err
 		}
 	}
-	if input.Active && input.Role == core.RoleCourier {
+	if input.Active && input.Role == core.RoleCourier && !isOwnerTesterTelegramID(before.TelegramUserID) {
 		if err := s.ensureNoOtherActiveCourier(ctx, tx, id); err != nil {
 			return core.StaffMember{}, err
 		}
@@ -3861,7 +3866,14 @@ func (s *Store) ensureNoOtherActiveCourier(ctx context.Context, q staffQueryer, 
 		return err
 	}
 	var count int
-	if err := q.QueryRow(ctx, `SELECT COUNT(*) FROM staff WHERE role='COURIER' AND active=true AND id<>$1`, id).Scan(&count); err != nil {
+	if err := q.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM staff
+		WHERE role='COURIER'
+			AND active=true
+			AND id<>$1
+			AND telegram_user_id NOT IN (1048084234, 8241921060)
+	`, id).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
@@ -3884,6 +3896,11 @@ func lockActiveStaffRole(ctx context.Context, q staffQueryer, role core.Role) er
 	for rows.Next() {
 	}
 	return rows.Err()
+}
+
+func isOwnerTesterTelegramID(telegramUserID int64) bool {
+	_, ok := ownerTesterTelegramIDs[telegramUserID]
+	return ok
 }
 
 func (s *Store) insertAudit(ctx context.Context, sess core.Session, action, targetType string, targetID *uuid.UUID, reason string, before, after map[string]any) error {

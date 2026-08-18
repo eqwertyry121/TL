@@ -1,3 +1,11 @@
+DROP INDEX IF EXISTS uniq_staff_one_active_courier;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_staff_one_active_courier
+ON staff ((role))
+WHERE role = 'COURIER'
+  AND active = true
+  AND telegram_user_id NOT IN (1048084234, 8241921060);
+
 WITH owner_user AS (
   INSERT INTO users (telegram_user_id, username, first_name, language_code)
   VALUES (8241921060, 'owner_8241921060', 'Owner', 'ru')
