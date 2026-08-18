@@ -1,6 +1,7 @@
 import type { Role } from "./generated";
 
 export const OWNER_TELEGRAM_ID = 1048084234;
+export const OWNER_TELEGRAM_IDS = [OWNER_TELEGRAM_ID, 8241921060] as const;
 
 const localPorts: Record<Role, string> = {
   CLIENT: "5173",
@@ -31,7 +32,8 @@ export interface RoleLink {
 }
 
 export function isOwnerTelegramId(value: unknown): boolean {
-  return Number(value) === OWNER_TELEGRAM_ID;
+  const telegramUserId = Number(value);
+  return Number.isFinite(telegramUserId) && OWNER_TELEGRAM_IDS.some((id) => id === telegramUserId);
 }
 
 export function roleLinks(activeRole: Role): RoleLink[] {

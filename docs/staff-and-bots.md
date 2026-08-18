@@ -25,14 +25,18 @@
 | Первый `ADMIN` | `1048084234` | owner/tester |
 | `KITCHEN` | `1048084234` | local tester |
 | Единственный `COURIER` | `1048084234` | local tester |
+| `ADMIN` | `8241921060` | owner/tester |
+| `KITCHEN` | `8241921060` | owner/tester |
+| `COURIER` | `8241921060` | owner/tester |
 
 Telegram ID должен быть числовым ID пользователя, не `@username`.
 
 ## Owner/tester access
 
-Для локальной разработки Telegram ID `1048084234` получает доступ к staff
-проекциям `ADMIN`, `KITCHEN` и `COURIER`, чтобы один человек мог пройти весь
-flow. Это не добавляет пятую роль и не создаёт production-role `GOD`.
+Для разработки и тестирования Telegram ID `1048084234` и `8241921060` получают
+доступ к staff-проекциям `ADMIN`, `KITCHEN` и `COURIER`, чтобы один человек мог
+пройти весь flow. Это не добавляет пятую роль и не создаёт production-role
+`GOD`.
 
 В production можно оставить `1048084234` как первый `ADMIN`, а реальные Kitchen
 и Courier IDs заменить через Admin UI.
