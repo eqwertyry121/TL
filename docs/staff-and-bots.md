@@ -38,8 +38,13 @@ Telegram ID должен быть числовым ID пользователя, 
 пройти весь flow. Это не добавляет пятую роль и не создаёт production-role
 `GOD`.
 
-В production можно оставить `1048084234` как первый `ADMIN`, а реальные Kitchen
-и Courier IDs заменить через Admin UI.
+В production staff-доступы больше не редактируются через Admin UI. Список
+owner/tester ID задаётся кодом/конфигом через `BOOTSTRAP_OWNER_TELEGRAM_IDS`
+(`1048084234,8241921060` для текущего проекта). При старте backend каждый ID из
+списка получает активные staff-роли `ADMIN`, `KITCHEN` и `COURIER`.
+
+Legacy-переменная `BOOTSTRAP_OWNER_TELEGRAM_ID` оставлена только для обратной
+совместимости локального/dev flow; новый список имеет приоритет.
 
 ## Правило хранения
 

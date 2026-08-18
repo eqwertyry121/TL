@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS calculation_tokens (
   token_hash text PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES users(id),
   items_json jsonb NOT NULL,
+  fulfillment_type text NOT NULL DEFAULT 'delivery' CHECK (fulfillment_type IN ('delivery', 'pickup')),
   subtotal_minor integer NOT NULL CHECK (subtotal_minor >= 0),
   delivery_fee_minor integer NOT NULL CHECK (delivery_fee_minor >= 0),
   total_minor integer NOT NULL CHECK (total_minor >= 0),
@@ -120,6 +121,7 @@ CREATE TABLE IF NOT EXISTS orders (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   public_number integer NOT NULL UNIQUE DEFAULT nextval('order_public_number_seq'),
   client_user_id uuid NOT NULL REFERENCES users(id),
+  fulfillment_type text NOT NULL DEFAULT 'delivery' CHECK (fulfillment_type IN ('delivery', 'pickup')),
   fulfillment_status text NOT NULL CHECK (fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED')),
   payment_method text NOT NULL CHECK (payment_method IN ('cash', 'card', 'crypto')),
   payment_status text NOT NULL CHECK (payment_status IN ('CASH_PENDING', 'PAID', 'FAILED', 'REFUNDED')),
@@ -137,11 +139,13 @@ CREATE TABLE IF NOT EXISTS orders (
   ready_at timestamptz,
   delivered_at timestamptz,
   cancelled_at timestamptz,
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (fulfillment_type <> 'pickup' OR delivery_fee_minor = 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_client_created ON orders(client_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_fulfillment ON orders(fulfillment_status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_fulfillment_type_status ON orders(fulfillment_type, fulfillment_status, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS order_items (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

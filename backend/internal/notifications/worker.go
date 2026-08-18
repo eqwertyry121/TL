@@ -366,12 +366,12 @@ func (w *Worker) staffTarget(ctx context.Context, role string) (int64, error) {
 
 func (w *Worker) kitchenText(ctx context.Context, orderID uuid.UUID, template string) (string, error) {
 	var publicNumber, total int
-	var paymentMethod, comment string
+	var paymentMethod, comment, fulfillmentType string
 	err := w.pool.QueryRow(ctx, `
-		SELECT public_number, total_minor, payment_method, customer_comment
+		SELECT public_number, total_minor, payment_method, customer_comment, fulfillment_type
 		FROM orders
 		WHERE id=$1
-	`, orderID).Scan(&publicNumber, &total, &paymentMethod, &comment)
+	`, orderID).Scan(&publicNumber, &total, &paymentMethod, &comment, &fulfillmentType)
 	if err != nil {
 		return "", err
 	}
@@ -381,6 +381,7 @@ func (w *Worker) kitchenText(ctx context.Context, orderID uuid.UUID, template st
 	}
 	lines := []string{
 		title,
+		"Тип: " + fulfillmentText(fulfillmentType),
 		fmt.Sprintf("Оплата: %s", paymentText(paymentMethod, total)),
 	}
 	items, err := w.orderItems(ctx, orderID)
@@ -400,7 +401,7 @@ func (w *Worker) courierText(ctx context.Context, orderID uuid.UUID) (string, er
 	err := w.pool.QueryRow(ctx, `
 		SELECT public_number, total_minor, payment_method, phone_ciphertext, address_ciphertext
 		FROM orders
-		WHERE id=$1
+		WHERE id=$1 AND fulfillment_type='delivery'
 	`, orderID).Scan(&publicNumber, &total, &paymentMethod, &phoneCipher, &addressCipher)
 	if err != nil {
 		return "", err
@@ -593,11 +594,22 @@ func clientText(publicNumber int, template string) string {
 	switch template {
 	case "client_order_out_for_delivery":
 		return fmt.Sprintf("Заказ #%d передан в доставку.", publicNumber)
+	case "client_order_ready_for_pickup":
+		return fmt.Sprintf("Заказ #%d готов к самовывозу. Можно забирать.", publicNumber)
 	case "client_order_delivered":
 		return fmt.Sprintf("Заказ #%d доставлен. Спасибо!", publicNumber)
+	case "client_order_pickup_completed":
+		return fmt.Sprintf("Заказ #%d выдан. Спасибо!", publicNumber)
 	default:
 		return fmt.Sprintf("Обновление по заказу #%d.", publicNumber)
 	}
+}
+
+func fulfillmentText(value string) string {
+	if value == "pickup" {
+		return "самовывоз"
+	}
+	return "доставка"
 }
 
 func paymentText(method string, total int) string {

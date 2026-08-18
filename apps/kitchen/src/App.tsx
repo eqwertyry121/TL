@@ -26,7 +26,10 @@ export function App() {
     isAuthError,
   }), []);
 
-  const sortedOrders = useMemo(() => [...orders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [orders]);
+  const newOrders = useMemo(() => orders.filter((order) => order.fulfillment_status === "NEW"), [orders]);
+  const pickupReadyOrders = useMemo(() => orders.filter(isPickupReady), [orders]);
+  const sortedNewOrders = useMemo(() => [...newOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [newOrders]);
+  const sortedPickupReadyOrders = useMemo(() => [...pickupReadyOrders].sort((a, b) => new Date(a.ready_at || a.created_at).getTime() - new Date(b.ready_at || b.created_at).getTime()), [pickupReadyOrders]);
 
   useEffect(() => installPerformanceBeacon("kitchen", () => "orders"), []);
 
@@ -121,11 +124,32 @@ export function App() {
   }, []);
 
   async function markReady(order: Order) {
-    if (!window.confirm(`Заказ #${order.public_number} готов и передаётся курьеру?`)) return;
+    const pickup = order.fulfillment_type === "pickup";
+    const message = pickup
+      ? `Заказ #${order.public_number} готов к самовывозу? Клиент получит уведомление, курьер — нет.`
+      : `Заказ #${order.public_number} готов и передаётся курьеру?`;
+    if (!window.confirm(message)) return;
     markSeen(order);
     setBusy(order.id);
     try {
-      await withAuth((authToken) => api.markReady(authToken, order.id, `ready-${order.id}-${order.version}`, order.version));
+      const updated = await withAuth((authToken) => api.markReady(authToken, order.id, `ready-${order.id}-${order.version}`, order.version));
+      markSeen(updated);
+      setOrders((current) => pickup
+        ? current.map((entry) => entry.id === updated.id ? updated : entry)
+        : current.filter((entry) => entry.id !== order.id));
+    } catch {
+      await refresh();
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function markPickupCollected(order: Order) {
+    if (!window.confirm(`Заказ #${order.public_number} выдан клиенту?`)) return;
+    markSeen(order);
+    setBusy(order.id);
+    try {
+      await withAuth((authToken) => api.markPickupCollected(authToken, order.id, `picked-up-${order.id}-${order.version}`, order.version));
       setOrders((current) => current.filter((entry) => entry.id !== order.id));
     } catch {
       await refresh();
@@ -139,64 +163,110 @@ export function App() {
       <header className="header">
         <div>
           <h1>Кухня</h1>
-          <p>{sortedOrders.length} новых · {lastUpdated ? `обновлено ${secondsAgo(lastUpdated)} сек назад` : "ожидание"}</p>
+          <p>{sortedNewOrders.length} новых · {sortedPickupReadyOrders.length} самовывоз · {lastUpdated ? `обновлено ${secondsAgo(lastUpdated)} сек назад` : "ожидание"}</p>
         </div>
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>
       </header>
       {offline && <div className="status bad"><WifiOff size={18} /><span>Нет связи с сервером</span></div>}
       {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="KITCHEN" />}
       <main className="list">
-        {sortedOrders.length === 0 ? <div className="empty">Новых заказов нет</div> : sortedOrders.map((order) => {
-          const unread = !seenIds.has(seenKey(order));
-          const addedAt = order.latest_addition?.created_at;
-          return (
-            <article className={`order-row${unread ? " is-new" : ""}${order.latest_addition ? " has-addition" : ""}`} key={order.id} onClick={() => markSeen(order)}>
-              <OrderAvatar order={order} unread={unread} />
-              <div className="order-main">
-                <div className="order-top">
-                  <div className="order-title">
-                    <strong>Заказ #{order.public_number}</strong>
-                    <span>{kitchenTimeText(order)}</span>
-                  </div>
-                  <div className="order-side">
-                    <span className={unread ? "new-badge" : "read-badge"}>{unread ? "Новый" : "Прочитано"}</span>
-                    <Menu order={order} />
-                  </div>
-                </div>
-                <div className="order-meta-line">
-                  <CustomerBadge order={order} />
-                  <span className="payment-chip">{paymentText(order)}</span>
-                </div>
-                <ul className="items-compact" aria-label={`Блюда заказа #${order.public_number}`}>
-                  {order.items.map((item, index) => (
-                    <li className={item.addition_id ? "is-added-item" : ""} key={`${item.menu_item_id}-${index}`}>
-                      <b>{item.quantity}×</b>
-                      <span>
-                        {item.snapshot_title}
-                        {item.addition_id && <small>Добавлено{item.addition_created_at ? ` в ${timeHHMM(item.addition_created_at)}` : ""}</small>}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                {addedAt && <p className="addition-note">Дозаказ добавлен в {timeHHMM(addedAt)}</p>}
-                {order.customer_comment && <p className="comment compact-comment"><AlertTriangle size={16} /> {order.customer_comment}</p>}
-                <button
-                  className="primary compact-action"
-                  disabled={busy === order.id}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void markReady(order);
-                  }}
-                >
-                  <Check size={20} /> ЗАКАЗ ГОТОВ
-                </button>
-              </div>
-            </article>
-          );
-        })}
+        {sortedNewOrders.length === 0 && sortedPickupReadyOrders.length === 0 ? <div className="empty">Новых заказов и самовывоза нет</div> : null}
+        {sortedNewOrders.map((order) => (
+          <KitchenOrderCard
+            key={order.id}
+            order={order}
+            seenIds={seenIds}
+            busy={busy}
+            onSeen={markSeen}
+            onPrimary={markReady}
+          />
+        ))}
+        {sortedPickupReadyOrders.length > 0 && (
+          <section className="pickup-section" aria-label="Самовывоз готов к выдаче">
+            <h2>Самовывоз · готово</h2>
+            {sortedPickupReadyOrders.map((order) => (
+              <KitchenOrderCard
+                key={order.id}
+                order={order}
+                seenIds={seenIds}
+                busy={busy}
+                onSeen={markSeen}
+                onPrimary={markPickupCollected}
+              />
+            ))}
+          </section>
+        )}
       </main>
     </div>
   );
+}
+
+function KitchenOrderCard({
+  order,
+  seenIds,
+  busy,
+  onSeen,
+  onPrimary,
+}: {
+  order: Order;
+  seenIds: Set<string>;
+  busy: string;
+  onSeen(order: Order): void;
+  onPrimary(order: Order): void;
+}) {
+  const unread = !seenIds.has(seenKey(order));
+  const addedAt = order.latest_addition?.created_at;
+  const pickup = order.fulfillment_type === "pickup";
+  const pickupReady = isPickupReady(order);
+  return (
+    <article className={`order-row${unread ? " is-new" : ""}${order.latest_addition ? " has-addition" : ""}${pickup ? " is-pickup" : ""}`} onClick={() => onSeen(order)}>
+      <OrderAvatar order={order} unread={unread} />
+      <div className="order-main">
+        <div className="order-top">
+          <div className="order-title">
+            <strong>Заказ #{order.public_number}</strong>
+            <span>{kitchenTimeText(order)}</span>
+          </div>
+          <div className="order-side">
+            <span className={unread ? "new-badge" : "read-badge"}>{unread ? "Новый" : "Прочитано"}</span>
+            <Menu order={order} />
+          </div>
+        </div>
+        <div className="order-meta-line">
+          <CustomerBadge order={order} />
+          <span className={pickup ? "fulfillment-chip pickup" : "fulfillment-chip"}>{pickup ? "Самовывоз" : "Доставка"}</span>
+          <span className="payment-chip">{paymentText(order)}</span>
+        </div>
+        <ul className="items-compact" aria-label={`Блюда заказа #${order.public_number}`}>
+          {order.items.map((item, index) => (
+            <li className={item.addition_id ? "is-added-item" : ""} key={`${item.menu_item_id}-${index}`}>
+              <b>{item.quantity}×</b>
+              <span>
+                {item.snapshot_title}
+                {item.addition_id && <small>Добавлено{item.addition_created_at ? ` в ${timeHHMM(item.addition_created_at)}` : ""}</small>}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {addedAt && <p className="addition-note">Дозаказ добавлен в {timeHHMM(addedAt)}</p>}
+        {order.customer_comment && <p className="comment compact-comment"><AlertTriangle size={16} /> {order.customer_comment}</p>}
+        <button
+          className="primary compact-action"
+          disabled={busy === order.id}
+          onClick={(event) => {
+            event.stopPropagation();
+            void onPrimary(order);
+          }}
+        >
+          <Check size={20} /> {pickupReady ? "ВЫДАНО" : pickup ? "ГОТОВ К САМОВЫВОЗУ" : "ЗАКАЗ ГОТОВ"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function isPickupReady(order: Order): boolean {
+  return order.fulfillment_type === "pickup" && order.fulfillment_status === "OUT_FOR_DELIVERY";
 }
 
 function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {
@@ -387,16 +457,26 @@ function playSilentUnlockTone(ctx: AudioContext) {
 }
 
 function playBeepNow(ctx: AudioContext) {
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
   const now = ctx.currentTime;
-  osc.frequency.setValueAtTime(880, now);
-  osc.frequency.setValueAtTime(1040, now + 0.12);
-  gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(0.08, now + 0.02);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  osc.start(now);
-  osc.stop(now + 0.26);
+  const master = ctx.createGain();
+  master.gain.setValueAtTime(0.8, now);
+  master.connect(ctx.destination);
+
+  [0, 0.22, 0.44, 0.82, 1.04, 1.26].forEach((offset, index) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const start = now + offset;
+    const end = start + 0.18;
+    osc.type = "square";
+    osc.frequency.setValueAtTime(index % 2 === 0 ? 880 : 1175, start);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(1, start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, end);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(start);
+    osc.stop(end + 0.02);
+  });
+
+  window.setTimeout(() => master.disconnect(), 1800);
 }

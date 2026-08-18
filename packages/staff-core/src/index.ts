@@ -24,6 +24,7 @@ export interface StaffApi {
   listCourierOrders(token: string, signal?: AbortSignal): Promise<{ orders: Order[] }>;
   sendCourierETA(token: string, id: string, minutes: number): Promise<{ ok: boolean }>;
   markReady(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
+  markPickupCollected(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
   markDelivered(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
 }
 
@@ -55,6 +56,9 @@ export function orderAge(order: Order): string {
 }
 
 export function kitchenTimeText(order: Order): string {
+  if (orderFulfillmentType(order) === "pickup" && order.fulfillment_status === "OUT_FOR_DELIVERY") {
+    return `Готов ${elapsedSince(order.ready_at || order.created_at)}`;
+  }
   return `Создан ${elapsedSince(order.created_at)}`;
 }
 
@@ -83,7 +87,7 @@ function elapsedSince(value: string): string {
 }
 
 export function paymentText(order: Order): string {
-  if (order.payment_method === "cash") return `Наличными ${money(order.total_minor)}`;
+  if (order.payment_method === "cash") return orderFulfillmentType(order) === "pickup" ? `Наличными при самовывозе ${money(order.total_minor)}` : `Наличными ${money(order.total_minor)}`;
   if (order.payment_method === "crypto") return "Crypto TEST · оплачено";
   if (order.payment_method === "card") return "Карта · оплачено";
   return "Оплачен";
@@ -171,6 +175,7 @@ function realApi(baseURL: string, appEnv: string): StaffApi {
     listCourierOrders: (token, signal) => get(`${baseURL}/api/v1/courier/orders`, token, signal),
     sendCourierETA: (token, id, minutes) => post(`${baseURL}/api/v1/courier/orders/${id}/eta`, { minutes }, token),
     markReady: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/ready`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
+    markPickupCollected: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/picked-up`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
     markDelivered: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/courier/orders/${id}/delivered`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
   };
 }
@@ -183,8 +188,8 @@ function demoApi(role: StaffRole): StaffApi {
     expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
   } satisfies StaffSession);
   const listOrders = () => role === "KITCHEN"
-    ? loadDemoOrders().filter((order) => order.fulfillment_status === "NEW").map(stripDemo)
-    : loadDemoOrders().filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").map(stripDemo);
+    ? loadDemoOrders().filter(isKitchenOrder).map(stripDemo)
+    : loadDemoOrders().filter(isCourierOrder).map(stripDemo);
   return {
     mode: "demo",
     async bootstrap() {
@@ -192,10 +197,10 @@ function demoApi(role: StaffRole): StaffApi {
     },
     authenticate,
     async listKitchenOrders() {
-      return { orders: loadDemoOrders().filter((order) => order.fulfillment_status === "NEW").map(stripDemo) };
+      return { orders: loadDemoOrders().filter(isKitchenOrder).map(stripDemo) };
     },
     async listCourierOrders() {
-      return { orders: loadDemoOrders().filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").map(stripDemo) };
+      return { orders: loadDemoOrders().filter(isCourierOrder).map(stripDemo) };
     },
     async sendCourierETA() {
       return { ok: true };
@@ -203,8 +208,11 @@ function demoApi(role: StaffRole): StaffApi {
     async markReady(_token, id) {
       return transitionDemoOrder(id, "NEW", "OUT_FOR_DELIVERY");
     },
+    async markPickupCollected(_token, id) {
+      return transitionDemoOrder(id, "OUT_FOR_DELIVERY", "DELIVERED", "pickup");
+    },
     async markDelivered(_token, id) {
-      return transitionDemoOrder(id, "OUT_FOR_DELIVERY", "DELIVERED");
+      return transitionDemoOrder(id, "OUT_FOR_DELIVERY", "DELIVERED", "delivery");
     },
   };
 }
@@ -221,6 +229,7 @@ function unconfiguredApi(): StaffApi {
     listCourierOrders: fail,
     sendCourierETA: fail,
     markReady: fail,
+    markPickupCollected: fail,
     markDelivered: fail,
   };
 }
@@ -307,11 +316,19 @@ function saveDemoOrders(orders: DemoOrder[]): void {
   localStorage.setItem(demoOrdersKey, JSON.stringify(orders));
 }
 
-function transitionDemoOrder(id: string, from: Order["fulfillment_status"], to: Order["fulfillment_status"]): Order {
+function isKitchenOrder(order: Order): boolean {
+  return order.fulfillment_status === "NEW" || (orderFulfillmentType(order) === "pickup" && order.fulfillment_status === "OUT_FOR_DELIVERY");
+}
+
+function isCourierOrder(order: Order): boolean {
+  return orderFulfillmentType(order) === "delivery" && order.fulfillment_status === "OUT_FOR_DELIVERY";
+}
+
+function transitionDemoOrder(id: string, from: Order["fulfillment_status"], to: Order["fulfillment_status"], requiredFulfillmentType?: Order["fulfillment_type"]): Order {
   const orders = loadDemoOrders();
   const index = orders.findIndex((order) => order.id === id);
   const order = orders[index];
-  if (!order || order.fulfillment_status !== from) {
+  if (!order || order.fulfillment_status !== from || (requiredFulfillmentType && orderFulfillmentType(order) !== requiredFulfillmentType)) {
     throw Object.assign(new Error("ORDER_STATUS_CONFLICT"), { code: "ORDER_STATUS_CONFLICT" });
   }
   const now = new Date().toISOString();
@@ -327,6 +344,10 @@ function transitionDemoOrder(id: string, from: Order["fulfillment_status"], to: 
   saveDemoOrders(orders);
   window.dispatchEvent(new StorageEvent("storage", { key: demoOrdersKey }));
   return stripDemo(next);
+}
+
+function orderFulfillmentType(order: Order): Order["fulfillment_type"] {
+  return order.fulfillment_type === "pickup" ? "pickup" : "delivery";
 }
 
 function stripDemo(order: DemoOrder): Order {

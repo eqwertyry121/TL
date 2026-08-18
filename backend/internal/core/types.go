@@ -32,6 +32,13 @@ const (
 	StatusCancelled      FulfillmentStatus = "CANCELLED"
 )
 
+type FulfillmentType string
+
+const (
+	FulfillmentDelivery FulfillmentType = "delivery"
+	FulfillmentPickup   FulfillmentType = "pickup"
+)
+
 type PaymentMethod string
 
 const (
@@ -234,6 +241,7 @@ type CalculatedItem struct {
 type Calculation struct {
 	Token              string           `json:"calculation_token,omitempty"`
 	Items              []CalculatedItem `json:"items"`
+	FulfillmentType    FulfillmentType  `json:"fulfillment_type"`
 	SubtotalMinor      int              `json:"subtotal_minor"`
 	DeliveryFeeMinor   int              `json:"delivery_fee_minor"`
 	TotalMinor         int              `json:"total_minor"`
@@ -280,6 +288,7 @@ type Order struct {
 	ClientUsername             string            `json:"client_username,omitempty"`
 	ClientFirstName            string            `json:"client_first_name,omitempty"`
 	ClientPhotoURL             string            `json:"client_photo_url,omitempty"`
+	FulfillmentType            FulfillmentType   `json:"fulfillment_type"`
 	FulfillmentStatus          FulfillmentStatus `json:"fulfillment_status"`
 	PaymentMethod              PaymentMethod     `json:"payment_method"`
 	PaymentStatus              PaymentStatus     `json:"payment_status"`
@@ -312,6 +321,7 @@ type OrderSummary struct {
 	ClientUsername             string            `json:"client_username,omitempty"`
 	ClientFirstName            string            `json:"client_first_name,omitempty"`
 	ClientPhotoURL             string            `json:"client_photo_url,omitempty"`
+	FulfillmentType            FulfillmentType   `json:"fulfillment_type"`
 	FulfillmentStatus          FulfillmentStatus `json:"fulfillment_status"`
 	PaymentMethod              PaymentMethod     `json:"payment_method"`
 	PaymentStatus              PaymentStatus     `json:"payment_status"`
@@ -377,6 +387,7 @@ type AdminDashboard struct {
 	Runtime            Runtime   `json:"runtime"`
 	NewOrders          int       `json:"new_orders"`
 	OutForDelivery     int       `json:"out_for_delivery"`
+	ReadyForPickup     int       `json:"ready_for_pickup"`
 	OrdersToday        int       `json:"orders_today"`
 	RevenueTodayMinor  int       `json:"revenue_today_minor"`
 	NotificationErrors []string  `json:"notification_errors"`

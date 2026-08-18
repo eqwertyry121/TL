@@ -140,6 +140,7 @@ func (s *Server) Routes() http.Handler {
 
 			r.Get("/kitchen/orders", s.kitchenOrders)
 			r.Post("/kitchen/orders/{id}/ready", s.markReady)
+			r.Post("/kitchen/orders/{id}/picked-up", s.markPickupCollected)
 
 			r.Get("/courier/orders", s.courierOrders)
 			r.Post("/courier/orders/{id}/eta", s.courierETA)
@@ -822,6 +823,18 @@ func (s *Server) bootstrapStaffSession(ctx context.Context, role core.Role, init
 	return s.store.CreateSession(ctx, user, role, s.cfg.SessionTTL)
 }
 
+func (s *Server) isBootstrapOwnerTelegramID(telegramUserID int64) bool {
+	if telegramUserID == 0 {
+		return false
+	}
+	for _, ownerID := range s.cfg.BootstrapOwnerTelegramIDs {
+		if telegramUserID == ownerID {
+			return true
+		}
+	}
+	return telegramUserID == s.cfg.BootstrapOwnerTelegramID
+}
+
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	sess := mustSession(r)
 	roles, err := s.store.StaffRoles(r.Context(), sess.TelegramUserID)
@@ -834,13 +847,14 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) calculate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Items []core.CartItemInput `json:"items"`
+		Items           []core.CartItemInput `json:"items"`
+		FulfillmentType core.FulfillmentType `json:"fulfillment_type"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, err)
 		return
 	}
-	calc, err := s.store.Calculate(r.Context(), mustSession(r), req.Items, s.now())
+	calc, err := s.store.CalculateForFulfillment(r.Context(), mustSession(r), req.Items, req.FulfillmentType, s.now())
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1375,6 +1389,36 @@ func (s *Server) markReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	order, err := s.store.MarkReady(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash(raw), req.ExpectedVersion)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *Server) markPickupCollected(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		ExpectedVersion int `json:"expected_version"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if req.ExpectedVersion <= 0 {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	order, err := s.store.MarkPickupCollected(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash(raw), req.ExpectedVersion)
 	if err != nil {
 		writeError(w, err)
 		return

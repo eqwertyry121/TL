@@ -14,35 +14,36 @@ import (
 )
 
 type Config struct {
-	Env                      string
-	BuildSHA                 string
-	HTTPAddr                 string
-	PublicBaseURL            string
-	MediaDir                 string
-	DatabaseURL              string
-	PostgresMaxConns         int32
-	PostgresMinConns         int32
-	PostgresMaxConnIdleTime  time.Duration
-	Timezone                 string
-	Currency                 string
-	ClientBotUsername        string
-	ClientBotToken           string
-	StaffBotUsername         string
-	StaffBotToken            string
-	TelegramWebhookSecret    string
-	AllowedOrigins           []string
-	BootstrapOwnerTelegramID int64
-	LocalRoleSwitcherEnabled bool
-	EncryptionKey            []byte
-	PIIHashKey               []byte
-	SessionTTL               time.Duration
-	InitDataMaxAge           time.Duration
-	MaxItemQuantity          int
-	NotificationDryRun       bool
-	NotificationPollInterval time.Duration
-	NotificationConcurrency  int
-	NotificationBacklogAfter time.Duration
-	ServerTimingEnabled      bool
+	Env                       string
+	BuildSHA                  string
+	HTTPAddr                  string
+	PublicBaseURL             string
+	MediaDir                  string
+	DatabaseURL               string
+	PostgresMaxConns          int32
+	PostgresMinConns          int32
+	PostgresMaxConnIdleTime   time.Duration
+	Timezone                  string
+	Currency                  string
+	ClientBotUsername         string
+	ClientBotToken            string
+	StaffBotUsername          string
+	StaffBotToken             string
+	TelegramWebhookSecret     string
+	AllowedOrigins            []string
+	BootstrapOwnerTelegramID  int64
+	BootstrapOwnerTelegramIDs []int64
+	LocalRoleSwitcherEnabled  bool
+	EncryptionKey             []byte
+	PIIHashKey                []byte
+	SessionTTL                time.Duration
+	InitDataMaxAge            time.Duration
+	MaxItemQuantity           int
+	NotificationDryRun        bool
+	NotificationPollInterval  time.Duration
+	NotificationConcurrency   int
+	NotificationBacklogAfter  time.Duration
+	ServerTimingEnabled       bool
 }
 
 func Load() (Config, error) {
@@ -74,6 +75,10 @@ func Load() (Config, error) {
 		NotificationPollInterval: getDuration("NOTIFICATION_POLL_INTERVAL", 5*time.Second),
 		NotificationConcurrency:  int(mustInt64(get("NOTIFICATION_CONCURRENCY", "4"))),
 		NotificationBacklogAfter: getDuration("NOTIFICATION_BACKLOG_ALERT_AFTER", 60*time.Second),
+	}
+	cfg.BootstrapOwnerTelegramIDs = bootstrapOwnerTelegramIDs()
+	if len(cfg.BootstrapOwnerTelegramIDs) > 0 {
+		cfg.BootstrapOwnerTelegramID = cfg.BootstrapOwnerTelegramIDs[0]
 	}
 	cfg.ServerTimingEnabled = cfg.Env != "production"
 	if strings.TrimSpace(os.Getenv("SERVER_TIMING_ENABLED")) != "" {
@@ -161,6 +166,33 @@ func splitCSV(value string) []string {
 		}
 		seen[trimmed] = true
 		out = append(out, trimmed)
+	}
+	return out
+}
+
+func bootstrapOwnerTelegramIDs() []int64 {
+	raw := strings.TrimSpace(os.Getenv("BOOTSTRAP_OWNER_TELEGRAM_IDS"))
+	if raw == "" {
+		if legacy := strings.TrimSpace(os.Getenv("BOOTSTRAP_OWNER_TELEGRAM_ID")); legacy != "" {
+			raw = legacy
+		} else {
+			raw = "1048084234,8241921060"
+		}
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]int64, 0, len(parts))
+	seen := map[int64]bool{}
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		id := mustInt64(value)
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
 	}
 	return out
 }

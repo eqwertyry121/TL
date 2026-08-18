@@ -43,7 +43,7 @@ Dashboard
 [ Остановить приём заказов ]
 
 Tabs:
-Menu / Orders / Staff / Schedule / Analytics / Settings
+Menu / Orders / Schedule / Analytics / Settings / Audit
 ```
 
 Дополнительные действия не ставятся рядом с основной кнопкой Kitchen/Courier.

@@ -1,4 +1,4 @@
-import type { Category, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Runtime } from "@tk-delivery/api-client/generated";
+import type { Category, FulfillmentType, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Runtime } from "@tk-delivery/api-client/generated";
 
 export type Locale = "ru" | "sr" | "en";
 export type Route =
@@ -50,6 +50,7 @@ export interface CalculationItem {
 export interface Calculation {
   calculation_token: string;
   items: CalculationItem[];
+  fulfillment_type: FulfillmentType;
   subtotal_minor: number;
   delivery_fee_minor: number;
   total_minor: number;
@@ -97,7 +98,7 @@ export interface Api {
   authenticate(locale: Locale): Promise<Session>;
   runtime(signal?: AbortSignal): Promise<Runtime>;
   menu(locale: Locale): Promise<{ categories: Category[] }>;
-  calculate(token: string, items: Array<{ item_id: string; quantity: number }>): Promise<Calculation>;
+  calculate(token: string, items: Array<{ item_id: string; quantity: number }>, fulfillmentType: FulfillmentType): Promise<Calculation>;
   calculateAddition(token: string, orderId: string, items: Array<{ item_id: string; quantity: number }>): Promise<Calculation>;
   contact(token: string): Promise<VerifiedContact>;
   createCashLocationChallenge(token: string, input: { calculation_token: string; send_prompt?: boolean }): Promise<CashLocationChallenge>;
@@ -130,6 +131,7 @@ export interface CreateOrderInput {
   phone: string;
   address: string;
   comment: string;
+  fulfillment_type: FulfillmentType;
   payment_method: Extract<PaymentMethod, "cash" | "crypto">;
   terms_accepted: boolean;
   locale: Locale;

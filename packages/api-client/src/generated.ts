@@ -1,5 +1,6 @@
 export type Role = "CLIENT" | "KITCHEN" | "COURIER" | "ADMIN";
 export type FulfillmentStatus = "NEW" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED";
+export type FulfillmentType = "delivery" | "pickup";
 export type PaymentMethod = "cash" | "card" | "crypto";
 export type PaymentStatus = "CASH_PENDING" | "PAID" | "FAILED" | "REFUNDED";
 
@@ -144,6 +145,7 @@ export interface OrderSummary {
   client_username?: string;
   client_first_name?: string;
   client_photo_url?: string;
+  fulfillment_type: FulfillmentType;
   fulfillment_status: FulfillmentStatus;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
@@ -230,6 +232,7 @@ export interface AdminDashboard {
   runtime: Runtime;
   new_orders: number;
   out_for_delivery: number;
+  ready_for_pickup: number;
   orders_today: number;
   revenue_today_minor: number;
   notification_errors: string[];

@@ -1,4 +1,4 @@
-import type { AdminAnalytics, AdminCategory, AdminDashboard, AdminMenuItem, AuditEntry, AuditLogResponse, Order, OrderSummary, ScheduleDay, Settings, StaffMember } from "@tk-delivery/api-client/generated";
+import type { AdminAnalytics, AdminCategory, AdminDashboard, AdminMenuItem, AuditEntry, AuditLogResponse, Order, OrderSummary, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
 import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { startVisiblePolling } from "@tk-delivery/api-client/polling";
@@ -18,9 +18,8 @@ import {
   type CategoryInput,
   type MenuItemInput,
   type SettingsInput,
-  type StaffInput,
 } from "./api";
-import { AlertTriangle, Archive, ArrowLeft, Ban, BarChart3, CalendarDays, ChevronRight, ClipboardList, Copy, Eye, EyeOff, Home, Menu as MenuIcon, MessageCircle, MoreHorizontal, Phone, RefreshCw, RotateCcw, Save, Search, Send, Settings as SettingsIcon, Shield, SlidersHorizontal, StickyNote, Trash2, Upload, Users, X } from "lucide-react";
+import { AlertTriangle, Archive, ArrowLeft, Ban, BarChart3, CalendarDays, ChevronRight, ClipboardList, Copy, Home, Menu as MenuIcon, MessageCircle, MoreHorizontal, Phone, RefreshCw, RotateCcw, Save, Search, Send, Settings as SettingsIcon, Shield, SlidersHorizontal, StickyNote, Trash2, Upload, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type FormEvent, type ReactNode } from "react";
 
@@ -36,22 +35,21 @@ const tabs: AdminNavItem[] = ([
   { id: "analytics", label: "Аналитика", icon: BarChart3 },
   { id: "settings", label: "Настройки", icon: SettingsIcon },
   { id: "audit", label: "Журнал действий", shortLabel: "Журнал", icon: Shield },
-  { id: "staff", label: "Сотрудники", icon: Users },
 ] satisfies Array<Omit<AdminNavItem, "shortLabel"> & { shortLabel?: string }>).map((entry) => ({ shortLabel: entry.label, ...entry }));
 
 const navGroups: AdminNavGroup[] = [
   { title: "Работа", items: navItems(["home", "orders", "menu"]) },
   { title: "Управление", items: navItems(["schedule", "analytics"]) },
-  { title: "Система", items: navItems(["settings", "audit", "staff"]) },
+  { title: "Система", items: navItems(["settings", "audit"]) },
 ];
 const mobileTabs = navItems(["home", "orders", "menu"]);
-const moreTabs = navItems(["schedule", "analytics", "settings", "audit", "staff"]);
+const moreTabs = navItems(["schedule", "analytics", "settings", "audit"]);
 const moreTabIds = new Set<AdminTab>(moreTabs.map((entry) => entry.id));
 
 const quickSchedule = { open_time: "13:00", order_cutoff_time: "21:00", close_time: "22:00" };
 type AdminActionRunner = <T>(action: (authToken: string) => Promise<T>) => Promise<T | undefined>;
-type AdminLoadKey = "dashboard" | "menu" | "settings" | "schedule" | "orders" | "staff" | "analytics" | "audit";
-type OrdersView = "active" | "new" | "delivery" | "history";
+type AdminLoadKey = "dashboard" | "menu" | "settings" | "schedule" | "orders" | "analytics" | "audit";
+type OrdersView = "active" | "new" | "ready" | "history";
 type ConfirmDialogState = {
   title: string;
   message: string;
@@ -77,7 +75,7 @@ type OrderDialogState =
 const orderViewOptions: Array<{ id: OrdersView; label: string }> = [
   { id: "active", label: "Активные" },
   { id: "new", label: "Кухня" },
-  { id: "delivery", label: "Доставка" },
+  { id: "ready", label: "Готово" },
   { id: "history", label: "История" },
 ];
 
@@ -92,7 +90,6 @@ export function App() {
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [ordersPage, setOrdersPage] = useState<Pick<AdminOrdersResponse, "limit" | "offset" | "has_more">>({ limit: 20, offset: 0, has_more: false });
   const [ordersInitialView, setOrdersInitialView] = useState<OrdersView>("active");
-  const [staff, setStaff] = useState<StaffMember[]>([]);
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [auditPage, setAuditPage] = useState<Pick<AuditLogResponse, "limit" | "offset" | "has_more">>({ limit: 50, offset: 0, has_more: false });
@@ -104,7 +101,7 @@ export function App() {
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const skipInitialLoadRef = useRef(false);
   const activeItem = navItem(tab);
-  const activeOrdersCount = (dashboard?.new_orders || 0) + (dashboard?.out_for_delivery || 0);
+  const activeOrdersCount = (dashboard?.new_orders || 0) + (dashboard?.out_for_delivery || 0) + (dashboard?.ready_for_pickup || 0);
   const ownerAccess = isOwnerTelegramId(session?.telegram_user_id);
   const authRetry = useMemo(() => createSingleFlightAuthRetry({
     authenticate,
@@ -163,9 +160,6 @@ export function App() {
             setOrders((entry.value as AdminOrdersResponse).orders);
             setOrdersPage(orderPageMeta(entry.value as AdminOrdersResponse));
             break;
-          case "staff":
-            setStaff((entry.value as { staff: StaffMember[] }).staff);
-            break;
           case "analytics":
             setAnalytics(entry.value as AdminAnalytics);
             break;
@@ -195,7 +189,6 @@ export function App() {
       setOrders(response.orders.orders);
       setOrdersPage(orderPageMeta(response.orders));
     }
-    if (response.staff) setStaff(response.staff.staff);
     if (response.analytics) setAnalytics(response.analytics);
     if (response.audit) {
       setAudit(response.audit.entries);
@@ -235,8 +228,6 @@ export function App() {
       sections.push(["menu", api.menu(authToken)]);
     } else if (targetTab === "orders") {
       sections.push(["orders", api.orders(authToken, { limit: 20, offset: 0 })]);
-    } else if (targetTab === "staff") {
-      sections.push(["staff", api.staff(authToken)]);
     } else if (targetTab === "schedule") {
       sections.push(["schedule", api.schedule(authToken)]);
     } else if (targetTab === "settings") {
@@ -446,7 +437,7 @@ export function App() {
       return settings ? <SettingsTab settings={settings} demoMode={api.mode === "demo"} onSave={(input) => run((authToken) => api.updateSettings(authToken, input)).then(() => undefined)} /> : <SectionSkeleton title="Настройки" />;
     }
     if (tab === "audit") return <AuditTab entries={audit} page={auditPage} onPageChange={loadAuditPage} />;
-    return <StaffTab staff={staff} onAction={run} />;
+    return <SectionSkeleton title={activeItem.label} />;
   }
 
   return (
@@ -698,7 +689,8 @@ function HomeTab({
 }) {
   const accepting = dashboard.runtime.accepting_orders;
   const notificationErrors = dashboard.notification_errors ?? [];
-  const activeOrders = dashboard.new_orders + dashboard.out_for_delivery;
+  const readyOrders = dashboard.out_for_delivery + dashboard.ready_for_pickup;
+  const activeOrders = dashboard.new_orders + readyOrders;
   return (
     <section className="home-dashboard">
       <div className={`panel home-status ${accepting ? "is-open" : "is-closed"}`}>
@@ -725,9 +717,13 @@ function HomeTab({
             <span>На кухне</span>
             <strong>{dashboard.new_orders}</strong>
           </button>
-          <button className="home-counter" type="button" onClick={() => onOpenOrders("delivery")}>
-            <span>В доставке</span>
-            <strong>{dashboard.out_for_delivery}</strong>
+          <button className="home-counter" type="button" onClick={() => onOpenOrders("ready")}>
+            <span>Готово</span>
+            <strong>{readyOrders}</strong>
+          </button>
+          <button className="home-counter" type="button" onClick={() => onOpenOrders("ready")}>
+            <span>Самовывоз</span>
+            <strong>{dashboard.ready_for_pickup}</strong>
           </button>
         </div>
       </div>
@@ -982,7 +978,7 @@ function OrdersTab({
   const counts = useMemo(() => ({
     active: orders.filter((order) => orderMatchesView(order, "active")).length,
     new: orders.filter((order) => order.fulfillment_status === "NEW").length,
-    delivery: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").length,
+    ready: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").length,
     history: orders.filter((order) => orderMatchesView(order, "history")).length,
   }), [orders]);
   const visibleOrders = useMemo(() => {
@@ -999,8 +995,13 @@ function OrdersTab({
   }, [initialView]);
 
   useEffect(() => {
-    return startVisiblePolling((signal) => onLoad(ordersLoadFilter(view, query, date, limit, 0), signal).then(() => undefined), 5000);
-  }, [date, limit, onLoad, query, view]);
+    return startVisiblePolling(async (signal) => {
+      await onLoad(ordersLoadFilter(view, query, date, limit, 0), signal);
+      if (signal.aborted || !selectedID) return;
+      const loaded = await onLoadOrder(selectedID);
+      if (!signal.aborted) setDetail(loaded || null);
+    }, 5000);
+  }, [date, limit, onLoad, onLoadOrder, query, selectedID, view]);
 
   async function applyFilter(nextOffset = 0) {
     setSelectedID("");
@@ -1184,10 +1185,10 @@ function OrderRow({ order, selected, onSelect }: { order: OrderSummary; selected
           <span>{createdText(order.created_at)}</span>
         </span>
         <span className="order-row-client">{orderClientLabel(order)}</span>
-        <span className="order-row-items">{adminPaymentText(order)}</span>
+        <span className="order-row-items">{fulfillmentText(order)} · {adminPaymentText(order)}</span>
       </span>
       <span className="order-row-side">
-        <StatusBadge status={order.fulfillment_status} />
+        <StatusBadge order={order} />
         <strong>{money(order.total_minor)}</strong>
       </span>
     </button>
@@ -1251,6 +1252,7 @@ function OrderDetailPanel({
 
   const canCancel = order.fulfillment_status !== "CANCELLED" && order.fulfillment_status !== "DELIVERED";
   const canReturn = order.fulfillment_status === "OUT_FOR_DELIVERY";
+  const deliveryOrder = order.fulfillment_type !== "pickup";
 
   return (
     <aside className="order-detail">
@@ -1263,7 +1265,7 @@ function OrderDetailPanel({
           <span>{createdText(order.created_at)}</span>
         </div>
         <div className="order-detail-actions">
-          <StatusBadge status={order.fulfillment_status} />
+          <StatusBadge order={order} />
           <button type="button" onClick={() => onToggleActions(order)} aria-label="Действия с заказом"><MoreHorizontal size={18} /></button>
           {actionMenuOpen && (
             <div className="order-action-menu">
@@ -1272,7 +1274,7 @@ function OrderDetailPanel({
               <button type="button" onClick={() => onEditContact(order)}><Phone size={16} /> Контакт</button>
               <button type="button" onClick={() => onNote(order)}><StickyNote size={16} /> Заметка</button>
               <button type="button" onClick={() => onResendClient(order)}><MessageCircle size={16} /> Клиенту</button>
-              {canReturn && <button type="button" onClick={() => onResendCourier(order)}><Send size={16} /> Курьеру</button>}
+              {canReturn && deliveryOrder && <button type="button" onClick={() => onResendCourier(order)}><Send size={16} /> Курьеру</button>}
             </div>
           )}
         </div>
@@ -1297,7 +1299,11 @@ function OrderDetailPanel({
           <span>Оплата</span>
           <strong>{adminPaymentText(order)}</strong>
         </div>
-        {order.payment_method === "cash" && (
+        <div className="detail-row">
+          <span>Получение</span>
+          <strong>{fulfillmentText(order)}</strong>
+        </div>
+        {order.payment_method === "cash" && deliveryOrder && (
           <div className="detail-row">
             <span>Гео</span>
             <strong>{order.cash_location_verified_at ? `проверено${typeof order.cash_location_distance_meters === "number" ? ` · ${formatMeters(order.cash_location_distance_meters)}` : ""}` : "не проверено"}</strong>
@@ -1306,10 +1312,10 @@ function OrderDetailPanel({
       </div>
 
       <div className="detail-section">
-        <h3>Адрес</h3>
+        <h3>{deliveryOrder ? "Адрес доставки" : "Самовывоз"}</h3>
         <div className="address-card">
           <span>{order.address || "не указан"}</span>
-          {order.address && <button type="button" onClick={() => void copyAddress()}><Copy size={16} /> {copied ? "Скопировано" : "Копировать"}</button>}
+          {deliveryOrder && order.address && <button type="button" onClick={() => void copyAddress()}><Copy size={16} /> {copied ? "Скопировано" : "Копировать"}</button>}
         </div>
       </div>
 
@@ -1423,35 +1429,6 @@ function OrderContactDialog({ dialog, onClose }: { dialog: Extract<OrderDialogSt
         </div>
       </form>
     </div>
-  );
-}
-
-function StaffTab({ staff, onAction }: { staff: StaffMember[]; onAction: AdminActionRunner }) {
-  const [form, setForm] = useState<StaffInput & { telegram_user_id: number }>({ telegram_user_id: 0, display_label: "", role: "KITCHEN", active: true });
-  return (
-    <section className="panel">
-      <div className="inline-form">
-        <input placeholder="Telegram ID" type="number" value={form.telegram_user_id || ""} onChange={(event) => setForm({ ...form, telegram_user_id: Number(event.target.value) })} />
-        <input placeholder="Имя в админке" value={form.display_label} onChange={(event) => setForm({ ...form, display_label: event.target.value })} />
-        <RoleSelect value={form.role} onChange={(role) => setForm({ ...form, role })} />
-        <button className="primary" onClick={() => void onAction((authToken) => api.addStaff(authToken, form))}>Добавить</button>
-      </div>
-      {staff.map((member) => (
-        <div className="row staff-row" key={member.id}>
-          <div>
-            <strong>{member.display_label || member.telegram_user_id}</strong>
-            <span>{member.telegram_user_id} · {roleText(member.role)}</span>
-          </div>
-          <StatusPills visible={member.active} archived={false} />
-          <button onClick={() => void onAction((authToken) => api.updateStaff(authToken, member.id, { display_label: member.display_label, role: member.role, active: !member.active }))}>
-            {member.active ? <Eye size={16} /> : <EyeOff size={16} />} {member.active ? "Выключить" : "Включить"}
-          </button>
-          <button onClick={() => void editStaff(member, (input) => onAction((authToken) => api.updateStaff(authToken, member.id, input)))}>
-            Изменить
-          </button>
-        </div>
-      ))}
-    </section>
   );
 }
 
@@ -1623,8 +1600,21 @@ function StatusPills({ visible, archived }: { visible: boolean; archived: boolea
   return <span className={archived ? "pill archived" : visible ? "pill visible" : "pill hidden"}>{archived ? "В архиве" : visible ? "Видно" : "Скрыто"}</span>;
 }
 
-function StatusBadge({ status }: { status: Order["fulfillment_status"] }) {
-  return <span className={`status-badge status-${status.toLowerCase()}`}>{statusText(status)}</span>;
+function adminOrderStatusText(order: Order | OrderSummary): string {
+  if (order.fulfillment_type === "pickup") {
+    if (order.fulfillment_status === "NEW") return "Новый · самовывоз";
+    if (order.fulfillment_status === "OUT_FOR_DELIVERY") return "Готов к самовывозу";
+    if (order.fulfillment_status === "DELIVERED") return "Выдан";
+  }
+  return statusText(order.fulfillment_status);
+}
+
+function fulfillmentText(order: Order | OrderSummary): string {
+  return order.fulfillment_type === "pickup" ? "Самовывоз" : "Доставка";
+}
+
+function StatusBadge({ order }: { order: Order | OrderSummary }) {
+  return <span className={`status-badge status-${order.fulfillment_status.toLowerCase()} fulfillment-${order.fulfillment_type}`}>{adminOrderStatusText(order)}</span>;
 }
 
 function SimpleTable({ title, rows }: { title: string; rows: string[][] }) {
@@ -1641,10 +1631,6 @@ function Textarea({ label, value, onChange }: { label: string; value: string; on
 
 function NumberInput({ label, value, onChange }: { label: string; value: number; onChange(value: number): void }) {
   return <label><span>{label}</span><input type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} /></label>;
-}
-
-function RoleSelect({ value, onChange }: { value: StaffInput["role"]; onChange(role: StaffInput["role"]): void }) {
-  return <select value={value} onChange={(event) => onChange(event.target.value as StaffInput["role"])}><option value="KITCHEN">Кухня</option><option value="COURIER">Курьер</option><option value="ADMIN">Админ</option></select>;
 }
 
 function navItems(ids: AdminTab[]): AdminNavItem[] {
@@ -1759,7 +1745,7 @@ function ordersLoadFilter(view: OrdersView, query: string, date: string, limit: 
 function orderMatchesView(order: OrderSummary, view: OrdersView): boolean {
   if (view === "active") return order.fulfillment_status === "NEW" || order.fulfillment_status === "OUT_FOR_DELIVERY";
   if (view === "new") return order.fulfillment_status === "NEW";
-  if (view === "delivery") return order.fulfillment_status === "OUT_FOR_DELIVERY";
+  if (view === "ready") return order.fulfillment_status === "OUT_FOR_DELIVERY";
   return order.fulfillment_status === "DELIVERED" || order.fulfillment_status === "CANCELLED";
 }
 
@@ -1812,8 +1798,12 @@ function downloadBlob(blob: Blob, filename: string): void {
 function orderEventText(action: string): string {
   const map: Record<string, string> = {
     create_order: "Заказ создан",
+    create_cash_order: "Заказ создан",
     kitchen_ready: "Кухня нажала «Заказ готов»",
+    mark_ready: "Кухня нажала «Заказ готов»",
     courier_delivered: "Курьер доставил",
+    mark_delivered: "Курьер доставил",
+    mark_pickup_collected: "Самовывоз выдан клиенту",
     admin_cancel: "Админ отменил",
     admin_return_to_new: "Админ вернул на кухню",
     admin_edit_contact: "Админ изменил контакт",
@@ -1830,13 +1820,6 @@ function orderEventStatusText(from: string, to: string): string {
 
 function isOrderStatus(value: string): boolean {
   return value === "NEW" || value === "OUT_FOR_DELIVERY" || value === "DELIVERED" || value === "CANCELLED";
-}
-
-function editStaff(member: StaffMember, next: (input: StaffInput) => Promise<unknown>): Promise<unknown> {
-  const displayLabel = window.prompt("Имя сотрудника в админке", member.display_label || "") || "";
-  const role = (window.prompt("Роль: KITCHEN, COURIER или ADMIN", member.role) || member.role).trim().toUpperCase() as StaffInput["role"];
-  if (role !== "KITCHEN" && role !== "COURIER" && role !== "ADMIN") return Promise.resolve();
-  return next({ display_label: displayLabel.trim(), role, active: member.active });
 }
 
 function OrderClientLink({ order }: { order: Order }) {
@@ -1868,6 +1851,7 @@ function orderClientLabel(order: OrderSummary): string {
 function adminPaymentText(order: OrderSummary): string {
   if (order.payment_method === "crypto") return order.payment_status === "PAID" ? "Crypto TEST · PAID" : "Crypto TEST";
   if (order.payment_method === "card") return order.payment_status === "PAID" ? "Карта · PAID" : "Карта";
+  if (order.fulfillment_type === "pickup") return order.payment_status === "PAID" ? "Наличные при самовывозе · PAID" : "Наличные при самовывозе";
   return order.payment_status === "PAID" ? "Наличные · PAID" : "Наличные";
 }
 
@@ -1976,7 +1960,6 @@ function adminLoadLabel(key: AdminLoadKey): string {
     settings: "настройки",
     schedule: "график",
     orders: "заказы",
-    staff: "сотрудники",
     analytics: "аналитика",
     audit: "журнал",
   };

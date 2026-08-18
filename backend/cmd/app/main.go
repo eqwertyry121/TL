@@ -72,8 +72,10 @@ func run(logger *slog.Logger) error {
 	if err := st.MigrateLegacyPhoneHashes(ctx); err != nil {
 		return err
 	}
-	if err := st.BootstrapOwner(ctx, cfg.BootstrapOwnerTelegramID); err != nil {
-		return err
+	for _, telegramUserID := range cfg.BootstrapOwnerTelegramIDs {
+		if err := st.BootstrapOwner(ctx, telegramUserID); err != nil {
+			return err
+		}
 	}
 	if cfg.MediaDir != "" {
 		if err := os.MkdirAll(cfg.MediaDir, 0o755); err != nil {

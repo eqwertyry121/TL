@@ -35,6 +35,7 @@ type Store struct {
 const (
 	phoneHashHMACPrefix       = "hmac-sha256:"
 	orderAdditionWindow       = 5 * time.Minute
+	pickupAddressSnapshot     = "Самовывоз"
 	maxPhoneLength            = 32
 	maxAddressLength          = 240
 	maxCustomerCommentLength  = 300
@@ -55,14 +56,15 @@ var ownerTesterTelegramIDs = map[int64]struct{}{
 }
 
 type CreateOrderInput struct {
-	CalculationToken        string             `json:"calculation_token"`
-	CashLocationChallengeID string             `json:"cash_location_challenge_id"`
-	Phone                   string             `json:"phone"`
-	Address                 string             `json:"address"`
-	Comment                 string             `json:"comment"`
-	PaymentMethod           core.PaymentMethod `json:"payment_method"`
-	TermsAccepted           bool               `json:"terms_accepted"`
-	Locale                  string             `json:"locale"`
+	CalculationToken        string               `json:"calculation_token"`
+	CashLocationChallengeID string               `json:"cash_location_challenge_id"`
+	Phone                   string               `json:"phone"`
+	Address                 string               `json:"address"`
+	Comment                 string               `json:"comment"`
+	FulfillmentType         core.FulfillmentType `json:"fulfillment_type"`
+	PaymentMethod           core.PaymentMethod   `json:"payment_method"`
+	TermsAccepted           bool                 `json:"terms_accepted"`
+	Locale                  string               `json:"locale"`
 }
 
 type AddOrderItemsInput struct {
@@ -256,6 +258,7 @@ func (s *Store) BootstrapOwner(ctx context.Context, telegramUserID int64) error 
 	if telegramUserID == 0 {
 		return nil
 	}
+	ownerTesterTelegramIDs[telegramUserID] = struct{}{}
 	user, err := s.UpsertTelegramUser(ctx, core.User{
 		TelegramUserID: telegramUserID,
 		Username:       "owner",
@@ -1165,8 +1168,16 @@ func (s *Store) DeleteOrArchiveMenuItem(ctx context.Context, sess core.Session, 
 }
 
 func (s *Store) Calculate(ctx context.Context, sess core.Session, input []core.CartItemInput, now time.Time) (core.Calculation, error) {
+	return s.CalculateForFulfillment(ctx, sess, input, core.FulfillmentDelivery, now)
+}
+
+func (s *Store) CalculateForFulfillment(ctx context.Context, sess core.Session, input []core.CartItemInput, fulfillmentType core.FulfillmentType, now time.Time) (core.Calculation, error) {
 	if sess.ActiveRole != core.RoleClient {
 		return core.Calculation{}, core.ErrForbidden
+	}
+	fulfillmentType, err := normalizeFulfillmentType(fulfillmentType)
+	if err != nil {
+		return core.Calculation{}, err
 	}
 	settings, err := s.Settings(ctx)
 	if err != nil {
@@ -1191,10 +1202,14 @@ func (s *Store) Calculate(ctx context.Context, sess core.Session, input []core.C
 	}
 
 	calc := core.Calculation{
+		FulfillmentType:  fulfillmentType,
 		Items:            make([]core.CalculatedItem, 0, len(quantities)),
 		DeliveryFeeMinor: settings.FlatDeliveryFeeMinor,
 		Currency:         settings.Currency,
 		ExpiresAt:        now.UTC().Add(10 * time.Minute),
+	}
+	if fulfillmentType == core.FulfillmentPickup {
+		calc.DeliveryFeeMinor = 0
 	}
 	rows, err := s.pool.Query(ctx, `
 			SELECT mi.id, mi.title_ru, mi.price_minor, mi.version, mi.min_quantity
@@ -1255,10 +1270,10 @@ func (s *Store) Calculate(ctx context.Context, sess core.Session, input []core.C
 		return core.Calculation{}, err
 	}
 	_, err = s.pool.Exec(ctx, `
-		INSERT INTO calculation_tokens (token_hash, user_id, items_json, subtotal_minor, delivery_fee_minor,
+		INSERT INTO calculation_tokens (token_hash, user_id, items_json, fulfillment_type, subtotal_minor, delivery_fee_minor,
 			total_minor, currency, expires_at, purpose)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'order')
-	`, tokenHash, sess.UserID, itemsJSON, calc.SubtotalMinor, calc.DeliveryFeeMinor, calc.TotalMinor, calc.Currency, calc.ExpiresAt)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'order')
+	`, tokenHash, sess.UserID, itemsJSON, string(calc.FulfillmentType), calc.SubtotalMinor, calc.DeliveryFeeMinor, calc.TotalMinor, calc.Currency, calc.ExpiresAt)
 	if err != nil {
 		return core.Calculation{}, err
 	}
@@ -1350,6 +1365,7 @@ func (s *Store) calculateItems(ctx context.Context, userID uuid.UUID, input []co
 	}
 
 	calc := core.Calculation{
+		FulfillmentType:  core.FulfillmentDelivery,
 		Items:            make([]core.CalculatedItem, 0, len(quantities)),
 		DeliveryFeeMinor: 0,
 		Currency:         settings.Currency,
@@ -1429,7 +1445,7 @@ func (s *Store) calculateItems(ctx context.Context, userID uuid.UUID, input []co
 	return calc, nil
 }
 
-func (s *Store) revalidateCalculationTx(ctx context.Context, tx pgx.Tx, items []core.CalculatedItem, storedSubtotal, storedDelivery, storedTotal int, storedCurrency string) ([]core.CalculatedItem, int, int, int, string, error) {
+func (s *Store) revalidateCalculationTx(ctx context.Context, tx pgx.Tx, items []core.CalculatedItem, storedSubtotal, storedDelivery, storedTotal int, storedCurrency string, fulfillmentType core.FulfillmentType) ([]core.CalculatedItem, int, int, int, string, error) {
 	if len(items) == 0 {
 		return nil, 0, 0, 0, "", core.ErrInvalidQuantity
 	}
@@ -1442,6 +1458,9 @@ func (s *Store) revalidateCalculationTx(ctx context.Context, tx pgx.Tx, items []
 		WHERE id=true
 	`).Scan(&currentCurrency, &currentDelivery, &maxItemQuantity); err != nil {
 		return nil, 0, 0, 0, "", err
+	}
+	if fulfillmentType == core.FulfillmentPickup {
+		currentDelivery = 0
 	}
 	if storedCurrency != currentCurrency || storedDelivery != currentDelivery {
 		return nil, 0, 0, 0, "", core.ErrCalculationExpired
@@ -1712,7 +1731,7 @@ func (s *Store) CreateCashLocationChallenge(ctx context.Context, sess core.Sessi
 	if err := s.pool.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM calculation_tokens
-			WHERE token_hash=$1 AND user_id=$2 AND purpose='order' AND used_at IS NULL AND expires_at > now()
+			WHERE token_hash=$1 AND user_id=$2 AND purpose='order' AND fulfillment_type='delivery' AND used_at IS NULL AND expires_at > now()
 		)
 	`, tokenHash, sess.UserID).Scan(&exists); err != nil {
 		return core.CashLocationChallenge{}, err
@@ -1975,9 +1994,15 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if !input.TermsAccepted {
 		return core.Order{}, core.ErrTermsRequired
 	}
+	fulfillmentType, err := normalizeFulfillmentType(input.FulfillmentType)
+	if err != nil {
+		return core.Order{}, err
+	}
 	address := safe(input.Address)
 	comment := safe(input.Comment)
-	if !requiredText(address, maxAddressLength) {
+	if fulfillmentType == core.FulfillmentPickup {
+		address = pickupAddressSnapshot
+	} else if !requiredText(address, maxAddressLength) {
 		return core.Order{}, core.ErrInvalidInput
 	}
 	if len([]rune(comment)) > settings.MaxCommentLength || !optionalText(comment, maxCustomerCommentLength) {
@@ -2016,12 +2041,13 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	var rawItems []byte
 	var subtotal, delivery, total int
 	var currency string
+	var tokenFulfillmentType core.FulfillmentType
 	err = tx.QueryRow(ctx, `
-		SELECT items_json, subtotal_minor, delivery_fee_minor, total_minor, currency
+		SELECT items_json, fulfillment_type, subtotal_minor, delivery_fee_minor, total_minor, currency
 		FROM calculation_tokens
 		WHERE token_hash=$1 AND user_id=$2 AND purpose='order' AND used_at IS NULL AND expires_at > now()
 		FOR UPDATE
-	`, tokenHash, sess.UserID).Scan(&rawItems, &subtotal, &delivery, &total, &currency)
+	`, tokenHash, sess.UserID).Scan(&rawItems, &tokenFulfillmentType, &subtotal, &delivery, &total, &currency)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.Order{}, core.ErrCalculationExpired
 	}
@@ -2032,7 +2058,11 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if err := json.Unmarshal(rawItems, &items); err != nil {
 		return core.Order{}, err
 	}
-	items, subtotal, delivery, total, currency, err = s.revalidateCalculationTx(ctx, tx, items, subtotal, delivery, total, currency)
+	tokenFulfillmentType, err = normalizeFulfillmentType(tokenFulfillmentType)
+	if err != nil || tokenFulfillmentType != fulfillmentType {
+		return core.Order{}, core.ErrCalculationExpired
+	}
+	items, subtotal, delivery, total, currency, err = s.revalidateCalculationTx(ctx, tx, items, subtotal, delivery, total, currency, fulfillmentType)
 	if err != nil {
 		return core.Order{}, err
 	}
@@ -2040,9 +2070,14 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if err != nil {
 		return core.Order{}, err
 	}
-	cashLocationChallengeID, cashLocationVerifiedAt, cashLocationDistance, err := s.useCashLocationChallengeTx(ctx, tx, sess, input.CashLocationChallengeID, tokenHash, settings, now)
-	if err != nil {
-		return core.Order{}, err
+	var cashLocationChallengeID *uuid.UUID
+	var cashLocationVerifiedAt *time.Time
+	var cashLocationDistance *int
+	if fulfillmentType == core.FulfillmentDelivery {
+		cashLocationChallengeID, cashLocationVerifiedAt, cashLocationDistance, err = s.useCashLocationChallengeTx(ctx, tx, sess, input.CashLocationChallengeID, tokenHash, settings, now)
+		if err != nil {
+			return core.Order{}, err
+		}
 	}
 	phoneCipher, err := s.box.Encrypt(phone)
 	if err != nil {
@@ -2058,13 +2093,13 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	var createdAt time.Time
 	err = tx.QueryRow(ctx, `
 		INSERT INTO orders (
-			client_user_id, fulfillment_status, payment_method, payment_status, subtotal_minor, delivery_fee_minor,
+			client_user_id, fulfillment_type, fulfillment_status, payment_method, payment_status, subtotal_minor, delivery_fee_minor,
 			total_minor, currency, phone_ciphertext, phone_hash, address_ciphertext, customer_comment, locale,
 			cash_location_challenge_id, cash_location_verified_at, cash_location_distance_meters
 		)
-		VALUES ($1, 'NEW', 'cash', 'CASH_PENDING', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		VALUES ($1, $2, 'NEW', 'cash', 'CASH_PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id, public_number, created_at
-	`, sess.UserID, subtotal, delivery, total, currency, phoneCipher, phoneHash, addressCipher, comment, localeOrDefault(input.Locale),
+	`, sess.UserID, string(fulfillmentType), subtotal, delivery, total, currency, phoneCipher, phoneHash, addressCipher, comment, localeOrDefault(input.Locale),
 		uuidSQL(cashLocationChallengeID), timeSQL(cashLocationVerifiedAt), intSQL(cashLocationDistance)).
 		Scan(&orderID, &publicNumber, &createdAt)
 	if err != nil {
@@ -2111,6 +2146,7 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		ClientUsername:             sess.Username,
 		ClientFirstName:            sess.FirstName,
 		ClientPhotoURL:             sess.PhotoURL,
+		FulfillmentType:            fulfillmentType,
 		FulfillmentStatus:          core.StatusNew,
 		PaymentMethod:              core.PaymentCash,
 		PaymentStatus:              core.PaymentCashPending,
@@ -2174,14 +2210,50 @@ func (s *Store) KitchenOrders(ctx context.Context, sess core.Session) ([]core.Or
 	if sess.ActiveRole != core.RoleKitchen {
 		return nil, core.ErrForbidden
 	}
-	return s.ordersByStatus(ctx, core.StatusNew, false)
+	rows, err := s.pool.Query(ctx, `
+		SELECT o.id, o.public_number, o.client_user_id, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
+			COALESCE(u.photo_url, ''),
+			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
+			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency, o.phone_ciphertext, o.address_ciphertext,
+			o.customer_comment, o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.cash_location_verified_at, o.cash_location_distance_meters
+		FROM orders o
+		JOIN users u ON u.id=o.client_user_id
+		WHERE o.fulfillment_status='NEW'
+			OR (o.fulfillment_status='OUT_FOR_DELIVERY' AND o.fulfillment_type='pickup')
+		ORDER BY
+			CASE WHEN o.fulfillment_status='NEW' THEN 0 ELSE 1 END,
+			o.updated_at ASC
+		LIMIT 50
+	`)
+	if err != nil {
+		return nil, err
+	}
+	return s.scanOrdersWithItems(ctx, rows, false)
 }
 
 func (s *Store) CourierOrders(ctx context.Context, sess core.Session) ([]core.Order, error) {
 	if sess.ActiveRole != core.RoleCourier {
 		return nil, core.ErrForbidden
 	}
-	return s.ordersByStatus(ctx, core.StatusOutForDelivery, true)
+	rows, err := s.pool.Query(ctx, `
+		SELECT o.id, o.public_number, o.client_user_id, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
+			COALESCE(u.photo_url, ''),
+			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
+			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency, o.phone_ciphertext, o.address_ciphertext,
+			o.customer_comment, o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.cash_location_verified_at, o.cash_location_distance_meters
+		FROM orders o
+		JOIN users u ON u.id=o.client_user_id
+		WHERE o.fulfillment_status='OUT_FOR_DELIVERY'
+			AND o.fulfillment_type='delivery'
+		ORDER BY o.updated_at ASC
+		LIMIT 50
+	`)
+	if err != nil {
+		return nil, err
+	}
+	return s.scanOrdersWithItems(ctx, rows, true)
 }
 
 func (s *Store) ClientOrders(ctx context.Context, sess core.Session, filter ClientOrderFilter) (ClientOrdersPage, error) {
@@ -2202,7 +2274,7 @@ func (s *Store) ClientOrders(ctx context.Context, sess core.Session, filter Clie
 	rows, err := s.pool.Query(ctx, `
 		SELECT o.id, o.public_number, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
 			COALESCE(u.photo_url, ''),
-			o.fulfillment_status, o.payment_method, o.payment_status,
+			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
 			o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
@@ -2234,7 +2306,7 @@ func (s *Store) ClientBootstrapOrders(ctx context.Context, sess core.Session) ([
 	rows, err := s.pool.Query(ctx, `
 		SELECT o.id, o.public_number, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
 			COALESCE(u.photo_url, ''),
-			o.fulfillment_status, o.payment_method, o.payment_status,
+			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
 			o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
@@ -2332,7 +2404,7 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 	sqlQuery := fmt.Sprintf(
 		`SELECT o.id, o.public_number, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
 			COALESCE(u.photo_url, ''),
-			o.fulfillment_status, o.payment_method, o.payment_status,
+			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
 			o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
@@ -2534,13 +2606,14 @@ func (s *Store) ResendOrderNotification(ctx context.Context, sess core.Session, 
 		return core.ErrInvalidInput
 	}
 	var status core.FulfillmentStatus
-	if err := s.pool.QueryRow(ctx, `SELECT fulfillment_status FROM orders WHERE id=$1`, orderID).Scan(&status); err != nil {
+	var fulfillmentType core.FulfillmentType
+	if err := s.pool.QueryRow(ctx, `SELECT fulfillment_status, fulfillment_type FROM orders WHERE id=$1`, orderID).Scan(&status, &fulfillmentType); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return core.ErrInvalidInput
 		}
 		return err
 	}
-	if recipient == "courier" && status != core.StatusOutForDelivery {
+	if recipient == "courier" && (status != core.StatusOutForDelivery || fulfillmentType != core.FulfillmentDelivery) {
 		return core.ErrOrderStatusConflict
 	}
 	_, err := s.pool.Exec(ctx, `
@@ -2809,14 +2882,15 @@ func (s *Store) AdminDashboard(ctx context.Context, sess core.Session, now time.
 	err = s.pool.QueryRow(ctx, `
 		SELECT
 			COUNT(*) FILTER (WHERE fulfillment_status='NEW')::int,
-			COUNT(*) FILTER (WHERE fulfillment_status='OUT_FOR_DELIVERY')::int,
+			COUNT(*) FILTER (WHERE fulfillment_status='OUT_FOR_DELIVERY' AND fulfillment_type='delivery')::int,
+			COUNT(*) FILTER (WHERE fulfillment_status='OUT_FOR_DELIVERY' AND fulfillment_type='pickup')::int,
 			COUNT(*) FILTER (WHERE created_at >= $1 AND created_at < $2)::int,
 			COALESCE(SUM(total_minor) FILTER (
 				WHERE created_at >= $1 AND created_at < $2
 					AND fulfillment_status='DELIVERED' AND payment_status='PAID'
 			), 0)::int
 		FROM orders
-	`, startLocal.UTC(), endLocal.UTC()).Scan(&dashboard.NewOrders, &dashboard.OutForDelivery, &dashboard.OrdersToday, &dashboard.RevenueTodayMinor)
+	`, startLocal.UTC(), endLocal.UTC()).Scan(&dashboard.NewOrders, &dashboard.OutForDelivery, &dashboard.ReadyForPickup, &dashboard.OrdersToday, &dashboard.RevenueTodayMinor)
 	if err != nil {
 		return core.AdminDashboard{}, err
 	}
@@ -3203,6 +3277,67 @@ func (s *Store) MarkDelivered(ctx context.Context, sess core.Session, orderID uu
 	return s.transition(ctx, sess, orderID, "orders.mark_delivered", idempotencyKey, requestHash, core.StatusOutForDelivery, core.StatusDelivered, expectedVersionValue(expectedVersion))
 }
 
+func (s *Store) MarkPickupCollected(ctx context.Context, sess core.Session, orderID uuid.UUID, idempotencyKey, requestHash string, expectedVersion ...int) (core.Order, error) {
+	if sess.ActiveRole != core.RoleKitchen {
+		return core.Order{}, core.ErrForbidden
+	}
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return core.Order{}, core.ErrIdempotencyConflict
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.Order{}, err
+	}
+	defer rollback(ctx, tx)
+
+	if existingID, replay, err := s.beginIdempotency(ctx, tx, sess.UserID, "orders.mark_pickup_collected", idempotencyKey, requestHash); err != nil {
+		return core.Order{}, err
+	} else if replay {
+		if err := tx.Commit(ctx); err != nil {
+			return core.Order{}, err
+		}
+		return s.OrderByID(ctx, existingID, false)
+	}
+
+	expectedVersionNumber := expectedVersionValue(expectedVersion)
+	var updatedID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		UPDATE orders
+		SET fulfillment_status='DELIVERED', payment_status='PAID', delivered_at=now(), updated_at=now(), version=version+1
+		WHERE id=$1
+			AND fulfillment_type='pickup'
+			AND fulfillment_status='OUT_FOR_DELIVERY'
+			AND ($2::int <= 0 OR version=$2)
+		RETURNING id
+	`, orderID, expectedVersionNumber).Scan(&updatedID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return core.Order{}, core.ErrOrderStatusConflict
+	}
+	if err != nil {
+		return core.Order{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO order_events (order_id, from_status, to_status, action, actor_user_id, actor_role)
+		VALUES ($1, 'OUT_FOR_DELIVERY', 'DELIVERED', 'mark_pickup_collected', $2, $3)
+	`, orderID, sess.UserID, string(sess.ActiveRole)); err != nil {
+		return core.Order{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
+		VALUES ($1, 'client', 'client_order_pickup_completed', $2)
+		ON CONFLICT (event_key, recipient_kind) DO NOTHING
+	`, orderID, fmt.Sprintf("order:%s:pickup-collected", orderID)); err != nil {
+		return core.Order{}, err
+	}
+	if err := s.finishIdempotency(ctx, tx, sess.UserID, "orders.mark_pickup_collected", idempotencyKey, orderID); err != nil {
+		return core.Order{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.Order{}, err
+	}
+	return s.OrderByID(ctx, orderID, false)
+}
+
 func expectedVersionValue(values []int) int {
 	if len(values) == 0 {
 		return 0
@@ -3227,7 +3362,7 @@ func (s *Store) SendCourierETA(ctx context.Context, sess core.Session, orderID u
 	err = tx.QueryRow(ctx, `
 		SELECT public_number
 		FROM orders
-		WHERE id=$1 AND fulfillment_status='OUT_FOR_DELIVERY'
+		WHERE id=$1 AND fulfillment_status='OUT_FOR_DELIVERY' AND fulfillment_type='delivery'
 		FOR UPDATE
 	`, orderID).Scan(&publicNumber)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -3278,22 +3413,23 @@ func (s *Store) transition(ctx context.Context, sess core.Session, orderID uuid.
 	var previous string
 	var action string
 	var orderVersion int
+	var fulfillmentType core.FulfillmentType
 	if to == core.StatusOutForDelivery {
 		action = "mark_ready"
 		err = tx.QueryRow(ctx, `
 			UPDATE orders
 			SET fulfillment_status='OUT_FOR_DELIVERY', ready_at=now(), updated_at=now(), version=version+1
 			WHERE id=$1 AND fulfillment_status='NEW' AND ($2::int <= 0 OR version=$2)
-			RETURNING id, 'NEW', version
-		`, orderID, expectedVersion).Scan(&updatedID, &previous, &orderVersion)
+			RETURNING id, 'NEW', version, fulfillment_type
+		`, orderID, expectedVersion).Scan(&updatedID, &previous, &orderVersion, &fulfillmentType)
 	} else {
 		action = "mark_delivered"
 		err = tx.QueryRow(ctx, `
 			UPDATE orders
 			SET fulfillment_status='DELIVERED', payment_status='PAID', delivered_at=now(), updated_at=now(), version=version+1
-			WHERE id=$1 AND fulfillment_status='OUT_FOR_DELIVERY' AND ($2::int <= 0 OR version=$2)
-			RETURNING id, 'OUT_FOR_DELIVERY', version
-		`, orderID, expectedVersion).Scan(&updatedID, &previous, &orderVersion)
+			WHERE id=$1 AND fulfillment_type='delivery' AND fulfillment_status='OUT_FOR_DELIVERY' AND ($2::int <= 0 OR version=$2)
+			RETURNING id, 'OUT_FOR_DELIVERY', version, fulfillment_type
+		`, orderID, expectedVersion).Scan(&updatedID, &previous, &orderVersion, &fulfillmentType)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.Order{}, core.ErrOrderStatusConflict
@@ -3309,14 +3445,24 @@ func (s *Store) transition(ctx context.Context, sess core.Session, orderID uuid.
 		return core.Order{}, err
 	}
 	if to == core.StatusOutForDelivery {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
-			VALUES
-				($1, 'client', 'client_order_out_for_delivery', $2),
-				($1, 'courier', 'courier_ready_order', $2)
-			ON CONFLICT (event_key, recipient_kind) DO NOTHING
-		`, orderID, fmt.Sprintf("order:%s:ready:%d", orderID, orderVersion)); err != nil {
-			return core.Order{}, err
+		if fulfillmentType == core.FulfillmentPickup {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
+				VALUES ($1, 'client', 'client_order_ready_for_pickup', $2)
+				ON CONFLICT (event_key, recipient_kind) DO NOTHING
+			`, orderID, fmt.Sprintf("order:%s:ready:%d", orderID, orderVersion)); err != nil {
+				return core.Order{}, err
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
+				VALUES
+					($1, 'client', 'client_order_out_for_delivery', $2),
+					($1, 'courier', 'courier_ready_order', $2)
+				ON CONFLICT (event_key, recipient_kind) DO NOTHING
+			`, orderID, fmt.Sprintf("order:%s:ready:%d", orderID, orderVersion)); err != nil {
+				return core.Order{}, err
+			}
 		}
 	} else {
 		if _, err := tx.Exec(ctx, `
@@ -3345,7 +3491,7 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 	err := s.pool.QueryRow(ctx, `
 		SELECT o.id, o.public_number, o.client_user_id, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
 			COALESCE(u.photo_url, ''),
-			o.fulfillment_status, o.payment_method, o.payment_status,
+			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency, o.phone_ciphertext, o.address_ciphertext,
 			o.customer_comment, o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
@@ -3354,7 +3500,7 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 		WHERE o.id=$1
 	`, orderID).Scan(
 		&order.ID, &order.PublicNumber, &order.ClientUserID, &order.ClientUsername, &order.ClientFirstName, &order.ClientPhotoURL,
-		&order.FulfillmentStatus, &order.PaymentMethod,
+		&order.FulfillmentType, &order.FulfillmentStatus, &order.PaymentMethod,
 		&order.PaymentStatus, &order.SubtotalMinor, &order.DeliveryFeeMinor, &order.TotalMinor, &order.Currency,
 		&phoneCipher, &addressCipher, &order.CustomerComment, &order.Locale, &order.Version, &order.CreatedAt,
 		&ready, &delivered, &cancelled,
@@ -3538,7 +3684,7 @@ func (s *Store) ordersByStatus(ctx context.Context, status core.FulfillmentStatu
 	rows, err := s.pool.Query(ctx, `
 		SELECT o.id, o.public_number, o.client_user_id, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
 			COALESCE(u.photo_url, ''),
-			o.fulfillment_status, o.payment_method, o.payment_status,
+			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency, o.phone_ciphertext, o.address_ciphertext,
 			o.customer_comment, o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
@@ -3563,7 +3709,7 @@ func scanOrderSummaries(rows pgx.Rows) ([]core.OrderSummary, error) {
 		var locationDistance sql.NullInt32
 		if err := rows.Scan(
 			&summary.ID, &summary.PublicNumber, &summary.ClientUsername, &summary.ClientFirstName, &summary.ClientPhotoURL,
-			&summary.FulfillmentStatus, &summary.PaymentMethod, &summary.PaymentStatus,
+			&summary.FulfillmentType, &summary.FulfillmentStatus, &summary.PaymentMethod, &summary.PaymentStatus,
 			&summary.SubtotalMinor, &summary.DeliveryFeeMinor, &summary.TotalMinor, &summary.Currency,
 			&summary.Locale, &summary.Version, &summary.CreatedAt,
 			&ready, &delivered, &cancelled,
@@ -3602,7 +3748,7 @@ func (s *Store) ordersByIDs(ctx context.Context, ids []uuid.UUID, includePII boo
 	rows, err := s.pool.Query(ctx, `
 		SELECT o.id, o.public_number, o.client_user_id, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
 			COALESCE(u.photo_url, ''),
-			o.fulfillment_status, o.payment_method, o.payment_status,
+			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency, o.phone_ciphertext, o.address_ciphertext,
 			o.customer_comment, o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
@@ -3630,7 +3776,7 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 		var locationDistance sql.NullInt32
 		if err := rows.Scan(
 			&order.ID, &order.PublicNumber, &order.ClientUserID, &order.ClientUsername, &order.ClientFirstName, &order.ClientPhotoURL,
-			&order.FulfillmentStatus, &order.PaymentMethod,
+			&order.FulfillmentType, &order.FulfillmentStatus, &order.PaymentMethod,
 			&order.PaymentStatus, &order.SubtotalMinor, &order.DeliveryFeeMinor, &order.TotalMinor, &order.Currency,
 			&phoneCipher, &addressCipher, &order.CustomerComment, &order.Locale, &order.Version, &order.CreatedAt,
 			&ready, &delivered, &cancelled,
@@ -4178,6 +4324,17 @@ func validFulfillmentStatus(status string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func normalizeFulfillmentType(value core.FulfillmentType) (core.FulfillmentType, error) {
+	switch core.FulfillmentType(strings.ToLower(strings.TrimSpace(string(value)))) {
+	case "", core.FulfillmentDelivery:
+		return core.FulfillmentDelivery, nil
+	case core.FulfillmentPickup:
+		return core.FulfillmentPickup, nil
+	default:
+		return "", core.ErrInvalidInput
 	}
 }
 

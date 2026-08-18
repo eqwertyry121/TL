@@ -165,7 +165,7 @@ paths:
     post:
       responses:
         "200":
-          description: Server-side cart calculation
+          description: Server-side cart calculation. Request body may include fulfillment_type=delivery|pickup; pickup always has zero delivery fee.
   /orders:
     get:
       parameters:
@@ -203,7 +203,7 @@ paths:
             type: string
       responses:
         "201":
-          description: Created cash order. If cash location is enabled, request must include a verified unused cash_location_challenge_id.
+          description: Created cash order. Request must include fulfillment_type=delivery|pickup. Delivery cash orders require a verified unused cash_location_challenge_id when cash location is enabled; pickup orders do not notify courier.
   /orders/{id}:
     get:
       parameters:
@@ -230,7 +230,7 @@ paths:
     get:
       responses:
         "200":
-          description: NEW orders without phone/address. Uses private ETag for polling.
+          description: NEW orders plus pickup orders ready for handoff, without phone/address. Uses private ETag for polling.
           headers:
             ETag:
               schema:
@@ -247,12 +247,20 @@ paths:
         - $ref: "#/components/parameters/idempotencyKey"
       responses:
         "200":
-          description: Order moved to OUT_FOR_DELIVERY
+          description: Order moved to OUT_FOR_DELIVERY. Delivery notifies client and courier; pickup notifies only client that the order is ready for pickup.
+  /kitchen/orders/{id}/picked-up:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      responses:
+        "200":
+          description: Pickup order marked as DELIVERED after customer handoff. Courier is never involved.
   /courier/orders:
     get:
       responses:
         "200":
-          description: OUT_FOR_DELIVERY orders with phone/address. Uses private ETag for polling.
+          description: Delivery-only OUT_FOR_DELIVERY orders with phone/address. Pickup orders are excluded. Uses private ETag for polling.
           headers:
             ETag:
               schema:
@@ -268,7 +276,7 @@ paths:
         - $ref: "#/components/parameters/orderId"
       responses:
         "200":
-          description: Courier notifies client that delivery is expected in 5, 10, 15 or 20 minutes
+          description: Courier notifies client that delivery is expected in 5, 10, 15 or 20 minutes. Delivery orders only.
   /courier/orders/{id}/delivered:
     post:
       parameters:
@@ -276,7 +284,7 @@ paths:
         - $ref: "#/components/parameters/idempotencyKey"
       responses:
         "200":
-          description: Order moved to DELIVERED
+          description: Delivery order moved to DELIVERED
   /admin/settings/manual-day-off:
     put:
       responses:
@@ -464,7 +472,7 @@ paths:
         - $ref: "#/components/parameters/orderId"
       responses:
         "200":
-          description: Admin creates a notification retry job. Courier resend is allowed only while order is OUT_FOR_DELIVERY.
+          description: Admin creates a notification retry job. Courier resend is allowed only for delivery orders while order is OUT_FOR_DELIVERY.
   /admin/orders/{id}/note:
     post:
       parameters:

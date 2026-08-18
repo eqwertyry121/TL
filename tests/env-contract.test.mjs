@@ -15,10 +15,16 @@ const publicLegalEnvKeys = [
   "VITE_LEGAL_BUSINESS_NAME",
   "VITE_LEGAL_REGISTRATION_NUMBER",
   "VITE_LEGAL_TAX_ID",
+  "VITE_LEGAL_VAT_STATUS",
   "VITE_LEGAL_REGISTERED_ADDRESS",
   "VITE_LEGAL_RESTAURANT_ADDRESS",
   "VITE_LEGAL_EMAIL",
   "VITE_LEGAL_PHONE",
+];
+
+const ownerBootstrapEnvKeys = [
+  "BOOTSTRAP_OWNER_TELEGRAM_IDS",
+  "BOOTSTRAP_OWNER_TELEGRAM_ID",
 ];
 
 test("optimization runtime knobs are documented in env templates", () => {
@@ -26,6 +32,16 @@ test("optimization runtime knobs are documented in env templates", () => {
   const productionExample = readSource("deploy/env.production.example");
 
   for (const key of optimizationEnvKeys) {
+    assertEnvKey(rootExample, key, ".env.example");
+    assertEnvKey(productionExample, key, "deploy/env.production.example");
+  }
+});
+
+test("owner bootstrap ids are documented in env templates", () => {
+  const rootExample = readSource(".env.example");
+  const productionExample = readSource("deploy/env.production.example");
+
+  for (const key of ownerBootstrapEnvKeys) {
     assertEnvKey(rootExample, key, ".env.example");
     assertEnvKey(productionExample, key, "deploy/env.production.example");
   }

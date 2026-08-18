@@ -1,4 +1,4 @@
-import type { MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Role } from "@tk-delivery/api-client/generated";
+import type { FulfillmentType, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Role } from "@tk-delivery/api-client/generated";
 import { createSingleFlightAuthRetry, isAuthErrorLike } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { startVisiblePolling } from "@tk-delivery/api-client/polling";
@@ -94,6 +94,7 @@ function ClientMiniApp() {
   const [additionCalculation, setAdditionCalculation] = useState<Calculation | null>(null);
   const [verifiedContact, setVerifiedContact] = useState<VerifiedContact | null>(null);
   const [cashLocation, setCashLocation] = useState<CashLocationChallenge | null>(null);
+  const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType>("delivery");
   const [paymentMethod, setPaymentMethod] = useState<Extract<PaymentMethod, "cash" | "crypto">>("cash");
   const [contactLoading, setContactLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -111,7 +112,8 @@ function ClientMiniApp() {
   const additionLines = useMemo(() => Object.values(additionCart.lines), [additionCart.lines]);
   const availableCartLines = useMemo(() => cartLines.filter((line) => itemLookup.has(line.itemId)), [cartLines, itemLookup]);
   const availableAdditionLines = useMemo(() => additionLines.filter((line) => itemLookup.has(line.itemId)), [additionLines, itemLookup]);
-  const checkoutSignature = useMemo(() => checkoutCartSignature(availableCartLines), [availableCartLines]);
+  const checkoutCartKey = useMemo(() => checkoutCartSignature(availableCartLines), [availableCartLines]);
+  const checkoutSignature = useMemo(() => checkoutCartKey ? `${fulfillmentType}:${checkoutCartKey}` : "", [checkoutCartKey, fulfillmentType]);
   const additionSignature = useMemo(() => checkoutCartSignature(availableAdditionLines), [availableAdditionLines]);
   const cartQuantity = availableCartLines.reduce((sum, line) => sum + line.quantity, 0);
   const additionQuantity = availableAdditionLines.reduce((sum, line) => sum + line.quantity, 0);
@@ -392,6 +394,13 @@ function ClientMiniApp() {
     saveCheckoutDraft(next);
   }
 
+  function updateFulfillmentType(next: FulfillmentType) {
+    setFulfillmentType(next);
+    setCalculation(null);
+    setCashLocation(null);
+    clearCheckoutProgress();
+  }
+
   useEffect(() => {
     if (verifiedContact?.verified && verifiedContact.phone && draft.phone !== verifiedContact.phone) {
       updateDraft({ phone: verifiedContact.phone });
@@ -404,6 +413,7 @@ function ClientMiniApp() {
       (authToken) => api.calculate(
         authToken,
         availableCartLines.map((line) => ({ item_id: line.itemId, quantity: line.quantity })),
+        fulfillmentType,
       ),
       token,
     );
@@ -455,6 +465,7 @@ function ClientMiniApp() {
 
   async function confirmCashLocation() {
     if (!token || locationLoading) return;
+    if (fulfillmentType === "pickup") return;
     setLocationLoading(true);
     setError("");
     try {
@@ -478,8 +489,9 @@ function ClientMiniApp() {
 
   async function submitOrder() {
     if (!token || submitting) return;
-    if (!verifiedContact?.verified || !draft.phone.trim() || !draft.street.trim() || !draft.houseNumber.trim()) {
-      setError("Поделитесь телефоном через Telegram и заполните адрес");
+    const deliverySelected = fulfillmentType === "delivery";
+    if (!verifiedContact?.verified || !draft.phone.trim() || (deliverySelected && (!draft.street.trim() || !draft.houseNumber.trim()))) {
+      setError(deliverySelected ? "Поделитесь телефоном через Telegram и заполните адрес" : "Поделитесь телефоном через Telegram");
       return;
     }
     setSubmitting(true);
@@ -487,7 +499,7 @@ function ClientMiniApp() {
     try {
       const calc = calculation || (await calculate());
       if (!calc) throw new Error("EMPTY_CART");
-      if (paymentMethod === "cash" && cashLocationRequired && cashLocation?.status !== "VERIFIED") {
+      if (paymentMethod === "cash" && deliverySelected && cashLocationRequired && cashLocation?.status !== "VERIFIED") {
         setError("Для оплаты наличными подтвердите местоположение");
         return;
       }
@@ -501,10 +513,11 @@ function ClientMiniApp() {
         {
           calculation_token: calc.calculation_token,
           phone: draft.phone.trim(),
-          address: buildCheckoutAddress(draft),
+          address: deliverySelected ? buildCheckoutAddress(draft) : "",
           comment: draft.comment.trim(),
+          fulfillment_type: fulfillmentType,
           payment_method: paymentMethod,
-          cash_location_challenge_id: paymentMethod === "cash" ? cashLocation?.id : undefined,
+          cash_location_challenge_id: paymentMethod === "cash" && deliverySelected ? cashLocation?.id : undefined,
           terms_accepted: termsAccepted,
           locale,
         },
@@ -633,6 +646,7 @@ function ClientMiniApp() {
         total={total}
         checkoutOpen={checkoutOpen}
         locale={locale}
+        fulfillmentType={fulfillmentType}
         paymentMethod={paymentMethod}
         paymentMethods={paymentMethods}
         verifiedContact={verifiedContact}
@@ -645,6 +659,7 @@ function ClientMiniApp() {
         locationLoading={locationLoading}
         submitting={submitting}
         onDraft={updateDraft}
+        onFulfillmentType={updateFulfillmentType}
         onPaymentMethod={setPaymentMethod}
         onTermsAccepted={setTermsAccepted}
         onConfirmContact={confirmContact}
@@ -922,6 +937,7 @@ function Menu({ categories, cart, onSetLine }: { categories: AppData["categories
           {flatItems.map(({ item, visualIndex }) => {
             const qty = cart.lines[item.id]?.quantity || 0;
             const minQuantity = itemMinQuantity(item);
+            const { description, recommendationBadge } = splitRecommendationDescription(item.description);
             return (
               <article className={qty > 0 ? "dish-card in-cart" : "dish-card"} key={item.id}>
                 <DishVisual item={item} visualIndex={visualIndex} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
@@ -929,7 +945,8 @@ function Menu({ categories, cart, onSetLine }: { categories: AppData["categories
                   <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
                     {item.title}
                   </button>
-                  <p>{item.description}</p>
+                  {recommendationBadge && <span className="dish-badge">{recommendationBadge}</span>}
+                  <p>{description}</p>
                   <div className="meta-row">
                     <span>{item.weight_text}</span>
                     <strong>{money(item.price_minor)}</strong>
@@ -1004,12 +1021,14 @@ function AddToOrder({
             const alreadyInOrder = order.items.some((entry) => entry.menu_item_id === item.id);
             const startQuantity = alreadyInOrder ? 1 : itemMinQuantity(item);
             const minSelectedQuantity = alreadyInOrder ? 1 : itemMinQuantity(item);
+            const { description, recommendationBadge } = splitRecommendationDescription(item.description);
             return (
               <article className={qty > 0 ? "dish-card in-cart" : "dish-card"} key={item.id}>
                 <DishVisual item={item} visualIndex={visualIndex} />
                 <div className="dish-body">
                   <strong className="plain-title">{item.title}</strong>
-                  <p>{item.description}</p>
+                  {recommendationBadge && <span className="dish-badge">{recommendationBadge}</span>}
+                  <p>{description}</p>
                   <div className="meta-row">
                     <span>{item.weight_text}</span>
                     <strong>{money(item.price_minor)}</strong>
@@ -1046,12 +1065,14 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
   const [qty, setQty] = useState(line?.quantity || (item ? itemMinQuantity(item) : 1));
   if (!item) return <div className="state">Блюдо не найдено</div>;
   const minQuantity = itemMinQuantity(item);
+  const { description, recommendationBadge } = splitRecommendationDescription(item.description);
   return (
     <div className="page narrow dish-page">
       <DishVisual item={item} visualIndex={2} hero />
       <span className="eyebrow">Tako Lako special</span>
       <h1>{item.title}</h1>
-      <p className="lead">{item.description}</p>
+      {recommendationBadge && <span className="dish-badge">{recommendationBadge}</span>}
+      <p className="lead">{description}</p>
       <div className="panel-list">
         <div className="split">
           <span>{item.weight_text}</span>
@@ -1184,6 +1205,7 @@ function Checkout({
   total,
   checkoutOpen,
   locale,
+  fulfillmentType,
   paymentMethod,
   paymentMethods,
   verifiedContact,
@@ -1196,6 +1218,7 @@ function Checkout({
   locationLoading,
   submitting,
   onDraft,
+  onFulfillmentType,
   onPaymentMethod,
   onTermsAccepted,
   onConfirmContact,
@@ -1210,6 +1233,7 @@ function Checkout({
   total: number;
   checkoutOpen: boolean;
   locale: Locale;
+  fulfillmentType: FulfillmentType;
   paymentMethod: Extract<PaymentMethod, "cash" | "crypto">;
   paymentMethods: Array<Extract<PaymentMethod, "cash" | "crypto">>;
   verifiedContact: VerifiedContact | null;
@@ -1222,6 +1246,7 @@ function Checkout({
   locationLoading: boolean;
   submitting: boolean;
   onDraft: (patch: Partial<CheckoutDraft>) => void;
+  onFulfillmentType: (type: FulfillmentType) => void;
   onPaymentMethod: (method: Extract<PaymentMethod, "cash" | "crypto">) => void;
   onTermsAccepted: (accepted: boolean) => void;
   onConfirmContact: () => Promise<void>;
@@ -1231,9 +1256,10 @@ function Checkout({
 }) {
   useEffect(() => {
     if (lines.length) void onCalculate().catch(() => undefined);
-  }, [lines.length]);
+  }, [fulfillmentType, lines.length]);
   if (!lines.length) return <div className="state">{t(locale, "emptyCart")}</div>;
-  const locationRequired = paymentMethod === "cash" && cashLocationRequired;
+  const deliverySelected = fulfillmentType === "delivery";
+  const locationRequired = deliverySelected && paymentMethod === "cash" && cashLocationRequired;
   const locationVerified = !locationRequired || cashLocation?.status === "VERIFIED";
   const contactVerified = Boolean(verifiedContact?.verified);
   const termsHref = termsUrl.trim() || routeToHash({ name: "terms" });
@@ -1258,30 +1284,48 @@ function Checkout({
           </span>
           {!contactVerified && <ChevronRight className="contact-share-arrow" size={22} aria-hidden="true" />}
         </button>
-        <div className="address-grid main-address-grid">
-          <label>
-            <span>{t(locale, "street")}</span>
-            <input value={draft.street} maxLength={90} autoComplete="street-address" onChange={(event) => onDraft({ street: event.target.value })} />
-          </label>
-          <label>
-            <span>{t(locale, "houseNumber")}</span>
-            <input value={draft.houseNumber} maxLength={16} autoComplete="address-line2" onChange={(event) => onDraft({ houseNumber: event.target.value })} />
-          </label>
+        <div className="fulfillment-selector">
+          <span>Как получить заказ</span>
+          <div>
+            <button type="button" className={deliverySelected ? "active" : ""} onClick={() => onFulfillmentType("delivery")}>
+              <strong>Доставка</strong>
+              <small>привезём курьером</small>
+            </button>
+            <button type="button" className={!deliverySelected ? "active" : ""} onClick={() => onFulfillmentType("pickup")}>
+              <strong>Самовывоз</strong>
+              <small>забрать в ресторане</small>
+            </button>
+          </div>
+          {!deliverySelected && <p>Самовывоз выбран: адрес и геолокация не нужны, курьер не получает этот заказ.</p>}
         </div>
-        <div className="address-grid details-address-grid">
-          <label>
-            <span>{t(locale, "entrance")}</span>
-            <input value={draft.entrance} maxLength={24} inputMode="text" onChange={(event) => onDraft({ entrance: event.target.value })} />
-          </label>
-          <label>
-            <span>{t(locale, "floor")}</span>
-            <input value={draft.floor} maxLength={16} inputMode="text" onChange={(event) => onDraft({ floor: event.target.value })} />
-          </label>
-          <label>
-            <span>{t(locale, "apartment")}</span>
-            <input value={draft.apartment} maxLength={24} inputMode="text" onChange={(event) => onDraft({ apartment: event.target.value })} />
-          </label>
-        </div>
+        {deliverySelected && (
+          <>
+            <div className="address-grid main-address-grid">
+              <label>
+                <span>{t(locale, "street")}</span>
+                <input value={draft.street} maxLength={90} autoComplete="street-address" onChange={(event) => onDraft({ street: event.target.value })} />
+              </label>
+              <label>
+                <span>{t(locale, "houseNumber")}</span>
+                <input value={draft.houseNumber} maxLength={16} autoComplete="address-line2" onChange={(event) => onDraft({ houseNumber: event.target.value })} />
+              </label>
+            </div>
+            <div className="address-grid details-address-grid">
+              <label>
+                <span>{t(locale, "entrance")}</span>
+                <input value={draft.entrance} maxLength={24} inputMode="text" onChange={(event) => onDraft({ entrance: event.target.value })} />
+              </label>
+              <label>
+                <span>{t(locale, "floor")}</span>
+                <input value={draft.floor} maxLength={16} inputMode="text" onChange={(event) => onDraft({ floor: event.target.value })} />
+              </label>
+              <label>
+                <span>{t(locale, "apartment")}</span>
+                <input value={draft.apartment} maxLength={24} inputMode="text" onChange={(event) => onDraft({ apartment: event.target.value })} />
+              </label>
+            </div>
+          </>
+        )}
         <label>
           <span>{t(locale, "comment")}</span>
           <textarea value={draft.comment} maxLength={300} onChange={(event) => onDraft({ comment: event.target.value })} />
@@ -1293,7 +1337,7 @@ function Checkout({
           {paymentMethods.map((method) => (
             <button key={method} className={paymentMethod === method ? "active" : ""} type="button" onClick={() => onPaymentMethod(method)}>
               <strong>{paymentMethodTitle(method)}</strong>
-              <small>{paymentMethodDescription(method)}</small>
+              <small>{paymentMethodDescription(method, fulfillmentType)}</small>
             </button>
           ))}
         </div>
@@ -1461,6 +1505,7 @@ function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; 
       </div>
       <Totals subtotal={order.subtotal_minor} total={order.total_minor} locale={locale} />
       <div className="panel-list">
+        <div className="split"><span>Получение</span><strong>{fulfillmentText(order)}</strong></div>
         <div className="split"><span>{t(locale, "phone")}</span><strong>{maskPhone(order.phone)}</strong></div>
         <div className="split"><span>Оплата</span><strong>{paymentStatusLabel(order)}</strong></div>
       </div>
@@ -1488,7 +1533,7 @@ function Orders({
         {orders.map((order) => (
           <button className="history-line" key={order.id} onClick={() => navigate({ name: "order", id: order.id })}>
             <ReceiptText size={20} />
-            <span>#{order.public_number}<small>{localizedStatus(order, locale)}</small></span>
+            <span>#{order.public_number}<small>{fulfillmentText(order)} · {localizedStatus(order, locale)}</small></span>
             <strong>{money(order.total_minor)}</strong>
             <ChevronRight size={18} />
           </button>
@@ -1572,18 +1617,29 @@ function paymentMethodTitle(method: Extract<PaymentMethod, "cash" | "crypto">): 
   return "Наличными";
 }
 
-function paymentMethodDescription(method: Extract<PaymentMethod, "cash" | "crypto">): string {
+function paymentMethodDescription(method: Extract<PaymentMethod, "cash" | "crypto">, fulfillmentType: FulfillmentType): string {
   if (method === "crypto") return "sandbox · без реальных денег";
+  if (fulfillmentType === "pickup") return "при получении в ресторане";
   return "курьеру при получении";
 }
 
 function paymentStatusLabel(order: Order): string {
   if (order.payment_method === "crypto") return order.payment_status === "PAID" ? "Crypto TEST · PAID" : "Crypto TEST";
   if (order.payment_method === "card") return order.payment_status === "PAID" ? "Карта · PAID" : "Карта";
+  if (order.fulfillment_type === "pickup") return order.payment_status === "PAID" ? "Наличные при самовывозе · PAID" : "Наличные при самовывозе";
   return order.payment_status === "PAID" ? "Наличные · PAID" : "Наличные";
 }
 
+function fulfillmentText(order: OrderSummary): string {
+  return order.fulfillment_type === "pickup" ? "Самовывоз" : "Доставка";
+}
+
 function localizedStatus(order: OrderSummary, locale: Locale): string {
+  if (order.fulfillment_type === "pickup") {
+    if (order.fulfillment_status === "NEW") return locale === "ru" ? "Заказ принят · самовывоз" : t(locale, "accepted");
+    if (order.fulfillment_status === "OUT_FOR_DELIVERY") return locale === "ru" ? "Готов к самовывозу" : "Ready for pickup";
+    if (order.fulfillment_status === "DELIVERED") return locale === "ru" ? "Заказ выдан" : t(locale, "delivered");
+  }
   if (locale === "ru") return orderStatusText(order);
   if (order.fulfillment_status === "NEW") return t(locale, "accepted");
   if (order.fulfillment_status === "OUT_FOR_DELIVERY") return t(locale, "delivery");
@@ -1657,6 +1713,20 @@ function menuPhotoDimensions(item: MenuItem, hero: boolean): { width: number; he
 
 function itemMinQuantity(item: MenuItem): number {
   return Math.max(1, item.min_quantity || 1);
+}
+
+function splitRecommendationDescription(description: string): { description: string; recommendationBadge?: string } {
+  const text = (description || "").trim();
+  const ruPrefix = "Рекомендация от разработчика:";
+  const enPrefix = "Chef's recommendation:";
+  if (!text) return { description: text };
+  if (text.startsWith(ruPrefix)) {
+    return { description: text.slice(ruPrefix.length).trim(), recommendationBadge: "Рекомендация от разработчика" };
+  }
+  if (text.startsWith(enPrefix)) {
+    return { description: text.slice(enPrefix.length).trim(), recommendationBadge: "Recommendation" };
+  }
+  return { description: text };
 }
 
 function isDayOffRuntime(runtime?: AppData["runtime"]): boolean {

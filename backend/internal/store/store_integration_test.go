@@ -854,6 +854,101 @@ func TestMarkReadyPersistsStatusBeforeNotificationDelivery(t *testing.T) {
 	})
 }
 
+func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	kitchenSession := adminSession
+	kitchenSession.ActiveRole = core.RoleKitchen
+	courierSession := adminSession
+	courierSession.ActiveRole = core.RoleCourier
+	clientSession := clientSession(t, ctx, st, clientTelegramID)
+	phone := "+38160111422"
+	if err := st.VerifyTelegramContact(ctx, clientTelegramID, clientTelegramID, phone); err != nil {
+		t.Fatalf("verify contact: %v", err)
+	}
+
+	now := time.Now().UTC()
+	calc, err := st.CalculateForFulfillment(ctx, clientSession, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, core.FulfillmentPickup, now)
+	if err != nil {
+		t.Fatalf("calculate pickup: %v", err)
+	}
+	if calc.FulfillmentType != core.FulfillmentPickup || calc.DeliveryFeeMinor != 0 || calc.TotalMinor != calc.SubtotalMinor {
+		t.Fatalf("pickup calculation should be zero-delivery pickup, got %+v", calc)
+	}
+	if _, err := st.CreateCashLocationChallenge(ctx, clientSession, store.CreateCashLocationChallengeInput{
+		CalculationToken: calc.Token,
+	}, now, true); !errors.Is(err, core.ErrCalculationExpired) {
+		t.Fatalf("pickup calculation must not create cash-location challenge, got %v", err)
+	}
+
+	order, err := st.CreateCashOrder(ctx, clientSession, store.CreateOrderInput{
+		CalculationToken: calc.Token,
+		Phone:            phone,
+		FulfillmentType:  core.FulfillmentPickup,
+		PaymentMethod:    core.PaymentCash,
+		TermsAccepted:    true,
+		Locale:           "ru",
+	}, "idem-pickup-order", "request-hash-pickup-order", now)
+	if err != nil {
+		t.Fatalf("create pickup cash order: %v", err)
+	}
+	if order.FulfillmentType != core.FulfillmentPickup || order.Address != "Самовывоз" {
+		t.Fatalf("pickup order snapshot mismatch: %+v", order)
+	}
+	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{"kitchen": 1})
+
+	ready, err := st.MarkReady(ctx, kitchenSession, order.ID, "idem-pickup-ready", "request-hash-pickup-ready", order.Version)
+	if err != nil {
+		t.Fatalf("mark pickup ready: %v", err)
+	}
+	if ready.FulfillmentStatus != core.StatusOutForDelivery || ready.FulfillmentType != core.FulfillmentPickup {
+		t.Fatalf("pickup ready order mismatch: %+v", ready)
+	}
+	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{
+		"kitchen": 1,
+		"client":  1,
+	})
+
+	courierOrders, err := st.CourierOrders(ctx, courierSession)
+	if err != nil {
+		t.Fatalf("courier orders: %v", err)
+	}
+	if len(courierOrders) != 0 {
+		t.Fatalf("pickup order leaked to courier queue: %+v", courierOrders)
+	}
+	if err := st.SendCourierETA(ctx, courierSession, order.ID, 10); !errors.Is(err, core.ErrOrderStatusConflict) {
+		t.Fatalf("pickup ETA should be blocked, got %v", err)
+	}
+	if _, err := st.MarkDelivered(ctx, courierSession, order.ID, "idem-pickup-courier-delivered", "request-hash-pickup-courier-delivered", ready.Version); !errors.Is(err, core.ErrOrderStatusConflict) {
+		t.Fatalf("courier delivery should be blocked for pickup, got %v", err)
+	}
+	if err := st.ResendOrderNotification(ctx, adminSession, order.ID, "courier", "pickup should not notify courier"); !errors.Is(err, core.ErrOrderStatusConflict) {
+		t.Fatalf("admin courier resend should be blocked for pickup, got %v", err)
+	}
+
+	kitchenOrders, err := st.KitchenOrders(ctx, kitchenSession)
+	if err != nil {
+		t.Fatalf("kitchen orders: %v", err)
+	}
+	if len(kitchenOrders) != 1 || kitchenOrders[0].ID != order.ID || kitchenOrders[0].FulfillmentStatus != core.StatusOutForDelivery {
+		t.Fatalf("pickup ready order should stay visible for kitchen handoff, got %+v", kitchenOrders)
+	}
+	delivered, err := st.MarkPickupCollected(ctx, kitchenSession, order.ID, "idem-pickup-collected", "request-hash-pickup-collected", ready.Version)
+	if err != nil {
+		t.Fatalf("mark pickup collected: %v", err)
+	}
+	if delivered.FulfillmentStatus != core.StatusDelivered || delivered.PaymentStatus != core.PaymentPaid {
+		t.Fatalf("pickup collected order mismatch: %+v", delivered)
+	}
+	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{
+		"kitchen": 1,
+		"client":  2,
+	})
+}
+
 func TestOrderItemSnapshotsSurviveMenuEditAndArchive(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)

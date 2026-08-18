@@ -58,7 +58,7 @@ function realApi(baseURL: string): Api {
     authenticate,
     runtime: (signal) => get(`${baseURL}/api/v1/runtime`, undefined, signal),
     menu: (locale) => get(`${baseURL}/api/v1/menu?locale=${locale}`),
-    calculate: (token, items) => post(`${baseURL}/api/v1/orders/calculate`, { items }, token),
+    calculate: (token, items, fulfillmentType) => post(`${baseURL}/api/v1/orders/calculate`, { items, fulfillment_type: fulfillmentType }, token),
     calculateAddition: (token, orderId, items) => post(`${baseURL}/api/v1/orders/${orderId}/addition/calculate`, { items }, token),
     contact: (token) => get(`${baseURL}/api/v1/contact`, token),
     createCashLocationChallenge: (token, input) => post(`${baseURL}/api/v1/cash-location/challenges`, input, token),
@@ -107,7 +107,7 @@ function demoApi(): Api {
     async menu() {
       return { categories: loadDemoCategories() };
     },
-    async calculate(_token, items) {
+    async calculate(_token, items, fulfillmentType) {
       const categories = loadDemoCategories();
       const lookup = menuLookup(categories);
       const calculationItems = items.map(({ item_id, quantity }) => {
@@ -129,6 +129,7 @@ function demoApi(): Api {
       const calculation = {
         calculation_token: crypto.randomUUID(),
         items: calculationItems,
+        fulfillment_type: fulfillmentType,
         subtotal_minor: subtotal,
         delivery_fee_minor: 0,
         total_minor: subtotal,
@@ -167,6 +168,7 @@ function demoApi(): Api {
       const calculation = {
         calculation_token: crypto.randomUUID(),
         items: calculationItems,
+        fulfillment_type: "delivery",
         subtotal_minor: subtotal,
         delivery_fee_minor: 0,
         total_minor: subtotal,
@@ -201,16 +203,20 @@ function demoApi(): Api {
       if (!runtime.accepting_orders) {
         throw apiError(runtime.reason === "manual_day_off" ? "MANUAL_DAY_OFF" : "RESTAURANT_CLOSED");
       }
-      if (!input.phone.trim() || !input.address.trim()) {
+      if (!input.phone.trim() || (input.fulfillment_type !== "pickup" && !input.address.trim())) {
         throw apiError("INVALID_INPUT");
       }
-      if (input.payment_method === "cash" && !input.cash_location_challenge_id) {
+      if (input.payment_method === "cash" && input.fulfillment_type !== "pickup" && !input.cash_location_challenge_id) {
         throw apiError("CASH_LOCATION_REQUIRED");
       }
       const orders = loadDemoOrders();
       const existing = orders.find((order) => (order as DemoOrder).__key === idempotencyKey);
       if (existing) return stripDemo(existing);
       const decoded = loadDemoCalculation(input.calculation_token);
+      const decodedFulfillmentType = decoded.fulfillment_type || "delivery";
+      if (decodedFulfillmentType !== input.fulfillment_type) {
+        throw apiError("CALCULATION_EXPIRED");
+      }
       const profile = demoTelegramProfile();
       const order: DemoOrder = {
         id: crypto.randomUUID(),
@@ -218,6 +224,7 @@ function demoApi(): Api {
         client_username: profile.username,
         client_first_name: profile.first_name,
         client_photo_url: profile.photo_url,
+        fulfillment_type: input.fulfillment_type,
         fulfillment_status: "NEW",
         payment_method: input.payment_method,
         payment_status: input.payment_method === "crypto" ? "PAID" : "CASH_PENDING",
@@ -226,7 +233,7 @@ function demoApi(): Api {
         total_minor: decoded.total_minor,
         currency: "RSD",
         phone: input.phone,
-        address: input.address,
+        address: input.fulfillment_type === "pickup" ? "Самовывоз" : input.address,
         customer_comment: input.comment,
         locale: input.locale,
         version: 1,

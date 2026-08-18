@@ -21,7 +21,7 @@ const demoAuditKey = "tk-admin-demo-audit-v1";
 const demoCryptoTestMigrationKey = "tk-demo-crypto-test-enabled-v1";
 const getCache = new Map<string, { etag: string; payload: unknown }>();
 
-export type AdminTab = "home" | "menu" | "orders" | "staff" | "schedule" | "analytics" | "settings" | "audit";
+export type AdminTab = "home" | "menu" | "orders" | "schedule" | "analytics" | "settings" | "audit";
 export type StaffRole = Exclude<Role, "CLIENT">;
 export type AnalyticsRange = "today" | "7d" | "month";
 
@@ -69,7 +69,6 @@ export interface AdminBootstrapResponse {
   settings?: Settings;
   schedule?: { schedule: ScheduleDay[] };
   orders?: AdminOrdersResponse;
-  staff?: { staff: StaffMember[] };
   analytics?: AdminAnalytics;
   audit?: AuditLogResponse;
 }
@@ -237,9 +236,6 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
       case "orders":
         response.orders = await get(`${baseURL}/api/v1/admin/orders?${new URLSearchParams(clean({ ...options, limit: options.limit || 20, offset: options.offset || 0 }))}`, token);
         break;
-      case "staff":
-        response.staff = await get(`${baseURL}/api/v1/admin/staff`, token);
-        break;
       case "schedule":
         response.schedule = await get(`${baseURL}/api/v1/admin/schedule`, token);
         break;
@@ -335,7 +331,8 @@ function demoApi(): AdminApi {
     return {
       runtime: runtimeFromSettings(settings),
       new_orders: orders.filter((order) => order.fulfillment_status === "NEW").length,
-      out_for_delivery: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").length,
+      out_for_delivery: orders.filter((order) => order.fulfillment_type !== "pickup" && order.fulfillment_status === "OUT_FOR_DELIVERY").length,
+      ready_for_pickup: orders.filter((order) => order.fulfillment_type === "pickup" && order.fulfillment_status === "OUT_FOR_DELIVERY").length,
       orders_today: orders.filter((order) => isToday(order.created_at)).length,
       revenue_today_minor: orders
         .filter((order) => isToday(order.created_at) && order.fulfillment_status === "DELIVERED" && order.payment_status === "PAID")
@@ -363,8 +360,6 @@ function demoApi(): AdminApi {
         const offset = options.offset || 0;
         const limit = options.limit || 20;
         response.orders = { orders: orders.slice(offset, offset + limit), limit, offset, has_more: orders.length > offset + limit };
-      } else if (tab === "staff") {
-        response.staff = { staff: loadStaff() };
       } else if (tab === "schedule") {
         response.schedule = { schedule: loadSettings().schedule || defaultSchedule() };
       } else if (tab === "analytics") {
@@ -770,14 +765,118 @@ function seedMenu(): AdminMenuResponse {
     categorySeed("11111111-1111-1111-1111-111111111004", "Напитки", "Pica", "Drinks", 40),
   ];
   const items: AdminMenuItem[] = [
-    itemSeed("22222222-2222-2222-2222-222222222001", categories[0].id, "Классические хинкали", "Замороженные хинкали с говядиной и зеленью. Минимум 5 шт", "690", "от 5 шт", 5, 10),
-    itemSeed("22222222-2222-2222-2222-222222222002", categories[0].id, "Хинкали без кинзы", "Замороженные хинкали с говядиной без кинзы. Минимум 5 шт", "640", "от 5 шт", 5, 20),
-    itemSeed("22222222-2222-2222-2222-222222222003", categories[1].id, "Аджарский хачапури", "Лодочка с сыром, яйцом и сливочным маслом", "890", "1 шт", 1, 30),
-    itemSeed("22222222-2222-2222-2222-222222222004", categories[1].id, "Имеретинский хачапури", "Круглый хачапури с сыром внутри", "760", "1 шт", 1, 40),
-    itemSeed("22222222-2222-2222-2222-222222222005", categories[2].id, "Чахохбили", "Курица в томатном соусе с травами", "940", "350 г", 1, 50),
-    itemSeed("22222222-2222-2222-2222-222222222006", categories[2].id, "Лобио", "Фасоль с орехами, зеленью и специями", "620", "300 г", 1, 60),
-    itemSeed("22222222-2222-2222-2222-222222222007", categories[3].id, "Лимонад тархун", "Холодный газированный лимонад", "290", "500 мл", 1, 70),
-    itemSeed("22222222-2222-2222-2222-222222222008", categories[3].id, "Морс ягодный", "Домашний ягодный напиток", "260", "400 мл", 1, 80),
+    itemSeed(
+      "22222222-2222-2222-2222-222222222001",
+      categories[0].id,
+      "Классические хинкали",
+      "Klasicni hinkali",
+      "Classic khinkali",
+      "Замороженные хинкали с говядиной и зеленью. Минимум 5 шт.",
+      "Zamrznuti hinkali sa govedinom i zacinima. Minimum 5 kom.",
+      "Frozen khinkali with beef and herbs. Minimum 5 pcs.",
+      "690",
+      "от 5 шт",
+      5,
+      10,
+    ),
+    itemSeed(
+      "22222222-2222-2222-2222-222222222002",
+      categories[0].id,
+      "Хинкали без кинзы",
+      "Hinkali bez korijandera",
+      "Khinkali without cilantro",
+      "Замороженные хинкали с говядиной без кинзы. Минимум 5 шт.",
+      "Zamrznuti hinkali sa govedinom bez korijandera. Minimum 5 kom.",
+      "Frozen beef khinkali without cilantro. Minimum 5 pcs.",
+      "640",
+      "от 5 шт",
+      5,
+      20,
+    ),
+    itemSeed(
+      "22222222-2222-2222-2222-222222222003",
+      categories[1].id,
+      "Аджарский хачапури",
+      "Adzarski khachapuri",
+      "Adjarian khachapuri",
+      "Лодочка с сыром, яйцом и сливочным маслом",
+      "Ladjica sa sirom, jajetom i puterom",
+      "Cheese bread boat with egg and butter",
+      "890",
+      "1 шт",
+      1,
+      30,
+    ),
+    itemSeed(
+      "22222222-2222-2222-2222-222222222004",
+      categories[1].id,
+      "Имеретинский хачапури",
+      "Imeretinski khachapuri",
+      "Imeretian khachapuri",
+      "Круглый хачапури с сыром внутри.",
+      "Okrugli khachapuri sa sirom iznutra.",
+      "Round cheese-filled khachapuri.",
+      "760",
+      "1 шт",
+      1,
+      40,
+    ),
+    itemSeed(
+      "22222222-2222-2222-2222-222222222005",
+      categories[2].id,
+      "Чахохбили",
+      "Cahohbili",
+      "Chakhokhbili",
+      "Курица в томатном соусе с зеленью и пряными травами.",
+      "Piletina u paradajz sosu sa svežim začinskim biljem.",
+      "Chicken in tomato sauce with herbs.",
+      "940",
+      "350 г",
+      1,
+      50,
+    ),
+    itemSeed(
+      "22222222-2222-2222-2222-222222222006",
+      categories[2].id,
+      "Лобио",
+      "Lobio",
+      "Lobio",
+      "Фасоль с орехами, зеленью и лёгкими специями.",
+      "Pasulj sa orasima, biljem i blagim začinima.",
+      "Beans with walnuts and herbs.",
+      "620",
+      "300 г",
+      1,
+      60,
+    ),
+    itemSeed(
+      "22222222-2222-2222-2222-222222222007",
+      categories[3].id,
+      "Лимонад тархун",
+      "Limonada tarhun",
+      "Tarragon lemonade",
+      "Холодный газированный лимонад",
+      "Hladni gazirani limunada sa tarhun",
+      "Cold sparkling lemonade with tarragon",
+      "290",
+      "500 мл",
+      1,
+      20,
+    ),
+    itemSeed(
+      "22222222-2222-2222-2222-222222222008",
+      categories[3].id,
+      "Натакхари с грушей",
+      "Natakhtari sa kruškom",
+      "Natakhtari with pear",
+      "Рекомендация от разработчика: Натуральный квасный напиток с сочной грушей и мягкими нотами кардамона.",
+      "Preporuka developera: Prirodni napitak kvaša sa sočnom kruškom i blagim kardamomom.",
+      "Chef's recommendation: natural pear kvass drink with gentle cardamom and clove notes.",
+      "430",
+      "450 мл",
+      1,
+      10,
+    ),
   ].map((item) => ({ ...item, created_at: now, updated_at: now }));
   refreshCategoryCounts({ categories, items });
   return { categories, items };
@@ -788,16 +887,29 @@ function categorySeed(id: string, ru: string, sr: string, en: string, sort: numb
   return { id, title_ru: ru, title_sr: sr, title_en: en, sort_order: sort, visible: true, archived: false, item_count: 0, version: 1, created_at: now, updated_at: now };
 }
 
-function itemSeed(id: string, categoryID: string, title: string, description: string, price: string, weight: string, minQuantity: number, sort: number): AdminMenuItem {
+function itemSeed(
+  id: string,
+  categoryID: string,
+  titleRu: string,
+  titleSr: string,
+  titleEn: string,
+  descriptionRu: string,
+  descriptionSr: string,
+  descriptionEn: string,
+  price: string,
+  weight: string,
+  minQuantity: number,
+  sort: number,
+): AdminMenuItem {
   return {
     id,
     category_id: categoryID,
-    title_ru: title,
-    title_sr: title,
-    title_en: title,
-    description_ru: description,
-    description_sr: "Opis",
-    description_en: "Description",
+    title_ru: titleRu,
+    title_sr: titleSr,
+    title_en: titleEn,
+    description_ru: descriptionRu,
+    description_sr: descriptionSr,
+    description_en: descriptionEn,
     price_minor: Number(price),
     currency: "RSD",
     photo_path: "",

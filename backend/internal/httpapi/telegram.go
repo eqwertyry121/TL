@@ -80,8 +80,7 @@ func (s *Server) createCashLocationChallenge(w http.ResponseWriter, r *http.Requ
 	}
 	sess := mustSession(r)
 	devBypass := s.cfg.Env != "production" &&
-		s.cfg.BootstrapOwnerTelegramID != 0 &&
-		sess.TelegramUserID == s.cfg.BootstrapOwnerTelegramID
+		s.isBootstrapOwnerTelegramID(sess.TelegramUserID)
 	challenge, err := s.store.CreateCashLocationChallenge(r.Context(), sess, req, s.now(), devBypass)
 	if err != nil {
 		writeError(w, err)
