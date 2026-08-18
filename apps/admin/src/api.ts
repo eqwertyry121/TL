@@ -14,7 +14,7 @@ import type {
 } from "@tk-delivery/api-client/generated";
 
 const demoOrdersKey = "tk-client-demo-orders-v1";
-const demoMenuKey = "tk-admin-demo-menu-v5";
+const demoMenuKey = "tk-admin-demo-menu-v6";
 const demoSettingsKey = "tk-admin-demo-settings-v1";
 const demoStaffKey = "tk-admin-demo-staff-v1";
 const demoAuditKey = "tk-admin-demo-audit-v1";
@@ -1000,6 +1000,7 @@ function seedMenu(): AdminMenuResponse {
       "",
       1,
       30,
+      media("knjaz-milos-sparkling-water"),
     ),
     itemSeed(
       "44444444-4444-4444-4444-444444444016",
