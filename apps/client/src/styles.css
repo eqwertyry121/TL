@@ -767,22 +767,26 @@ body.has-day-off-overlay {
 
 .recommendation-badge {
   position: absolute;
-  top: clamp(0.55rem, 1.7vw, 0.8rem);
-  right: clamp(0.55rem, 1.7vw, 0.8rem);
-  left: clamp(0.55rem, 1.7vw, 0.8rem);
+  top: clamp(0.48rem, 1.45vw, 0.68rem);
+  left: clamp(0.48rem, 1.45vw, 0.68rem);
   z-index: 2;
-  border: 1px solid rgba(98, 64, 14, 0.25);
-  border-radius: 999px;
-  padding: 0.36rem 0.6rem;
-  background: linear-gradient(135deg, #ffe8a3 0%, #f2c25c 45%, #c89b3c 100%);
-  color: #3d2810;
+  max-width: min(8.9rem, calc(100% - 0.96rem));
+  border: 0;
+  border-radius: 0.18rem;
+  padding: 0.25rem 0.52rem;
+  background:
+    linear-gradient(92deg, transparent 0 3%, rgba(245, 167, 21, 0.96) 3% 96%, transparent 96% 100%),
+    linear-gradient(180deg, #ffb325, #f1a10d);
+  color: #fffdf8;
   box-shadow:
-    0 0.45rem 1rem rgba(61, 40, 16, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.52);
-  font-size: clamp(0.63rem, 1.7vw, 0.74rem);
+    0 0.42rem 0.9rem rgba(98, 64, 14, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  font-size: clamp(0.52rem, 1.45vw, 0.62rem);
   font-weight: 900;
-  line-height: 1.08;
+  line-height: 1.02;
   text-align: center;
+  text-shadow: 0 0.08rem 0.12rem rgba(98, 64, 14, 0.24);
+  clip-path: polygon(0 22%, 5% 12%, 10% 17%, 14% 4%, 88% 0, 98% 12%, 95% 34%, 100% 51%, 96% 75%, 100% 92%, 84% 96%, 73% 88%, 55% 100%, 31% 92%, 10% 98%, 3% 86%, 6% 61%);
 }
 
 .recommendation-badge ~ .dish-badge {
@@ -791,10 +795,9 @@ body.has-day-off-overlay {
 }
 
 .hero-art .recommendation-badge {
-  right: auto;
-  max-width: min(22rem, calc(100% - 1.1rem));
-  padding-inline: 0.8rem;
-  font-size: clamp(0.74rem, 2vw, 0.88rem);
+  max-width: min(11rem, calc(100% - 1rem));
+  padding: 0.34rem 0.72rem;
+  font-size: clamp(0.62rem, 1.8vw, 0.76rem);
 }
 
 .dish-badge {

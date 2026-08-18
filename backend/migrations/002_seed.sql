@@ -9,7 +9,7 @@ VALUES
   ('33333333-3333-3333-3333-333333333003', 'Супы', 'Supe', 'Soups', 30),
   ('33333333-3333-3333-3333-333333333004', 'Салаты и закуски', 'Salate i predjela', 'Salads and appetizers', 40),
   ('33333333-3333-3333-3333-333333333005', 'Десерты', 'Deserti', 'Desserts', 50),
-  ('33333333-3333-3333-3333-333333333006', 'Напитки', 'Pica', 'Drinks', 1)
+  ('33333333-3333-3333-3333-333333333006', 'Напитки', 'Pica', 'Drinks', 60)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO menu_items (
@@ -29,13 +29,12 @@ VALUES
   ('44444444-4444-4444-4444-444444444010', '33333333-3333-3333-3333-333333333004', 'Рулетики из баклажана', 'Rolnice od patlidzana', 'Eggplant rolls', 'Ореховая начинка, зелень.', 'Orahov nadev, zelenilo.', 'Walnut filling and herbs.', 770, '/media/menu/rolnice-od-patlidzana.jpg', '', 1, 'грецкий орех', 'orah', 'walnut', 30),
   ('44444444-4444-4444-4444-444444444011', '33333333-3333-3333-3333-333333333005', 'Медовик', 'Medovik', 'Honey cake', 'Медовые коржи и нежный крем.', 'Medene kore i nezan krem.', 'Honey layers and delicate cream.', 630, '/media/menu/medovik.jpg', '', 1, '', '', '', 10),
   ('44444444-4444-4444-4444-444444444012', '33333333-3333-3333-3333-333333333005', 'Пирожное «Картошка»', 'Kolac „krompir”', 'Potato cake', 'Шоколадный десерт из бисквитной крошки и какао.', 'Cokoladni desert od biskvitnih mrvica i kakaa.', 'Chocolate dessert made with biscuit crumbs and cocoa.', 532, '/media/menu/kolac-krompir.jpg', '', 1, '', '', '', 20),
-  ('44444444-4444-4444-4444-444444444013', '33333333-3333-3333-3333-333333333006', 'Натакхари с грушей 0.5 л', 'Natakhtari sa kruskom 0.5 l', 'Natakhtari pear 0.5 l', 'Рекомендация от разработчика: Грузинский газированный лимонад со вкусом груши.', 'Preporuka developera: Gruzijsko gazirano pice sa ukusom kruske.', 'Chef''s recommendation: Georgian sparkling lemonade with pear flavor.', 588, '/media/menu/natakhtari-pear-05l.jpg', '0.5 л', 1, '', '', '', 1),
-  ('44444444-4444-4444-4444-444444444021', '33333333-3333-3333-3333-333333333006', 'Натакхари с грушей 1 л', 'Natakhtari sa kruskom 1 l', 'Natakhtari pear 1 l', 'Грузинский газированный лимонад со вкусом груши.', 'Gruzijsko gazirano pice sa ukusom kruske.', 'Georgian sparkling lemonade with pear flavor.', 910, '/media/menu/natakhtari-pear-1l.jpg', '1 л', 1, '', '', '', 20),
-  ('44444444-4444-4444-4444-444444444014', '33333333-3333-3333-3333-333333333006', 'Вода Rosa негазированная', 'Voda Rosa negazirana', 'Rosa still water', '', '', '', 140, '', '', 1, '', '', '', 30),
-  ('44444444-4444-4444-4444-444444444015', '33333333-3333-3333-3333-333333333006', 'Вода Knjaz Milos газированная', 'Voda Knjaz Milos gazirana', 'Knjaz Milos sparkling water', '', '', '', 280, '', '', 1, '', '', '', 40),
-  ('44444444-4444-4444-4444-444444444016', '33333333-3333-3333-3333-333333333006', 'Натакхари виноград 0.5 л', 'Natakhtari grozdje 0.5 l', 'Natakhtari grape 0.5 l', 'Грузинский газированный лимонад со вкусом винограда.', 'Gruzijsko gazirano pice sa ukusom grozdja.', 'Georgian sparkling lemonade with grape flavor.', 588, '/media/menu/natakhtari-grape-05l.jpg', '0.5 л', 1, '', '', '', 50),
-  ('44444444-4444-4444-4444-444444444017', '33333333-3333-3333-3333-333333333006', 'Комбуча', 'Kombuca', 'Kombucha', 'Холодный ферментированный чай.', 'Hladni fermentisani caj.', 'Cold fermented tea.', 868, '/media/menu/kombucha.jpg', '', 1, '', '', '', 60),
-  ('44444444-4444-4444-4444-444444444018', '33333333-3333-3333-3333-333333333006', 'Coca-Cola 0.33 л', 'Coca-Cola 0.33 l', 'Coca-Cola 0.33 l', '', '', '', 280, '', '0.33 л', 1, '', '', '', 70),
-  ('44444444-4444-4444-4444-444444444019', '33333333-3333-3333-3333-333333333006', 'Coca-Cola 0.5 л', 'Coca-Cola 0.5 l', 'Coca-Cola 0.5 l', '', '', '', 350, '', '0.5 л', 1, '', '', '', 80),
-  ('44444444-4444-4444-4444-444444444020', '33333333-3333-3333-3333-333333333006', 'Coca-Cola 1 л', 'Sok Gazirani Coca Cola 1 l', 'Coca-Cola 1 l', '', '', '', 460, '', '1 л', 1, '', '', '', 90)
+  ('44444444-4444-4444-4444-444444444013', '33333333-3333-3333-3333-333333333006', 'Натакхари с грушей 0.5 л', 'Natakhtari sa kruskom 0.5 l', 'Natakhtari pear 0.5 l', 'Рекомендация от разработчика: Грузинский газированный лимонад со вкусом груши.', 'Preporuka developera: Gruzijsko gazirano pice sa ukusom kruske.', 'Chef''s recommendation: Georgian sparkling lemonade with pear flavor.', 588, '/media/menu/natakhtari-pear-05l.jpg', '0.5 л', 1, '', '', '', 10),
+  ('44444444-4444-4444-4444-444444444014', '33333333-3333-3333-3333-333333333006', 'Вода Rosa негазированная', 'Voda Rosa negazirana', 'Rosa still water', '', '', '', 140, '', '', 1, '', '', '', 20),
+  ('44444444-4444-4444-4444-444444444015', '33333333-3333-3333-3333-333333333006', 'Вода Knjaz Milos газированная', 'Voda Knjaz Milos gazirana', 'Knjaz Milos sparkling water', '', '', '', 280, '', '', 1, '', '', '', 30),
+  ('44444444-4444-4444-4444-444444444016', '33333333-3333-3333-3333-333333333006', 'Натакхари виноград 0.5 л', 'Natakhtari grozdje 0.5 l', 'Natakhtari grape 0.5 l', 'Грузинский газированный лимонад со вкусом винограда.', 'Gruzijsko gazirano pice sa ukusom grozdja.', 'Georgian sparkling lemonade with grape flavor.', 588, '/media/menu/natakhtari-grape-05l.jpg', '0.5 л', 1, '', '', '', 40),
+  ('44444444-4444-4444-4444-444444444017', '33333333-3333-3333-3333-333333333006', 'Комбуча', 'Kombuca', 'Kombucha', 'Холодный ферментированный чай.', 'Hladni fermentisani caj.', 'Cold fermented tea.', 868, '/media/menu/kombucha.jpg', '', 1, '', '', '', 50),
+  ('44444444-4444-4444-4444-444444444018', '33333333-3333-3333-3333-333333333006', 'Coca-Cola 0.33 л', 'Coca-Cola 0.33 l', 'Coca-Cola 0.33 l', '', '', '', 280, '', '0.33 л', 1, '', '', '', 60),
+  ('44444444-4444-4444-4444-444444444019', '33333333-3333-3333-3333-333333333006', 'Coca-Cola 0.5 л', 'Coca-Cola 0.5 l', 'Coca-Cola 0.5 l', '', '', '', 350, '', '0.5 л', 1, '', '', '', 70),
+  ('44444444-4444-4444-4444-444444444020', '33333333-3333-3333-3333-333333333006', 'Coca-Cola 1 л', 'Sok Gazirani Coca Cola 1 l', 'Coca-Cola 1 l', '', '', '', 460, '', '1 л', 1, '', '', '', 80)
 ON CONFLICT (id) DO NOTHING;

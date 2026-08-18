@@ -11,12 +11,11 @@ category_ru,category_sr_latn,category_en,dish_ru,dish_sr_latn,dish_en,descriptio
 "Салаты и закуски","Salate i predjela","Salads and appetizers","Рулетики из баклажана","Rolnice od patlidzana","Eggplant rolls","Ореховая начинка, зелень.","Orahov nadev, zelenilo.","Walnut filling and herbs.",770,,"грецкий орех","/media/menu/rolnice-od-patlidzana.jpg",30,yes
 "Десерты","Deserti","Desserts","Медовик","Medovik","Honey cake","Медовые коржи и нежный крем.","Medene kore i nezan krem.","Honey layers and delicate cream.",630,,,"/media/menu/medovik.jpg",10,yes
 "Десерты","Deserti","Desserts","Пирожное «Картошка»","Kolac „krompir”","Potato cake","Шоколадный десерт из бисквитной крошки и какао.","Cokoladni desert od biskvitnih mrvica i kakaa.","Chocolate dessert made with biscuit crumbs and cocoa.",532,,,"/media/menu/kolac-krompir.jpg",20,yes
-"Напитки","Pica","Drinks","Натакхари с грушей 0.5 л","Natakhtari sa kruskom 0.5 l","Natakhtari pear 0.5 l","Рекомендация от разработчика: Грузинский газированный лимонад со вкусом груши.","Preporuka developera: Gruzijsko gazirano pice sa ukusom kruske.","Chef's recommendation: Georgian sparkling lemonade with pear flavor.",588,"0.5 л",,"/media/menu/natakhtari-pear-05l.jpg",1,yes
-"Напитки","Pica","Drinks","Натакхари с грушей 1 л","Natakhtari sa kruskom 1 l","Natakhtari pear 1 l","Грузинский газированный лимонад со вкусом груши.","Gruzijsko gazirano pice sa ukusom kruske.","Georgian sparkling lemonade with pear flavor.",910,"1 л",,"/media/menu/natakhtari-pear-1l.jpg",20,yes
-"Напитки","Pica","Drinks","Вода Rosa негазированная","Voda Rosa negazirana","Rosa still water",,,,140,,,30,yes
-"Напитки","Pica","Drinks","Вода Knjaz Milos газированная","Voda Knjaz Milos gazirana","Knjaz Milos sparkling water",,,,280,,,40,yes
-"Напитки","Pica","Drinks","Натакхари виноград 0.5 л","Natakhtari grozdje 0.5 l","Natakhtari grape 0.5 l","Грузинский газированный лимонад со вкусом винограда.","Gruzijsko gazirano pice sa ukusom grozdja.","Georgian sparkling lemonade with grape flavor.",588,"0.5 л",,"/media/menu/natakhtari-grape-05l.jpg",50,yes
-"Напитки","Pica","Drinks","Комбуча","Kombuca","Kombucha","Холодный ферментированный чай.","Hladni fermentisani caj.","Cold fermented tea.",868,,,"/media/menu/kombucha.jpg",60,yes
-"Напитки","Pica","Drinks","Coca-Cola 0.33 л","Coca-Cola 0.33 l","Coca-Cola 0.33 l",,,,280,"0.33 л",,,70,yes
-"Напитки","Pica","Drinks","Coca-Cola 0.5 л","Coca-Cola 0.5 l","Coca-Cola 0.5 l",,,,350,"0.5 л",,,80,yes
-"Напитки","Pica","Drinks","Coca-Cola 1 л","Sok Gazirani Coca Cola 1 l","Coca-Cola 1 l",,,,460,"1 л",,,90,yes
+"Напитки","Pica","Drinks","Натакхари с грушей 0.5 л","Natakhtari sa kruskom 0.5 l","Natakhtari pear 0.5 l","Рекомендация от разработчика: Грузинский газированный лимонад со вкусом груши.","Preporuka developera: Gruzijsko gazirano pice sa ukusom kruske.","Chef's recommendation: Georgian sparkling lemonade with pear flavor.",588,"0.5 л",,"/media/menu/natakhtari-pear-05l.jpg",10,yes
+"Напитки","Pica","Drinks","Вода Rosa негазированная","Voda Rosa negazirana","Rosa still water",,,,140,,,20,yes
+"Напитки","Pica","Drinks","Вода Knjaz Milos газированная","Voda Knjaz Milos gazirana","Knjaz Milos sparkling water",,,,280,,,30,yes
+"Напитки","Pica","Drinks","Натакхари виноград 0.5 л","Natakhtari grozdje 0.5 l","Natakhtari grape 0.5 l","Грузинский газированный лимонад со вкусом винограда.","Gruzijsko gazirano pice sa ukusom grozdja.","Georgian sparkling lemonade with grape flavor.",588,"0.5 л",,"/media/menu/natakhtari-grape-05l.jpg",40,yes
+"Напитки","Pica","Drinks","Комбуча","Kombuca","Kombucha","Холодный ферментированный чай.","Hladni fermentisani caj.","Cold fermented tea.",868,,,"/media/menu/kombucha.jpg",50,yes
+"Напитки","Pica","Drinks","Coca-Cola 0.33 л","Coca-Cola 0.33 l","Coca-Cola 0.33 l",,,,280,"0.33 л",,,60,yes
+"Напитки","Pica","Drinks","Coca-Cola 0.5 л","Coca-Cola 0.5 l","Coca-Cola 0.5 l",,,,350,"0.5 л",,,70,yes
+"Напитки","Pica","Drinks","Coca-Cola 1 л","Sok Gazirani Coca Cola 1 l","Coca-Cola 1 l",,,,460,"1 л",,,80,yes

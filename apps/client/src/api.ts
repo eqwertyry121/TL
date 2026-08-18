@@ -5,7 +5,7 @@ import type { Api, Calculation, CashLocationChallenge, ClientBootstrapData, Crea
 
 const demoOrdersKey = "tk-client-demo-orders-v1";
 const demoCalculationsKey = "tk-client-demo-calculations-v1";
-const demoMenuKey = "tk-admin-demo-menu-v3";
+const demoMenuKey = "tk-admin-demo-menu-v4";
 const demoSettingsKey = "tk-admin-demo-settings-v1";
 const demoCryptoTestMigrationKey = "tk-demo-crypto-test-enabled-v1";
 const getCache = new Map<string, { etag: string; payload: unknown }>();

@@ -928,8 +928,28 @@ function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
   );
 }
 
+function menuDisplayItems(categories: AppData["categories"]) {
+  const entries = categories.flatMap((category, categoryIndex) => category.items.map((item, itemIndex) => ({
+    categoryIndex,
+    categorySort: category.sort_order,
+    item,
+    itemIndex,
+  })));
+  return [...entries]
+    .sort((left, right) => Number(isRecommendedItem(right.item)) - Number(isRecommendedItem(left.item)) ||
+      left.categorySort - right.categorySort ||
+      left.item.sort_order - right.item.sort_order ||
+      left.categoryIndex - right.categoryIndex ||
+      left.itemIndex - right.itemIndex)
+    .map(({ item }, visualIndex) => ({ item, visualIndex }));
+}
+
+function isRecommendedItem(item: MenuItem): boolean {
+  return Boolean(splitRecommendationDescription(item.description).recommendationBadge);
+}
+
 function Menu({ categories, cart, onSetLine }: { categories: AppData["categories"]; cart: CartState; onSetLine: (item: MenuItem, quantity: number) => void }) {
-  const flatItems = categories.flatMap((category, categoryIndex) => category.items.map((item, index) => ({ item, visualIndex: categoryIndex + index })));
+  const flatItems = menuDisplayItems(categories);
   return (
     <div className="page">
       <section className="menu-section">
@@ -998,7 +1018,7 @@ function AddToOrder({
     if (order?.id && lines.length) void onCalculate(order.id).catch(() => undefined);
   }, [order?.id, lines.length, signature]);
   if (!order) return <div className="state">Загружаем заказ...</div>;
-  const flatItems = categories.flatMap((category, categoryIndex) => category.items.map((item, index) => ({ item, visualIndex: categoryIndex + index })));
+  const flatItems = menuDisplayItems(categories);
   const disabledReason = order.can_add_items ? "" : additionBlockedText(order);
   const amount = calculation?.subtotal_minor || subtotal;
   return (
@@ -1728,14 +1748,16 @@ function itemMinQuantity(item: MenuItem): number {
 
 function splitRecommendationDescription(description: string): { description: string; recommendationBadge?: string } {
   const text = (description || "").trim();
-  const ruPrefix = "Рекомендация от разработчика:";
-  const enPrefix = "Chef's recommendation:";
   if (!text) return { description: text };
-  if (text.startsWith(ruPrefix)) {
-    return { description: text.slice(ruPrefix.length).trim(), recommendationBadge: "Рекомендация от разработчика" };
-  }
-  if (text.startsWith(enPrefix)) {
-    return { description: text.slice(enPrefix.length).trim(), recommendationBadge: "Recommendation" };
+  const prefixes = [
+    { prefix: "Рекомендация от разработчика:", badge: "Рекомендация от разработчика" },
+    { prefix: "Preporuka developera:", badge: "Preporuka developera" },
+    { prefix: "Chef's recommendation:", badge: "Recommendation" },
+  ];
+  for (const { prefix, badge } of prefixes) {
+    if (text.startsWith(prefix)) {
+      return { description: text.slice(prefix.length).trim(), recommendationBadge: badge };
+    }
   }
   return { description: text };
 }
