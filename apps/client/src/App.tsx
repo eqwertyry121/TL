@@ -1267,22 +1267,6 @@ function Checkout({
     <div className="page narrow checkout-page">
       <h1>{t(locale, "checkout")}</h1>
       <div className="form">
-        <button
-          className={contactVerified ? "contact-share active-contact" : "contact-share"}
-          type="button"
-          onClick={() => void onConfirmContact()}
-          disabled={contactLoading}
-          aria-label={contactVerified ? "Телефон подтверждён" : "Поделиться телефоном через Telegram"}
-        >
-          <span className="contact-share-icon" aria-hidden="true">
-            {contactVerified ? <Check size={22} /> : <Phone size={22} />}
-          </span>
-          <span className="contact-share-copy">
-            <strong>{contactLoading ? "Ожидаем Telegram" : contactVerified ? "Телефон подтверждён" : "Поделиться телефоном"}</strong>
-            <small>{contactVerified ? (verifiedContact?.masked || maskPhone(draft.phone)) : "Нажмите, Telegram покажет системное окно"}</small>
-          </span>
-          {!contactVerified && <ChevronRight className="contact-share-arrow" size={22} aria-hidden="true" />}
-        </button>
         <div className="fulfillment-selector">
           <span>Как получить заказ</span>
           <div>
@@ -1347,20 +1331,42 @@ function Checkout({
           </p>
         )}
       </div>
-      {locationRequired && (
-        <div className={`cash-location ${cashLocation?.status === "VERIFIED" ? "verified" : cashLocation?.status === "REJECTED" || cashLocation?.status === "EXPIRED" ? "rejected" : ""}`}>
-          <div>
-            <MapPin size={18} />
-            <div>
-              <strong>{cashLocationTitle(cashLocation)}</strong>
-              <p>{cashLocationText(cashLocation, cashLocationRadiusMeters)}</p>
-            </div>
-          </div>
-          <button className="primary full" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
-            {locationLoading ? "Проверяем геолокацию…" : cashLocation?.status === "VERIFIED" ? "Обновить геолокацию" : "📍 Подтвердить геолокацию"}
-          </button>
+      <div className={contactVerified && locationVerified ? "required-checks verified" : "required-checks"}>
+        <div className="required-checks-head">
+          <strong>Обязательные шаги</strong>
+          <span>{contactVerified && locationVerified ? "готово" : "обязательно"}</span>
         </div>
-      )}
+        <button
+          className={contactVerified ? "contact-share active-contact required-contact" : "contact-share required-contact"}
+          type="button"
+          onClick={() => void onConfirmContact()}
+          disabled={contactLoading}
+          aria-label={contactVerified ? "Телефон подтверждён" : "Обязательно поделиться телефоном через Telegram"}
+        >
+          <span className="contact-share-icon" aria-hidden="true">
+            {contactVerified ? <Check size={22} /> : <Phone size={22} />}
+          </span>
+          <span className="contact-share-copy">
+            <strong>{contactLoading ? "Ожидаем Telegram" : contactVerified ? "Телефон подтверждён" : "Обязательно: поделиться телефоном"}</strong>
+            <small>{contactVerified ? (verifiedContact?.masked || maskPhone(draft.phone)) : locationRequired ? "Сначала телефон, затем геолокация" : "Без телефона заказ не оформится"}</small>
+          </span>
+          {!contactVerified && <ChevronRight className="contact-share-arrow" size={22} aria-hidden="true" />}
+        </button>
+        {locationRequired && (
+          <div className={`cash-location ${!contactVerified ? "blocked" : ""} ${cashLocation?.status === "VERIFIED" ? "verified" : cashLocation?.status === "REJECTED" || cashLocation?.status === "EXPIRED" ? "rejected" : ""}`}>
+            <div>
+              <MapPin size={18} />
+              <div>
+                <strong>{cashLocationTitle(cashLocation)}</strong>
+                <p>{cashLocationText(cashLocation, cashLocationRadiusMeters)}</p>
+              </div>
+            </div>
+            <button className="primary full" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
+              {!contactVerified ? "Сначала поделитесь телефоном" : locationLoading ? "Проверяем геолокацию…" : cashLocation?.status === "VERIFIED" ? "Обновить геолокацию" : "📍 Подтвердить геолокацию"}
+            </button>
+          </div>
+        )}
+      </div>
       <Totals subtotal={calculation?.subtotal_minor || subtotal} total={calculation?.total_minor || total} locale={locale} />
       <label className="terms-check">
         <input type="checkbox" checked={termsAccepted} onChange={(event) => onTermsAccepted(event.target.checked)} />

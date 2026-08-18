@@ -1310,6 +1310,69 @@ textarea {
   color: var(--muted);
 }
 
+.required-checks {
+  display: grid;
+  gap: 0.72rem;
+  border: 2px solid rgba(185, 85, 50, 0.3);
+  border-radius: var(--radius-lg);
+  padding: clamp(0.85rem, 2.5vw, 1.08rem);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(200, 155, 60, 0.24), transparent 35%),
+    radial-gradient(circle at 100% 0%, rgba(185, 85, 50, 0.16), transparent 36%),
+    linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(248, 241, 229, 0.94));
+  box-shadow: 0 1rem 2.2rem rgba(107, 31, 42, 0.13);
+}
+
+.required-checks.verified {
+  border-color: rgba(94, 107, 58, 0.32);
+  box-shadow: none;
+}
+
+.required-checks-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.required-checks-head strong {
+  color: var(--text);
+  font-size: clamp(1.02rem, 2.7vw, 1.18rem);
+  font-weight: 950;
+}
+
+.required-checks-head span {
+  border-radius: 999px;
+  padding: 0.28rem 0.62rem;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: clamp(0.72rem, 2vw, 0.82rem);
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.required-checks.verified .required-checks-head span {
+  background: var(--color-secondary);
+}
+
+.required-contact {
+  border-color: rgba(200, 155, 60, 0.64);
+  box-shadow:
+    0 1rem 2.2rem rgba(107, 31, 42, 0.22),
+    0 0 0 0.18rem rgba(200, 155, 60, 0.16);
+}
+
+.required-contact:not(.active-contact) {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 232, 163, 0.34), transparent 34%),
+    linear-gradient(135deg, #c89b3c 0%, #b95532 42%, #6b1f2a 100%);
+}
+
+.required-contact .contact-share-copy strong,
+.required-contact .contact-share-copy small {
+  white-space: normal;
+}
+
 .notice {
   display: flex;
   align-items: center;
@@ -1596,6 +1659,18 @@ textarea {
 .cash-location.rejected {
   border-color: rgba(107, 31, 42, 0.32);
   background: rgba(255, 246, 241, 0.9);
+}
+
+.cash-location.blocked {
+  border-color: rgba(200, 155, 60, 0.44);
+  border-style: dashed;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.86), rgba(248, 241, 229, 0.82)),
+    rgba(200, 155, 60, 0.1);
+}
+
+.cash-location.blocked p {
+  color: #6b1f2a;
 }
 
 .terms-check {
