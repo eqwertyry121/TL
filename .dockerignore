@@ -20,3 +20,7 @@ PLAN_v1.md
 *.jpeg
 *.webp
 *.gif
+!docs/
+!docs/menu_assets_from_telegram/
+!docs/menu_assets_from_telegram/production_media/
+!docs/menu_assets_from_telegram/production_media/*.jpg
