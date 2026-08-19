@@ -355,7 +355,7 @@ func (s *Server) runtimePayload(ctx context.Context) (core.Runtime, int, error) 
 	if s.fiscalSalesBlocked() {
 		accept.OK = false
 		accept.Reason = "fiscal_process_pending"
-		payments = nil
+		payments = []string{}
 	}
 	return core.Runtime{
 		ServerTime:               now,
