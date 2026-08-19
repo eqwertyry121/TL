@@ -47,7 +47,7 @@
 | Фискализация | существующий POS terminal/каса |
 | Чек клиенту | бумажный и/или электронный вариант |
 | Ответственный за рекламации | менеджер |
-| Production gate | backend в `APP_ENV=production` не стартует без `FISCAL_PROCESS_ACCEPTED=true`; ставить `true` можно только после подтверждения бухгалтера, когда пробивается чек для cash/card, как отражается доставка `0 RSD`, и как оформляется сторно/возврат |
+| Production gate | backend в `APP_ENV=production` стартует, но новые client-заказы блокируются при `FISCAL_PROCESS_ACCEPTED=false`; ставить `true` можно только после подтверждения бухгалтера, когда пробивается чек для cash/card, как отражается доставка `0 RSD`, и как оформляется сторно/возврат |
 
 ## Нужно от владельца
 
@@ -61,5 +61,5 @@
 | Правила отмены/возврата | бухгалтер/provider | public draft обновлён; подтвердить до card production |
 
 Без фискального решения production-продажи не включаются. Технический предохранитель:
-`FISCAL_PROCESS_ACCEPTED=false` в production env template, и backend откажется
-стартовать, пока это явно не изменят на `true`.
+`FISCAL_PROCESS_ACCEPTED=false` в production env template, и backend будет
+отдавать клиентам закрытый checkout, пока это явно не изменят на `true`.

@@ -352,6 +352,11 @@ func (s *Server) runtimePayload(ctx context.Context) (core.Runtime, int, error) 
 	if settings.CryptoEnabled {
 		payments = append(payments, "crypto")
 	}
+	if s.fiscalSalesBlocked() {
+		accept.OK = false
+		accept.Reason = "fiscal_process_pending"
+		payments = nil
+	}
 	return core.Runtime{
 		ServerTime:               now,
 		Timezone:                 settings.Timezone,
@@ -925,6 +930,10 @@ func (s *Server) calculate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createOrder(w http.ResponseWriter, r *http.Request) {
+	if s.fiscalSalesBlocked() {
+		writeError(w, core.ErrRestaurantClosed)
+		return
+	}
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
 	if err != nil {
 		writeError(w, err)
@@ -941,6 +950,10 @@ func (s *Server) createOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, order)
+}
+
+func (s *Server) fiscalSalesBlocked() bool {
+	return s.cfg.Env == "production" && !s.cfg.FiscalProcessAccepted
 }
 
 func (s *Server) clientOrders(w http.ResponseWriter, r *http.Request) {

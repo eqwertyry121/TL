@@ -42,13 +42,16 @@ func TestLoadRejectsProductionDryRunNotifications(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsProductionWithoutFiscalAcceptance(t *testing.T) {
+func TestLoadAllowsProductionWithoutFiscalAcceptance(t *testing.T) {
 	setMinimalProductionEnv(t)
 	t.Setenv("FISCAL_PROCESS_ACCEPTED", "false")
 
-	_, err := Load()
-	if !errors.Is(err, core.ErrProductionUnsafeValue) {
-		t.Fatalf("Load error = %v, want production unsafe value", err)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load production config without fiscal acceptance: %v", err)
+	}
+	if cfg.FiscalProcessAccepted {
+		t.Fatal("fiscal process should stay unaccepted until explicitly configured")
 	}
 }
 

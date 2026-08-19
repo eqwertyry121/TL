@@ -130,9 +130,6 @@ func Load() (Config, error) {
 		if cfg.ServerTimingEnabled {
 			return Config{}, fmt.Errorf("%w: SERVER_TIMING_ENABLED must be false in production", core.ErrProductionUnsafeValue)
 		}
-		if !cfg.FiscalProcessAccepted {
-			return Config{}, fmt.Errorf("%w: FISCAL_PROCESS_ACCEPTED must be true before production sales", core.ErrProductionUnsafeValue)
-		}
 		if cfg.ClientBotToken == "" {
 			return Config{}, fmt.Errorf("%w: missing client bot token", core.ErrProductionUnsafeValue)
 		}
