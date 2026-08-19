@@ -120,8 +120,8 @@ jobs:
       - name: Playwright startup lab
         run: pnpm perf:playwright
 
-      - name: Lighthouse client lab
-        run: pnpm perf:lighthouse
+      - name: Bundle budget lab gate
+        run: pnpm perf:budgets
 
       - name: Upload performance artifacts
         if: always()

@@ -3,6 +3,7 @@ import type {
   AdminCategory,
   AdminDashboard,
   AdminMenuItem,
+  AdminOrderCounts,
   AuditEntry,
   AuditLogResponse,
   Order,
@@ -20,6 +21,7 @@ const demoStaffKey = "tk-admin-demo-staff-v1";
 const demoAuditKey = "tk-admin-demo-audit-v1";
 const demoCryptoTestMigrationKey = "tk-demo-crypto-test-enabled-v1";
 const getCache = new Map<string, { etag: string; payload: unknown }>();
+const getCacheLimit = 64;
 
 export type AdminTab = "home" | "menu" | "orders" | "schedule" | "analytics" | "settings" | "audit";
 export type StaffRole = Exclude<Role, "CLIENT">;
@@ -50,6 +52,7 @@ export interface AdminOrdersResponse {
   limit?: number;
   offset?: number;
   has_more?: boolean;
+  counts?: AdminOrderCounts;
 }
 
 export interface AdminBootstrapOptions {
@@ -222,6 +225,7 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
 
   const sectionFromToken = async (session: AdminSession, tab: AdminTab, options: AdminBootstrapOptions = {}): Promise<AdminBootstrapResponse> => {
     const token = session.token;
+    const adminOrders = (filter: AdminBootstrapOptions, signal?: AbortSignal) => fetchAdminOrders(baseURL, token, filter, signal);
     const response: AdminBootstrapResponse = {
       session,
       dashboard: await get(`${baseURL}/api/v1/admin/dashboard`, token),
@@ -234,7 +238,7 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
         response.menu = await get(`${baseURL}/api/v1/admin/menu`, token);
         break;
       case "orders":
-        response.orders = await get(`${baseURL}/api/v1/admin/orders?${new URLSearchParams(clean({ ...options, limit: options.limit || 20, offset: options.offset || 0 }))}`, token);
+        response.orders = await adminOrders(options);
         break;
       case "schedule":
         response.schedule = await get(`${baseURL}/api/v1/admin/schedule`, token);
@@ -280,18 +284,18 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
     updateCategory: (token, id, input) => put(`${baseURL}/api/v1/admin/categories/${id}`, input, token),
     archiveCategory: (token, id, reason) => post(`${baseURL}/api/v1/admin/categories/${id}/archive`, { reason }, token),
     restoreCategory: (token, id, reason) => post(`${baseURL}/api/v1/admin/categories/${id}/restore`, { reason }, token),
-    deleteCategory: (token, id, reason) => del(`${baseURL}/api/v1/admin/categories/${id}?reason=${encodeURIComponent(reason)}`, token),
+    deleteCategory: (token, id, reason) => del(`${baseURL}/api/v1/admin/categories/${id}`, token, { reason }),
     createItem: (token, input) => post(`${baseURL}/api/v1/admin/items`, input, token),
     updateItem: (token, id, input) => put(`${baseURL}/api/v1/admin/items/${id}`, input, token),
     archiveItem: (token, id, reason) => post(`${baseURL}/api/v1/admin/items/${id}/archive`, { reason }, token),
     restoreItem: (token, id, reason) => post(`${baseURL}/api/v1/admin/items/${id}/restore`, { reason }, token),
-    deleteItem: (token, id, reason) => del(`${baseURL}/api/v1/admin/items/${id}?reason=${encodeURIComponent(reason)}`, token),
+    deleteItem: (token, id, reason) => del(`${baseURL}/api/v1/admin/items/${id}`, token, { reason }),
     settings: (token, signal) => get(`${baseURL}/api/v1/admin/settings`, token, signal),
     updateSettings: (token, input) => put(`${baseURL}/api/v1/admin/settings`, input, token),
     setManualDayOff: (token, enabled) => put(`${baseURL}/api/v1/admin/settings/manual-day-off`, { enabled }, token),
     schedule: (token) => get(`${baseURL}/api/v1/admin/schedule`, token),
     updateSchedule: (token, schedule) => put(`${baseURL}/api/v1/admin/schedule`, { schedule }, token),
-    orders: (token, filter = {}, signal) => get(`${baseURL}/api/v1/admin/orders?${new URLSearchParams(clean(filter))}`, token, signal),
+    orders: (token, filter = {}, signal) => fetchAdminOrders(baseURL, token, filter, signal),
     order: (token, id) => get(`${baseURL}/api/v1/admin/orders/${id}`, token),
     cancelOrder: (token, id, reason) => post(`${baseURL}/api/v1/admin/orders/${id}/cancel`, { reason }, token),
     returnOrderToNew: (token, id, reason) => post(`${baseURL}/api/v1/admin/orders/${id}/return-to-new`, { reason }, token),
@@ -353,13 +357,12 @@ function demoApi(): AdminApi {
       } else if (tab === "menu") {
         response.menu = loadMenu();
       } else if (tab === "orders") {
-        let orders = loadOrders();
-        if (options.status) orders = orders.filter((order) => order.fulfillment_status === options.status);
-        if (options.q) orders = orders.filter((order) => String(order.public_number).includes(options.q || "") || (order.phone || "").includes(options.q || ""));
-        if (options.date) orders = orders.filter((order) => order.created_at.slice(0, 10) === options.date);
+        const allOrders = loadOrders();
+        const countBase = filterDemoOrders(allOrders, { q: options.q, date: options.date });
+        const orders = filterDemoOrders(allOrders, options);
         const offset = options.offset || 0;
         const limit = options.limit || 20;
-        response.orders = { orders: orders.slice(offset, offset + limit), limit, offset, has_more: orders.length > offset + limit };
+        response.orders = { orders: orders.slice(offset, offset + limit), limit, offset, has_more: orders.length > offset + limit, counts: demoOrderCounts(countBase) };
       } else if (tab === "schedule") {
         response.schedule = { schedule: loadSettings().schedule || defaultSchedule() };
       } else if (tab === "analytics") {
@@ -531,13 +534,12 @@ function demoApi(): AdminApi {
       return { schedule: after.schedule || defaultSchedule() };
     },
     async orders(_token, filter = {}) {
-      let orders = loadOrders();
-      if (filter.status) orders = orders.filter((order) => order.fulfillment_status === filter.status);
-      if (filter.q) orders = orders.filter((order) => String(order.public_number).includes(filter.q || "") || (order.phone || "").includes(filter.q || ""));
-      if (filter.date) orders = orders.filter((order) => order.created_at.slice(0, 10) === filter.date);
+      const allOrders = loadOrders();
+      const countBase = filterDemoOrders(allOrders, { q: filter.q, date: filter.date });
+      const orders = filterDemoOrders(allOrders, filter);
       const offset = filter.offset || 0;
       const limit = filter.limit || 20;
-      return { orders: orders.slice(offset, offset + limit), limit, offset, has_more: orders.length > offset + limit };
+      return { orders: orders.slice(offset, offset + limit), limit, offset, has_more: orders.length > offset + limit, counts: demoOrderCounts(countBase) };
     },
     async order(_token, id) {
       const order = loadOrders().find((entry) => entry.id === id);
@@ -607,6 +609,9 @@ function demoApi(): AdminApi {
       const rows = [
         "day,orders,delivered,cancelled,revenue_minor",
         ...analytics.daily_rows.map((row) => `${row.day},${row.orders},${row.delivered},${row.cancelled},${row.revenue_minor}`),
+        "",
+        "payment_method,orders,delivered,paid,cancelled,revenue_minor",
+        ...analytics.payments.map((row) => `${row.key},${row.count},${row.delivered_count},${row.paid_count},${row.cancelled_count},${row.revenue_minor}`),
       ];
       return new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
     },
@@ -679,7 +684,17 @@ async function getBlob(url: string, token?: string) {
   return response.blob();
 }
 
-async function post(url: string, body: unknown, token?: string) {
+async function fetchAdminOrders(baseURL: string, token: string, filter: { status?: string; q?: string; date?: string; limit?: number; offset?: number }, signal?: AbortSignal): Promise<AdminOrdersResponse> {
+  const request = adminOrdersRequest(filter);
+  try {
+    return await post(`${baseURL}/api/v1/admin/orders/search`, cleanBody(request), token, signal);
+  } catch (err) {
+    if (!isMissingEndpoint(err)) throw err;
+  }
+  return get(`${baseURL}/api/v1/admin/orders?${new URLSearchParams(clean(request))}`, token, signal);
+}
+
+async function post(url: string, body: unknown, token?: string, signal?: AbortSignal) {
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -687,6 +702,7 @@ async function post(url: string, body: unknown, token?: string) {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
+    signal,
   });
   return read(response);
 }
@@ -703,8 +719,15 @@ async function put(url: string, body: unknown, token?: string) {
   return read(response);
 }
 
-async function del(url: string, token?: string) {
-  const response = await fetch(url, { method: "DELETE", headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+async function del(url: string, token?: string, body?: unknown) {
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
   return read(response);
 }
 
@@ -717,9 +740,19 @@ async function read(response: Response, cacheKey?: string) {
   if (!response.ok) throw apiError(payload?.error?.code || "SERVER_UNAVAILABLE", response.status);
   const etag = response.headers.get("ETag");
   if (cacheKey && etag) {
-    getCache.set(cacheKey, { etag, payload });
+    rememberGetCache(cacheKey, etag, payload);
   }
   return payload;
+}
+
+function rememberGetCache(cacheKey: string, etag: string, payload: unknown): void {
+  if (getCache.has(cacheKey)) getCache.delete(cacheKey);
+  getCache.set(cacheKey, { etag, payload });
+  while (getCache.size > getCacheLimit) {
+    const oldestKey = getCache.keys().next().value;
+    if (!oldestKey) return;
+    getCache.delete(oldestKey);
+  }
 }
 
 function isMissingEndpoint(error: unknown): boolean {
@@ -1281,15 +1314,18 @@ function calculateAnalytics(range: AnalyticsRange): AdminAnalytics {
 }
 
 function groupOrders(orders: Order[], pick: (order: Order) => string) {
-  const map = new Map<string, { count: number; revenue_minor: number }>();
+  const map = new Map<string, { count: number; delivered_count: number; paid_count: number; cancelled_count: number; revenue_minor: number }>();
   orders.forEach((order) => {
     const key = pick(order);
-    const current = map.get(key) || { count: 0, revenue_minor: 0 };
+    const current = map.get(key) || { count: 0, delivered_count: 0, paid_count: 0, cancelled_count: 0, revenue_minor: 0 };
     current.count += 1;
+    if (order.fulfillment_status === "DELIVERED") current.delivered_count += 1;
+    if (order.payment_status === "PAID") current.paid_count += 1;
+    if (order.fulfillment_status === "CANCELLED") current.cancelled_count += 1;
     if (order.fulfillment_status === "DELIVERED" && order.payment_status === "PAID") current.revenue_minor += order.total_minor;
     map.set(key, current);
   });
-  return [...map.entries()].map(([key, value]) => ({ key, count: value.count, revenue_minor: value.revenue_minor }));
+  return [...map.entries()].map(([key, value]) => ({ key, ...value }));
 }
 
 function groupDaily(orders: Order[]) {
@@ -1432,6 +1468,40 @@ function loadOrders(): Order[] {
   return loadJSON<Order[]>(demoOrdersKey, []);
 }
 
+function filterDemoOrders(orders: Order[], filter: { status?: string; q?: string; date?: string }): Order[] {
+  let next = orders;
+  const status = (filter.status || "").trim().toUpperCase();
+  if (status === "ACTIVE") {
+    next = next.filter((order) => order.fulfillment_status === "NEW" || order.fulfillment_status === "OUT_FOR_DELIVERY");
+  } else if (status === "HISTORY") {
+    next = next.filter((order) => order.fulfillment_status === "DELIVERED" || order.fulfillment_status === "CANCELLED");
+  } else if (status === "READY") {
+    next = next.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY");
+  } else if (status) {
+    next = next.filter((order) => order.fulfillment_status === status);
+  }
+  const q = (filter.q || "").trim().toLowerCase();
+  if (q) {
+    next = next.filter((order) =>
+      String(order.public_number).includes(q) ||
+      (order.phone || "").toLowerCase().includes(q) ||
+      (order.client_username || "").toLowerCase().includes(q) ||
+      (order.client_first_name || "").toLowerCase().includes(q),
+    );
+  }
+  if (filter.date) next = next.filter((order) => order.created_at.slice(0, 10) === filter.date);
+  return next;
+}
+
+function demoOrderCounts(orders: OrderSummary[]): AdminOrderCounts {
+  return {
+    active: orders.filter((order) => order.fulfillment_status === "NEW" || order.fulfillment_status === "OUT_FOR_DELIVERY").length,
+    new: orders.filter((order) => order.fulfillment_status === "NEW").length,
+    ready: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").length,
+    history: orders.filter((order) => order.fulfillment_status === "DELIVERED" || order.fulfillment_status === "CANCELLED").length,
+  };
+}
+
 function saveOrders(orders: Order[]): void {
   saveJSON(demoOrdersKey, orders);
 }
@@ -1491,12 +1561,30 @@ function saveJSON(key: string, value: unknown): void {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function cleanBody(filter: Record<string, string | number | undefined>): Record<string, string | number> {
+  const body: Record<string, string | number> = {};
+  for (const [key, value] of Object.entries(filter)) {
+    if (value !== undefined && value !== "") body[key] = value;
+  }
+  return body;
+}
+
 function clean(filter: Record<string, string | number | undefined>): Record<string, string> {
   return Object.fromEntries(
     Object.entries(filter)
       .filter(([, value]) => value !== undefined && value !== "")
       .map(([key, value]) => [key, String(value)]),
   );
+}
+
+function adminOrdersRequest(filter: { status?: string; q?: string; date?: string; limit?: number; offset?: number }): Record<string, string | number | undefined> {
+  return {
+    status: filter.status,
+    q: filter.q,
+    date: filter.date,
+    limit: filter.limit || 20,
+    offset: filter.offset || 0,
+  };
 }
 
 function isToday(value: string): boolean {

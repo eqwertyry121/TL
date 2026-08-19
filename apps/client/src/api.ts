@@ -9,6 +9,7 @@ const demoMenuKey = "tk-admin-demo-menu-v6";
 const demoSettingsKey = "tk-admin-demo-settings-v1";
 const demoCryptoTestMigrationKey = "tk-demo-crypto-test-enabled-v1";
 const getCache = new Map<string, { etag: string; payload: unknown }>();
+const getCacheLimit = 64;
 
 export function createApi(): Api {
   const appEnv = import.meta.env.VITE_APP_ENV || (import.meta.env.PROD ? "production" : "development");
@@ -203,6 +204,9 @@ function demoApi(): Api {
       if (!runtime.accepting_orders) {
         throw apiError(runtime.reason === "manual_day_off" ? "MANUAL_DAY_OFF" : "RESTAURANT_CLOSED");
       }
+      if (!input.terms_accepted || !input.terms_version.trim()) {
+        throw apiError("TERMS_REQUIRED");
+      }
       if (!input.phone.trim() || (input.fulfillment_type !== "pickup" && !input.address.trim())) {
         throw apiError("INVALID_INPUT");
       }
@@ -384,9 +388,19 @@ async function read(response: Response, cacheKey?: string) {
   }
   const etag = response.headers.get("ETag");
   if (cacheKey && etag) {
-    getCache.set(cacheKey, { etag, payload });
+    rememberGetCache(cacheKey, etag, payload);
   }
   return payload;
+}
+
+function rememberGetCache(cacheKey: string, etag: string, payload: unknown): void {
+  if (getCache.has(cacheKey)) getCache.delete(cacheKey);
+  getCache.set(cacheKey, { etag, payload });
+  while (getCache.size > getCacheLimit) {
+    const oldestKey = getCache.keys().next().value;
+    if (!oldestKey) return;
+    getCache.delete(oldestKey);
+  }
 }
 
 function isMissingEndpoint(err: unknown): boolean {

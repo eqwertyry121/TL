@@ -10,6 +10,12 @@ const api = createStaffApi("KITCHEN");
 const kitchenSeenOrdersKey = "tk-kitchen-seen-orders-v2";
 let notificationAudioContext: AudioContext | null = null;
 let pendingNotificationSound = false;
+type ConfirmDialogState = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  resolve(confirmed: boolean): void;
+};
 
 export function App() {
   const [token, setToken] = useState("");
@@ -17,7 +23,9 @@ export function App() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [offline, setOffline] = useState(false);
+  const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState("");
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const seenIdsRef = useRef(loadSeenOrderIds(kitchenSeenOrdersKey));
   const notifiedIds = useRef(new Set<string>());
   const [seenIds, setSeenIds] = useState<Set<string>>(() => new Set(seenIdsRef.current));
@@ -60,6 +68,15 @@ export function App() {
 
   async function withAuth<T>(action: (authToken: string) => Promise<T>, authToken = token): Promise<T> {
     return authRetry.withAuth(action, authToken);
+  }
+
+  function askConfirm(input: Omit<ConfirmDialogState, "resolve">): Promise<boolean> {
+    return new Promise((resolve) => setConfirmDialog({ ...input, resolve }));
+  }
+
+  function closeConfirm(confirmed: boolean) {
+    confirmDialog?.resolve(confirmed);
+    setConfirmDialog(null);
   }
 
   async function refresh(signal?: AbortSignal, authToken = token) {
@@ -128,16 +145,19 @@ export function App() {
     const message = pickup
       ? `Заказ #${order.public_number} готов к самовывозу? Клиент получит уведомление, курьер — нет.`
       : `Заказ #${order.public_number} готов и передаётся курьеру?`;
-    if (!window.confirm(message)) return;
+    const confirmed = await askConfirm({ title: `Заказ #${order.public_number}`, message, confirmLabel: pickup ? "Готов к самовывозу" : "Передать курьеру" });
+    if (!confirmed) return;
     markSeen(order);
     setBusy(order.id);
+    setActionError("");
     try {
       const updated = await withAuth((authToken) => api.markReady(authToken, order.id, `ready-${order.id}-${order.version}`, order.version));
       markSeen(updated);
       setOrders((current) => pickup
         ? current.map((entry) => entry.id === updated.id ? updated : entry)
         : current.filter((entry) => entry.id !== order.id));
-    } catch {
+    } catch (err) {
+      setActionError(staffActionErrorText(err));
       await refresh();
     } finally {
       setBusy("");
@@ -145,13 +165,16 @@ export function App() {
   }
 
   async function markPickupCollected(order: Order) {
-    if (!window.confirm(`Заказ #${order.public_number} выдан клиенту?`)) return;
+    const confirmed = await askConfirm({ title: `Заказ #${order.public_number}`, message: "Заказ выдан клиенту?", confirmLabel: "Выдано" });
+    if (!confirmed) return;
     markSeen(order);
     setBusy(order.id);
+    setActionError("");
     try {
       await withAuth((authToken) => api.markPickupCollected(authToken, order.id, `picked-up-${order.id}-${order.version}`, order.version));
       setOrders((current) => current.filter((entry) => entry.id !== order.id));
-    } catch {
+    } catch (err) {
+      setActionError(staffActionErrorText(err));
       await refresh();
     } finally {
       setBusy("");
@@ -168,6 +191,7 @@ export function App() {
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>
       </header>
       {offline && <div className="status bad"><WifiOff size={18} /><span>Нет связи с сервером</span></div>}
+      {actionError && <div className="status bad"><AlertTriangle size={18} /><span>{actionError}</span></div>}
       {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="KITCHEN" />}
       <main className="list">
         {sortedNewOrders.length === 0 && sortedPickupReadyOrders.length === 0 ? <div className="empty">Новых заказов и самовывоза нет</div> : null}
@@ -197,6 +221,22 @@ export function App() {
           </section>
         )}
       </main>
+      {confirmDialog && <ConfirmDialog dialog={confirmDialog} onClose={closeConfirm} />}
+    </div>
+  );
+}
+
+function ConfirmDialog({ dialog, onClose }: { dialog: ConfirmDialogState; onClose(confirmed: boolean): void }) {
+  return (
+    <div className="dialog-backdrop" role="presentation" onClick={() => onClose(false)}>
+      <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={(event) => event.stopPropagation()}>
+        <h2 id="confirm-title">{dialog.title}</h2>
+        <p>{dialog.message}</p>
+        <div className="dialog-actions">
+          <button type="button" onClick={() => onClose(false)}>Отмена</button>
+          <button className="primary" type="button" onClick={() => onClose(true)}>{dialog.confirmLabel}</button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -337,7 +377,7 @@ function Menu({ order }: { order: Order }) {
       </button>
       {open && (
         <div className="popover" onClick={(event) => event.stopPropagation()}>
-          <a href={problemLink(order)} target="_blank">Сообщить о проблеме</a>
+          <a href={problemLink(order)} target="_blank" rel="noreferrer">Сообщить о проблеме</a>
           <span>Сумма: {money(order.total_minor)}</span>
         </div>
       )}
@@ -382,6 +422,15 @@ function saveSeenOrderIds(key: string, value: Set<string>) {
 function clientInitials(order: Order): string {
   const source = (order.client_first_name || order.client_username || "TG").trim();
   return source.slice(0, 2).toUpperCase();
+}
+
+function staffActionErrorText(err: unknown): string {
+  const code = typeof err === "object" && err && "code" in err ? String((err as { code?: unknown }).code) : "";
+  if (code === "ORDER_STATUS_CONFLICT") return "Заказ уже изменился. Экран обновлён, проверьте актуальный статус.";
+  if (code === "IDEMPOTENCY_CONFLICT") return "Действие уже отправляется. Подождите и обновите экран.";
+  if (code === "RATE_LIMITED") return "Слишком много запросов. Подождите минуту и попробуйте ещё раз.";
+  if (code === "FORBIDDEN" || code === "AUTH_INVALID") return "Сессия устарела или нет доступа. Откройте Mini App заново из Telegram.";
+  return "Действие не выполнено. Экран обновлён, попробуйте ещё раз.";
 }
 
 async function requestWakeLock() {

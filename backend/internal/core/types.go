@@ -403,9 +403,12 @@ type AnalyticsSummary struct {
 }
 
 type AnalyticsBreakdown struct {
-	Key          string `json:"key"`
-	Count        int    `json:"count"`
-	RevenueMinor int    `json:"revenue_minor"`
+	Key            string `json:"key"`
+	Count          int    `json:"count"`
+	DeliveredCount int    `json:"delivered_count"`
+	PaidCount      int    `json:"paid_count"`
+	CancelledCount int    `json:"cancelled_count"`
+	RevenueMinor   int    `json:"revenue_minor"`
 }
 
 type TopDish struct {

@@ -9,7 +9,11 @@ const optimizationEnvKeys = [
   "NOTIFICATION_CONCURRENCY",
   "NOTIFICATION_BACKLOG_ALERT_AFTER",
   "SERVER_TIMING_ENABLED",
+  "PII_RETENTION_DAYS",
+  "FISCAL_PROCESS_ACCEPTED",
 ];
+
+const releaseSHAExpression = "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}";
 
 const publicLegalEnvKeys = [
   "VITE_LEGAL_BUSINESS_NAME",
@@ -77,6 +81,8 @@ test("production media templates serve uploads directly through Nginx", () => {
   assert.match(dockerfile, /^ARG APP_GID=10001$/m);
   assert.match(dockerfile, /addgroup -S -g "\$\{APP_GID\}" app/);
   assert.match(dockerfile, /adduser -S -G app -u "\$\{APP_UID\}" app/);
+  assert.match(dockerfile, /COPY --chown=app:app docs\/menu_assets_from_telegram\/production_media\/\*\.jpg \/app\/seed-media\/menu\//);
+  assert.match(dockerfile, /ENTRYPOINT \["\/app\/entrypoint\.sh"\]/);
   for (const block of [nginxAPIMedia, nginxHostMedia]) {
     assert.match(block, /alias \/srv\/tk-delivery\/uploads\/;/);
     assert.match(block, /gzip off;/);
@@ -142,7 +148,7 @@ test("frontend deploy and performance CI run root optimization gates", () => {
   assertWorkflowStepRuns(pagesWorkflow, "Optimization contract checks", "pnpm check");
   assertWorkflowStepRuns(pagesWorkflow, "API deployment diagnostics", "pnpm perf:deployment-diagnostics");
   assertWorkflowStepEnv(pagesWorkflow, "API deployment diagnostics", "PERF_BASE_URL", "https://api.takolako.site");
-  assertWorkflowStepEnv(pagesWorkflow, "API deployment diagnostics", "PERF_EXPECTED_BUILD_SHA", "${{ github.sha }}");
+  assertWorkflowStepEnv(pagesWorkflow, "API deployment diagnostics", "PERF_EXPECTED_BUILD_SHA", releaseSHAExpression);
   assertWorkflowStepBefore(pagesWorkflow, "API deployment diagnostics", "Build client Mini App");
   for (const [stepName, command] of [
     ["OpenAPI generated contract tests", "pnpm openapi:check"],
@@ -172,7 +178,11 @@ function assertEnvKey(source, key, label) {
 function assertBuildStepHasCommitSHA(source, stepName) {
   const stepBlock = sliceWorkflowStep(source, stepName);
   assert.match(stepBlock, /^        env:$/m, `${stepName} must define env`);
-  assert.match(stepBlock, /^          VITE_BUILD_SHA: \$\{\{ github\.sha \}\}$/m, `${stepName} must set VITE_BUILD_SHA from github.sha`);
+  assert.match(
+    stepBlock,
+    /^          VITE_BUILD_SHA: \$\{\{ (github\.sha|github\.event_name == 'workflow_run' && github\.event\.workflow_run\.head_sha \|\| github\.sha) \}\}$/m,
+    `${stepName} must set VITE_BUILD_SHA from the deployed commit sha`,
+  );
 }
 
 function sliceWorkflowStep(source, stepName) {

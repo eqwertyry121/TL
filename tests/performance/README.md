@@ -68,13 +68,12 @@ Commands:
   `PERF_RUN_LOAD_SMOKE=true` is set.
 - `pnpm perf:release-lab` — release-grade frontend lab. It builds all four apps,
   runs Playwright startup with `PERF_STARTUP_RUNS=20` and
-  `PERF_RELEASE_STARTUP_SLO=true` by default, then runs Lighthouse. Record the
+  `PERF_RELEASE_STARTUP_SLO=true` by default, then runs bundle budgets. Record the
   attached p75/p95 artifacts in `docs/performance-results.md` before claiming
   frontend SLO completion.
 - `pnpm perf:full` — one local full pass: builds the lab apps, runs Playwright,
-  Lighthouse and API load smoke. Start the backend first or set `PERF_BASE_URL`
+  bundle budgets and API load smoke. Start the backend first or set `PERF_BASE_URL`
   to a staging/production-like API.
-- `pnpm perf:lighthouse` — runs Lighthouse CI against the built client preview.
 - `pnpm perf:smoke` — sends 1/20/100 concurrent reads to public API endpoints;
   useful for local checks because it defaults to `http://127.0.0.1:8080`.
 - `pnpm perf:external-smoke` — staging/production release gate; requires

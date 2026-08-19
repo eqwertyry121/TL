@@ -1,9 +1,13 @@
 name: Deploy GitHub Pages preview
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - Backend CI
     branches:
       - main
+    types:
+      - completed
   workflow_dispatch:
 
 permissions:
@@ -17,6 +21,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -24,6 +29,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -43,10 +50,9 @@ jobs:
         run: pnpm check
 
       - name: API deployment diagnostics
-        continue-on-error: true
         env:
           PERF_BASE_URL: https://api.takolako.site
-          PERF_EXPECTED_BUILD_SHA: ${{ github.sha }}
+          PERF_EXPECTED_BUILD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
         run: pnpm perf:deployment-diagnostics
 
       - name: Build client Mini App
@@ -56,7 +62,7 @@ jobs:
           VITE_DEMO_MODE: "false"
           VITE_API_BASE_URL: https://api.takolako.site
           VITE_BASE_PATH: "/"
-          VITE_BUILD_SHA: ${{ github.sha }}
+          VITE_BUILD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           VITE_LEGAL_BUSINESS_NAME: ${{ vars.LEGAL_BUSINESS_NAME }}
           VITE_LEGAL_REGISTRATION_NUMBER: ${{ vars.LEGAL_REGISTRATION_NUMBER }}
           VITE_LEGAL_TAX_ID: ${{ vars.LEGAL_TAX_ID }}
@@ -73,7 +79,7 @@ jobs:
           VITE_DEMO_MODE: "false"
           VITE_API_BASE_URL: https://api.takolako.site
           VITE_BASE_PATH: "/kitchen/"
-          VITE_BUILD_SHA: ${{ github.sha }}
+          VITE_BUILD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Build courier Mini App
         run: pnpm --filter @tk-delivery/courier build
@@ -82,7 +88,7 @@ jobs:
           VITE_DEMO_MODE: "false"
           VITE_API_BASE_URL: https://api.takolako.site
           VITE_BASE_PATH: "/courier/"
-          VITE_BUILD_SHA: ${{ github.sha }}
+          VITE_BUILD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Build admin Mini App
         run: pnpm --filter @tk-delivery/admin build
@@ -91,7 +97,7 @@ jobs:
           VITE_DEMO_MODE: "false"
           VITE_API_BASE_URL: https://api.takolako.site
           VITE_BASE_PATH: "/admin/"
-          VITE_BUILD_SHA: ${{ github.sha }}
+          VITE_BUILD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Check bundle budgets
         run: pnpm perf:budgets

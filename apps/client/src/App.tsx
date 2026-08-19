@@ -20,6 +20,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react
 import { createApi } from "./api";
 import { orderStatusText } from "./fixtures";
 import { t } from "./i18n";
+import { termsVersion } from "./legal-version";
 import { maskPhone, money } from "./money";
 import { currentRoute, navigate, replaceRoute, routeToHash } from "./route";
 import {
@@ -57,6 +58,13 @@ const clientBotMiniAppURL = "https://t.me/TakoLako_main_bot?startapp";
 const Terms = lazy(() => import("./legal").then((module) => ({ default: module.Terms })));
 const Returns = lazy(() => import("./legal").then((module) => ({ default: module.Returns })));
 const Privacy = lazy(() => import("./legal").then((module) => ({ default: module.Privacy })));
+type ConfirmDialogState = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  resolve(confirmed: boolean): void;
+};
 
 function isPublicInformationRoute(route: Route): boolean {
   return route.name === "terms" || route.name === "returns" || route.name === "privacy" || route.name === "support";
@@ -104,6 +112,7 @@ function ClientMiniApp() {
   const [submitting, setSubmitting] = useState(false);
   const [additionSubmitting, setAdditionSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
 
   const token = data.session?.token || "";
   const items = useMemo(() => data.categories.flatMap((category) => category.items), [data.categories]);
@@ -173,7 +182,7 @@ function ClientMiniApp() {
     let alive = true;
     setLoading(data.categories.length === 0);
     bootstrap()
-      .catch((err) => alive && setError(errorText(err)))
+      .catch((err) => alive && setError(errorText(err, locale)))
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
@@ -443,7 +452,7 @@ function ClientMiniApp() {
     try {
       const allowed = await requestTelegramContact();
       if (!allowed) {
-        setError("Telegram не передал телефон. Нажмите кнопку и разрешите отправку номера.");
+        setError(checkoutCopy(locale).contactDenied);
         return;
       }
       for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -455,9 +464,9 @@ function ClientMiniApp() {
         }
         await delay(1200);
       }
-      setError("Телефон ещё не дошёл до бота. Откройте чат с ботом и попробуйте ещё раз.");
+      setError(checkoutCopy(locale).contactPending);
     } catch (err) {
-      setError(errorText(err));
+      setError(errorText(err, locale));
     } finally {
       setContactLoading(false);
     }
@@ -481,17 +490,26 @@ function ClientMiniApp() {
         openTelegramLink(challenge.bot_url);
       }
     } catch (err) {
-      setError(errorText(err));
+      setError(errorText(err, locale));
     } finally {
       setLocationLoading(false);
     }
+  }
+
+  function askConfirm(input: Omit<ConfirmDialogState, "resolve">): Promise<boolean> {
+    return new Promise((resolve) => setConfirmDialog({ ...input, resolve }));
+  }
+
+  function closeConfirm(confirmed: boolean) {
+    confirmDialog?.resolve(confirmed);
+    setConfirmDialog(null);
   }
 
   async function submitOrder() {
     if (!token || submitting) return;
     const deliverySelected = fulfillmentType === "delivery";
     if (!verifiedContact?.verified || !draft.phone.trim() || (deliverySelected && (!draft.street.trim() || !draft.houseNumber.trim()))) {
-      setError(deliverySelected ? "Поделитесь телефоном через Telegram и заполните адрес" : "Поделитесь телефоном через Telegram");
+      setError(deliverySelected ? checkoutCopy(locale).phoneAndAddressRequired : checkoutCopy(locale).phoneRequired);
       return;
     }
     setSubmitting(true);
@@ -500,25 +518,34 @@ function ClientMiniApp() {
       const calc = calculation || (await calculate());
       if (!calc) throw new Error("EMPTY_CART");
       if (paymentMethod === "cash" && deliverySelected && cashLocationRequired && cashLocation?.status !== "VERIFIED") {
-        setError("Для оплаты наличными подтвердите местоположение");
+        setError(checkoutCopy(locale).cashLocationRequired);
         return;
       }
       if (!termsAccepted) {
         setError(t(locale, "termsRequired"));
         return;
       }
-      if (paymentMethod === "crypto" && !window.confirm(`Тестовая crypto-оплата ${money(calc.total_minor)} будет сразу отмечена как PAID. Реальные деньги не списываются.`)) return;
+      if (paymentMethod === "crypto") {
+        const confirmed = await askConfirm({
+          title: cryptoConfirmTitle(locale),
+          message: cryptoConfirmText(locale, calc.total_minor),
+          confirmLabel: cryptoConfirmButton(locale),
+          cancelLabel: cryptoCancelButton(locale),
+        });
+        if (!confirmed) return;
+      }
       const order = await withAuth((authToken) => api.createOrder(
         authToken,
         {
           calculation_token: calc.calculation_token,
           phone: draft.phone.trim(),
-          address: deliverySelected ? buildCheckoutAddress(draft) : "",
+          address: deliverySelected ? buildCheckoutAddress(draft, locale) : "",
           comment: draft.comment.trim(),
           fulfillment_type: fulfillmentType,
           payment_method: paymentMethod,
           cash_location_challenge_id: paymentMethod === "cash" && deliverySelected ? cashLocation?.id : undefined,
           terms_accepted: termsAccepted,
+          terms_version: termsVersion,
           locale,
         },
         pendingIdempotencyKey(),
@@ -533,7 +560,7 @@ function ClientMiniApp() {
       mergeOrder(order);
       replaceRoute({ name: "order", id: order.id });
     } catch (err) {
-      setError(errorText(err));
+      setError(errorText(err, locale));
     } finally {
       setSubmitting(false);
     }
@@ -565,7 +592,7 @@ function ClientMiniApp() {
       mergeOrder(updated);
       replaceRoute({ name: "order", id: updated.id });
     } catch (err) {
-      setError(errorText(err));
+      setError(errorText(err, locale));
       try {
         const fresh = await withAuth((authToken) => api.getOrder(authToken, order.id), token);
         mergeOrder(fresh);
@@ -692,7 +719,23 @@ function ClientMiniApp() {
           <strong>{money(total)}</strong>
         </button>
       )}
+      {confirmDialog && <ConfirmDialog dialog={confirmDialog} onClose={closeConfirm} />}
     </Shell>
+  );
+}
+
+function ConfirmDialog({ dialog, onClose }: { dialog: ConfirmDialogState; onClose(confirmed: boolean): void }) {
+  return (
+    <div className="dialog-backdrop" role="presentation" onClick={() => onClose(false)}>
+      <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={(event) => event.stopPropagation()}>
+        <h2 id="confirm-title">{dialog.title}</h2>
+        <p>{dialog.message}</p>
+        <div className="dialog-actions">
+          <button type="button" onClick={() => onClose(false)}>{dialog.cancelLabel || "Отмена"}</button>
+          <button className="primary" type="button" onClick={() => onClose(true)}>{dialog.confirmLabel}</button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -784,23 +827,6 @@ function PublicInformation({ route, locale, support }: { route: Route; locale: L
   );
 }
 
-function LegalFooter({ locale }: { locale: Locale }) {
-  const labels: Record<Locale, { terms: string; returns: string; privacy: string }> = {
-    ru: { terms: "Условия", returns: "Возврат", privacy: "Приватность" },
-    sr: { terms: "Uslovi", returns: "Reklamacije", privacy: "Privatnost" },
-    en: { terms: "Terms", returns: "Refunds", privacy: "Privacy" },
-  };
-  const copy = labels[locale];
-
-  return (
-    <footer className="legal-footer">
-      <a href="#/terms">{copy.terms}</a>
-      <a href="#/returns">{copy.returns}</a>
-      <a href="#/privacy">{copy.privacy}</a>
-    </footer>
-  );
-}
-
 function Shell({
   children,
   locale,
@@ -875,7 +901,6 @@ function Shell({
         {isOwnerTelegramId(session?.telegram_user_id) && <OwnerRoleSwitch activeRole="CLIENT" />}
       </header>
       <main className="app-content" aria-hidden={dayOffBlocked ? "true" : undefined}>{children}</main>
-      <LegalFooter locale={locale} />
       {dayOffBlocked && <DayOffOverlay locale={locale} runtime={runtime} />}
     </div>
   );
@@ -1283,23 +1308,24 @@ function Checkout({
   const contactVerified = Boolean(verifiedContact?.verified);
   const termsHref = termsUrl.trim() || routeToHash({ name: "terms" });
   const termsExternal = /^https?:\/\//i.test(termsHref);
+  const copy = checkoutCopy(locale);
   return (
     <div className="page narrow checkout-page">
       <h1>{t(locale, "checkout")}</h1>
       <div className="form">
         <div className="fulfillment-selector">
-          <span>Как получить заказ</span>
+          <span>{copy.fulfillmentTitle}</span>
           <div>
             <button type="button" className={deliverySelected ? "active" : ""} onClick={() => onFulfillmentType("delivery")}>
-              <strong>Доставка</strong>
-              <small>привезём курьером</small>
+              <strong>{copy.deliveryTitle}</strong>
+              <small>{copy.deliveryDescription}</small>
             </button>
             <button type="button" className={!deliverySelected ? "active" : ""} onClick={() => onFulfillmentType("pickup")}>
-              <strong>Самовывоз</strong>
-              <small>забрать в ресторане</small>
+              <strong>{copy.pickupTitle}</strong>
+              <small>{copy.pickupDescription}</small>
             </button>
           </div>
-          {!deliverySelected && <p>Самовывоз выбран: адрес и геолокация не нужны, курьер не получает этот заказ.</p>}
+          {!deliverySelected && <p>{copy.pickupSelected}</p>}
         </div>
         {deliverySelected && (
           <>
@@ -1335,40 +1361,37 @@ function Checkout({
         </label>
       </div>
       <div className="payment-selector">
-        <span>Способ оплаты</span>
+        <span>{copy.paymentTitle}</span>
         <div>
           {paymentMethods.map((method) => (
             <button key={method} className={paymentMethod === method ? "active" : ""} type="button" onClick={() => onPaymentMethod(method)}>
-              <strong>{paymentMethodTitle(method)}</strong>
-              <small>{paymentMethodDescription(method, fulfillmentType)}</small>
+              <strong>{paymentMethodTitle(method, locale)}</strong>
+              <small>{paymentMethodDescription(method, fulfillmentType, locale)}</small>
             </button>
           ))}
         </div>
         {paymentMethod === "crypto" && (
-          <p>
-            Тестовый режим: реальная крипта не списывается. Заказ создаётся как оплаченный,
-            чтобы проверить flow кухни, курьера и админки.
-          </p>
+          <p>{copy.cryptoNotice}</p>
         )}
       </div>
       <div className={contactVerified && locationVerified ? "required-checks verified" : "required-checks"}>
         <div className="required-checks-head">
-          <strong>Обязательные шаги</strong>
-          <span>{contactVerified && locationVerified ? "готово" : "обязательно"}</span>
+          <strong>{copy.requiredSteps}</strong>
+          <span>{contactVerified && locationVerified ? copy.ready : copy.required}</span>
         </div>
         <button
           className={contactVerified ? "contact-share active-contact required-contact" : "contact-share required-contact"}
           type="button"
           onClick={() => void onConfirmContact()}
           disabled={contactLoading}
-          aria-label={contactVerified ? "Телефон подтверждён" : "Обязательно поделиться телефоном через Telegram"}
+          aria-label={contactVerified ? copy.phoneConfirmed : copy.phoneRequiredAria}
         >
           <span className="contact-share-icon" aria-hidden="true">
             {contactVerified ? <Check size={22} /> : <Phone size={22} />}
           </span>
           <span className="contact-share-copy">
-            <strong>{contactLoading ? "Ожидаем Telegram" : contactVerified ? "Телефон подтверждён" : "Обязательно: поделиться телефоном"}</strong>
-            <small>{contactVerified ? (verifiedContact?.masked || maskPhone(draft.phone)) : locationRequired ? "Сначала телефон, затем геолокация" : "Без телефона заказ не оформится"}</small>
+            <strong>{contactLoading ? copy.contactWait : contactVerified ? copy.phoneConfirmed : copy.sharePhoneRequired}</strong>
+            <small>{contactVerified ? (verifiedContact?.masked || maskPhone(draft.phone)) : locationRequired ? copy.contactThenLocation : copy.phoneNeeded}</small>
           </span>
           {!contactVerified && <ChevronRight className="contact-share-arrow" size={22} aria-hidden="true" />}
         </button>
@@ -1377,12 +1400,12 @@ function Checkout({
             <div>
               <MapPin size={18} />
               <div>
-                <strong>{cashLocationTitle(cashLocation)}</strong>
-                <p>{cashLocationText(cashLocation, cashLocationRadiusMeters)}</p>
+                <strong>{cashLocationTitle(cashLocation, locale)}</strong>
+                <p>{cashLocationText(cashLocation, cashLocationRadiusMeters, locale)}</p>
               </div>
             </div>
             <button className="primary full" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
-              {!contactVerified ? "Сначала поделитесь телефоном" : locationLoading ? "Проверяем геолокацию…" : cashLocation?.status === "VERIFIED" ? "Обновить геолокацию" : "📍 Подтвердить геолокацию"}
+              {!contactVerified ? copy.firstSharePhone : locationLoading ? copy.checkingLocation : cashLocation?.status === "VERIFIED" ? copy.updateLocation : copy.confirmLocation}
             </button>
           </div>
         )}
@@ -1398,18 +1421,197 @@ function Checkout({
         </span>
       </label>
       <button className="primary full" disabled={!checkoutOpen || submitting || !contactVerified || !locationVerified || !termsAccepted} onClick={onSubmit}>
-        {submitting ? "..." : `${paymentMethod === "crypto" ? "ОПЛАТИТЬ TEST CRYPTO" : t(locale, "placeOrder")} · ${money(calculation?.total_minor || total)}`}
+        {submitting ? "..." : `${paymentMethod === "crypto" ? copy.placeCryptoTestOrder : t(locale, "placeOrder")} · ${money(calculation?.total_minor || total)}`}
       </button>
     </div>
   );
 }
 
-function buildCheckoutAddress(draft: CheckoutDraft): string {
+function checkoutCopy(locale: Locale) {
+  const copy = {
+    ru: {
+      fulfillmentTitle: "Как получить заказ",
+      deliveryTitle: "Доставка",
+      deliveryDescription: "привезём курьером",
+      pickupTitle: "Самовывоз",
+      pickupDescription: "забрать в ресторане",
+      pickupSelected: "Самовывоз выбран: адрес и геолокация не нужны, курьер не получает этот заказ.",
+      paymentTitle: "Способ оплаты",
+      cryptoNotice: "Тестовый режим: реальная крипта не списывается. Заказ создаётся как оплаченный, чтобы проверить flow кухни, курьера и админки.",
+      requiredSteps: "Обязательные шаги",
+      ready: "готово",
+      required: "обязательно",
+      phoneConfirmed: "Телефон подтверждён",
+      phoneRequiredAria: "Обязательно поделиться телефоном через Telegram",
+      contactWait: "Ожидаем Telegram",
+      sharePhoneRequired: "Обязательно: поделиться телефоном",
+      contactThenLocation: "Сначала телефон, затем геолокация",
+      phoneNeeded: "Без телефона заказ не оформится",
+      firstSharePhone: "Сначала поделитесь телефоном",
+      checkingLocation: "Проверяем геолокацию…",
+      updateLocation: "Обновить геолокацию",
+      confirmLocation: "📍 Подтвердить геолокацию",
+      placeCryptoTestOrder: "ОПЛАТИТЬ TEST CRYPTO",
+      addressPartEntrance: "подъезд",
+      addressPartFloor: "этаж",
+      addressPartApartment: "кв.",
+      cashTitle: "Наличными",
+      cryptoDescription: "sandbox · без реальных денег",
+      cashPickupDescription: "при получении в ресторане",
+      cashDeliveryDescription: "курьеру при получении",
+      contactDenied: "Telegram не передал телефон. Нажмите кнопку и разрешите отправку номера.",
+      contactPending: "Телефон ещё не дошёл до бота. Откройте чат с ботом и попробуйте ещё раз.",
+      phoneRequired: "Поделитесь телефоном через Telegram",
+      phoneAndAddressRequired: "Поделитесь телефоном через Telegram и заполните адрес",
+      cashLocationRequired: "Для оплаты наличными подтвердите местоположение",
+      locationVerifiedTitle: "Местоположение подтверждено",
+      locationPendingTitle: "Ожидаем геолокацию",
+      locationRejectedTitle: "Местоположение не подтверждено",
+      locationExpiredTitle: "Проверка истекла",
+      locationDefaultTitle: "Подтвердите местоположение",
+      locationVerifiedText: "Для cash всё готово",
+      locationDistance: (distance: string) => ` · ${distance} от ресторана`,
+      locationPendingText: "Открылся бот? Нажмите там кнопку геолокации. Если кнопки нет — отправьте /share.",
+      locationExpiredText: "Повторите проверку перед оформлением заказа.",
+      locationOutsideText: (distance: string) => `Оплата наличными доступна в радиусе ${distance} от ресторана.`,
+      locationInaccurateText: "Геолокация неточная. Повторите проверку у окна или на улице.",
+      locationNotConfiguredText: "Оплата наличными временно недоступна: ресторан ещё не настроил точку.",
+      locationDefaultText: "Для оплаты наличными Telegram подтвердит, что вы находитесь в Нови Саде, чтобы мы могли к вам приехать. Точные координаты не сохраняются.",
+    },
+    sr: {
+      fulfillmentTitle: "Kako želite da preuzmete porudžbinu",
+      deliveryTitle: "Dostava",
+      deliveryDescription: "kurir donosi porudžbinu",
+      pickupTitle: "Lično preuzimanje",
+      pickupDescription: "preuzimanje u restoranu",
+      pickupSelected: "Izabrano je lično preuzimanje: adresa i geolokacija nisu potrebni, kurir ne dobija ovu porudžbinu.",
+      paymentTitle: "Način plaćanja",
+      cryptoNotice: "Test režim: prava kripto uplata se ne naplaćuje. Porudžbina se kreira kao plaćena radi provere toka kuhinje, kurira i admina.",
+      requiredSteps: "Obavezni koraci",
+      ready: "spremno",
+      required: "obavezno",
+      phoneConfirmed: "Telefon potvrđen",
+      phoneRequiredAria: "Obavezno podelite telefon preko Telegrama",
+      contactWait: "Čekamo Telegram",
+      sharePhoneRequired: "Obavezno: podelite telefon",
+      contactThenLocation: "Prvo telefon, zatim geolokacija",
+      phoneNeeded: "Bez telefona porudžbina ne može biti poslata",
+      firstSharePhone: "Prvo podelite telefon",
+      checkingLocation: "Proveravamo geolokaciju…",
+      updateLocation: "Ažuriraj geolokaciju",
+      confirmLocation: "📍 Potvrdi geolokaciju",
+      placeCryptoTestOrder: "PLATI TEST CRYPTO",
+      addressPartEntrance: "ulaz",
+      addressPartFloor: "sprat",
+      addressPartApartment: "stan",
+      cashTitle: "Gotovina",
+      cryptoDescription: "sandbox · bez pravog plaćanja",
+      cashPickupDescription: "pri preuzimanju u restoranu",
+      cashDeliveryDescription: "kuriru pri dostavi",
+      contactDenied: "Telegram nije poslao telefon. Pritisnite dugme i dozvolite slanje broja.",
+      contactPending: "Telefon još nije stigao do bota. Otvorite chat sa botom i pokušajte ponovo.",
+      phoneRequired: "Podelite telefon preko Telegrama",
+      phoneAndAddressRequired: "Podelite telefon preko Telegrama i unesite adresu",
+      cashLocationRequired: "Za plaćanje gotovinom potvrdite lokaciju",
+      locationVerifiedTitle: "Lokacija je potvrđena",
+      locationPendingTitle: "Čekamo geolokaciju",
+      locationRejectedTitle: "Lokacija nije potvrđena",
+      locationExpiredTitle: "Provera je istekla",
+      locationDefaultTitle: "Potvrdite lokaciju",
+      locationVerifiedText: "Za gotovinu je sve spremno",
+      locationDistance: (distance: string) => ` · ${distance} od restorana`,
+      locationPendingText: "Bot se otvorio? Pritisnite tamo dugme za geolokaciju. Ako dugmeta nema, pošaljite /share.",
+      locationExpiredText: "Ponovite proveru pre slanja porudžbine.",
+      locationOutsideText: (distance: string) => `Plaćanje gotovinom je dostupno u krugu od ${distance} od restorana.`,
+      locationInaccurateText: "Geolokacija nije dovoljno precizna. Ponovite proveru pored prozora ili napolju.",
+      locationNotConfiguredText: "Plaćanje gotovinom trenutno nije dostupno: restoran još nije podesio lokaciju.",
+      locationDefaultText: "Za plaćanje gotovinom Telegram potvrđuje da ste u Novom Sadu kako bismo mogli da dostavimo porudžbinu. Tačne koordinate se ne čuvaju.",
+    },
+    en: {
+      fulfillmentTitle: "How to receive the order",
+      deliveryTitle: "Delivery",
+      deliveryDescription: "courier delivery",
+      pickupTitle: "Pickup",
+      pickupDescription: "collect at the restaurant",
+      pickupSelected: "Pickup selected: address and geolocation are not needed, and the courier will not receive this order.",
+      paymentTitle: "Payment method",
+      cryptoNotice: "Test mode: no real crypto is charged. The order is created as paid to test the kitchen, courier and admin flow.",
+      requiredSteps: "Required steps",
+      ready: "ready",
+      required: "required",
+      phoneConfirmed: "Phone confirmed",
+      phoneRequiredAria: "Phone sharing through Telegram is required",
+      contactWait: "Waiting for Telegram",
+      sharePhoneRequired: "Required: share phone",
+      contactThenLocation: "Phone first, then geolocation",
+      phoneNeeded: "The order cannot be placed without a phone",
+      firstSharePhone: "Share your phone first",
+      checkingLocation: "Checking geolocation…",
+      updateLocation: "Update geolocation",
+      confirmLocation: "📍 Confirm geolocation",
+      placeCryptoTestOrder: "PAY TEST CRYPTO",
+      addressPartEntrance: "entrance",
+      addressPartFloor: "floor",
+      addressPartApartment: "apt.",
+      cashTitle: "Cash",
+      cryptoDescription: "sandbox · no real payment",
+      cashPickupDescription: "at pickup in the restaurant",
+      cashDeliveryDescription: "to the courier on delivery",
+      contactDenied: "Telegram did not send the phone. Press the button and allow sharing your number.",
+      contactPending: "The phone has not reached the bot yet. Open the bot chat and try again.",
+      phoneRequired: "Share your phone through Telegram",
+      phoneAndAddressRequired: "Share your phone through Telegram and enter the address",
+      cashLocationRequired: "Confirm your location for cash payment",
+      locationVerifiedTitle: "Location confirmed",
+      locationPendingTitle: "Waiting for geolocation",
+      locationRejectedTitle: "Location not confirmed",
+      locationExpiredTitle: "Verification expired",
+      locationDefaultTitle: "Confirm location",
+      locationVerifiedText: "Cash payment is ready",
+      locationDistance: (distance: string) => ` · ${distance} from the restaurant`,
+      locationPendingText: "Bot opened? Press the geolocation button there. If there is no button, send /share.",
+      locationExpiredText: "Repeat verification before placing the order.",
+      locationOutsideText: (distance: string) => `Cash payment is available within ${distance} of the restaurant.`,
+      locationInaccurateText: "Geolocation is not accurate enough. Repeat the check near a window or outside.",
+      locationNotConfiguredText: "Cash payment is temporarily unavailable: the restaurant location is not configured yet.",
+      locationDefaultText: "For cash payment, Telegram confirms that you are in Novi Sad so we can deliver the order. Exact coordinates are not stored.",
+    },
+  } satisfies Record<Locale, Record<string, string | ((value: string) => string)>>;
+  return copy[locale] as typeof copy.ru;
+}
+
+function cryptoConfirmText(locale: Locale, totalMinor: number): string {
+  const amount = money(totalMinor);
+  if (locale === "sr") return `Test crypto plaćanje ${amount} biće odmah označeno kao PAID. Pravi novac se ne naplaćuje.`;
+  if (locale === "en") return `Test crypto payment ${amount} will be marked as PAID immediately. No real money is charged.`;
+  return `Тестовая crypto-оплата ${amount} будет сразу отмечена как PAID. Реальные деньги не списываются.`;
+}
+
+function cryptoConfirmTitle(locale: Locale): string {
+  if (locale === "sr") return "Crypto demo";
+  if (locale === "en") return "Crypto demo";
+  return "Crypto demo";
+}
+
+function cryptoConfirmButton(locale: Locale): string {
+  if (locale === "sr") return "Nastavi";
+  if (locale === "en") return "Continue";
+  return "Продолжить";
+}
+
+function cryptoCancelButton(locale: Locale): string {
+  if (locale === "sr") return "Otkaži";
+  if (locale === "en") return "Cancel";
+  return "Отмена";
+}
+
+function buildCheckoutAddress(draft: CheckoutDraft, locale: Locale): string {
+  const copy = checkoutCopy(locale);
   const main = [draft.street.trim(), draft.houseNumber.trim()].filter(Boolean).join(" ");
   const details = [
-    addressPart("подъезд", draft.entrance),
-    addressPart("этаж", draft.floor),
-    addressPart("кв.", draft.apartment),
+    addressPart(copy.addressPartEntrance, draft.entrance),
+    addressPart(copy.addressPartFloor, draft.floor),
+    addressPart(copy.addressPartApartment, draft.apartment),
   ].filter(Boolean);
   return [main, ...details].filter(Boolean).join(", ");
 }
@@ -1419,32 +1621,34 @@ function addressPart(label: string, value: string): string {
   return trimmed ? `${label} ${trimmed}` : "";
 }
 
-function cashLocationTitle(challenge: CashLocationChallenge | null): string {
+function cashLocationTitle(challenge: CashLocationChallenge | null, locale: Locale): string {
+  const copy = checkoutCopy(locale);
   switch (challenge?.status) {
     case "VERIFIED":
-      return "Местоположение подтверждено";
+      return copy.locationVerifiedTitle;
     case "PENDING":
-      return "Ожидаем геолокацию";
+      return copy.locationPendingTitle;
     case "REJECTED":
-      return "Местоположение не подтверждено";
+      return copy.locationRejectedTitle;
     case "EXPIRED":
-      return "Проверка истекла";
+      return copy.locationExpiredTitle;
     default:
-      return "Подтвердите местоположение";
+      return copy.locationDefaultTitle;
   }
 }
 
-function cashLocationText(challenge: CashLocationChallenge | null, radiusMeters: number): string {
+function cashLocationText(challenge: CashLocationChallenge | null, radiusMeters: number, locale: Locale): string {
+  const copy = checkoutCopy(locale);
   if (challenge?.status === "VERIFIED") {
-    const distance = typeof challenge.distance_meters === "number" ? ` · ${formatDistance(challenge.distance_meters)} от ресторана` : "";
-    return `Для cash всё готово${distance}`;
+    const distance = typeof challenge.distance_meters === "number" ? copy.locationDistance(formatDistance(challenge.distance_meters)) : "";
+    return `${copy.locationVerifiedText}${distance}`;
   }
-  if (challenge?.status === "PENDING") return "Открылся бот? Нажмите там кнопку геолокации. Если кнопки нет — отправьте /share. С компьютера лучше открыть заказ на телефоне.";
-  if (challenge?.status === "EXPIRED") return "Повторите проверку перед оформлением заказа.";
-  if (challenge?.rejection_reason === "OUTSIDE_CASH_AREA") return `Оплата наличными доступна в радиусе ${formatDistance(radiusMeters)} от ресторана.`;
-  if (challenge?.rejection_reason === "LOCATION_INACCURATE" || challenge?.rejection_reason === "LOCATION_ACCURACY_MISSING") return "Геолокация неточная. На компьютере так бывает часто — откройте заказ на телефоне или повторите у окна/на улице.";
-  if (challenge?.rejection_reason === "LOCATION_NOT_CONFIGURED") return "Оплата наличными временно недоступна: ресторан ещё не настроил точку.";
-  return "Для оплаты наличными Telegram подтвердит, что вы находитесь в Нови Саде, чтобы мы могли к вам приехать. Точные координаты не сохраняются.";
+  if (challenge?.status === "PENDING") return copy.locationPendingText;
+  if (challenge?.status === "EXPIRED") return copy.locationExpiredText;
+  if (challenge?.rejection_reason === "OUTSIDE_CASH_AREA") return copy.locationOutsideText(formatDistance(radiusMeters));
+  if (challenge?.rejection_reason === "LOCATION_INACCURATE" || challenge?.rejection_reason === "LOCATION_ACCURACY_MISSING") return copy.locationInaccurateText;
+  if (challenge?.rejection_reason === "LOCATION_NOT_CONFIGURED") return copy.locationNotConfiguredText;
+  return copy.locationDefaultText;
 }
 
 function formatDistance(meters: number): string {
@@ -1570,37 +1774,49 @@ function Orders({
 }
 
 function Support({ support, locale }: { support: string; locale: Locale }) {
-  const handle = support.replace("@", "") || "Tako_Lako";
-  const supportCopy: Record<Locale, { title: string; intro: string; telegram: string }> = {
+  const handle = support.trim().replace(/^@+/, "") || "Tako_Lako";
+  const supportCopy: Record<Locale, { title: string; intro: string; telegram: string; stepsTitle: string; steps: string[]; note: string }> = {
     ru: {
       title: "Поддержка",
-      intro: "Если вопрос по заказу — напишите нам в Telegram.",
+      intro: "По заказу, адресу, оплате или отмене — пишите в Telegram. Так быстрее всего найти заказ и ответить.",
       telegram: "Написать в поддержку",
+      stepsTitle: "Что написать",
+      steps: ["номер заказа, если он уже есть", "что случилось: адрес, оплата, отмена или ошибка", "фото/скриншот, если это поможет"],
+      note: "Если заказ активен, не создавайте новый — сначала напишите нам.",
     },
     sr: {
       title: "Podrška",
-      intro: "Ako imate pitanje o porudžbini, pišite nam u Telegram.",
+      intro: "Za porudžbinu, adresu, plaćanje ili otkazivanje pišite nam u Telegram. Tako najbrže nalazimo porudžbinu.",
       telegram: "Piši podršci",
+      stepsTitle: "Šta poslati",
+      steps: ["broj porudžbine, ako ga imate", "šta se desilo: adresa, plaćanje, otkazivanje ili greška", "foto/screenshot ako pomaže"],
+      note: "Ako je porudžbina aktivna, ne pravite novu — prvo nam pišite.",
     },
     en: {
       title: "Support",
-      intro: "For order questions, message us in Telegram.",
+      intro: "For order, address, payment or cancellation questions, message us in Telegram. It is the fastest way to find the order.",
       telegram: "Message support",
+      stepsTitle: "What to send",
+      steps: ["order number, if you already have one", "what happened: address, payment, cancellation or app error", "photo/screenshot if useful"],
+      note: "If an order is active, do not create another one — message us first.",
     },
   };
   const copy = supportCopy[locale];
 
   return (
-    <div className="page narrow">
-      <h1>{copy.title}</h1>
-      <p className="lead">{copy.intro}</p>
-      <div className="support-actions">
-        <a className="primary full as-link" href={`https://t.me/${handle}`}>{copy.telegram}: @{handle}</a>
-      </div>
-      <section className="developer-support">
-        <h2>Разработчик</h2>
-        <p>Нашли баг? Есть идея как улучшить приложение?</p>
-        <a className="secondary full as-link" href="https://t.me/eqwertyry">Напишите мне напрямую @eqwertyry</a>
+    <div className="page narrow support-page">
+      <section className="support-card support-main">
+        <span className="support-kicker">Tako Lako</span>
+        <h1>{copy.title}</h1>
+        <p>{copy.intro}</p>
+        <a className="primary full as-link" href={`https://t.me/${handle}`} target="_blank" rel="noreferrer">{copy.telegram}: @{handle}</a>
+      </section>
+      <section className="support-card">
+        <h2>{copy.stepsTitle}</h2>
+        <ol>
+          {copy.steps.map((step) => <li key={step}>{step}</li>)}
+        </ol>
+        <p className="support-note">{copy.note}</p>
       </section>
     </div>
   );
@@ -1637,15 +1853,16 @@ function checkoutPaymentMethods(methods: PaymentMethod[]): Array<Extract<Payment
   return supported.length ? supported : ["cash"];
 }
 
-function paymentMethodTitle(method: Extract<PaymentMethod, "cash" | "crypto">): string {
+function paymentMethodTitle(method: Extract<PaymentMethod, "cash" | "crypto">, locale: Locale): string {
   if (method === "crypto") return "Crypto TEST";
-  return "Наличными";
+  return checkoutCopy(locale).cashTitle;
 }
 
-function paymentMethodDescription(method: Extract<PaymentMethod, "cash" | "crypto">, fulfillmentType: FulfillmentType): string {
-  if (method === "crypto") return "sandbox · без реальных денег";
-  if (fulfillmentType === "pickup") return "при получении в ресторане";
-  return "курьеру при получении";
+function paymentMethodDescription(method: Extract<PaymentMethod, "cash" | "crypto">, fulfillmentType: FulfillmentType, locale: Locale): string {
+  const copy = checkoutCopy(locale);
+  if (method === "crypto") return copy.cryptoDescription;
+  if (fulfillmentType === "pickup") return copy.cashPickupDescription;
+  return copy.cashDeliveryDescription;
 }
 
 function paymentStatusLabel(order: Order): string {
@@ -1840,42 +2057,72 @@ function profileInitials(profile: Pick<Session, "username" | "first_name">): str
   return source.slice(0, 2).toUpperCase();
 }
 
-function errorText(err: unknown): string {
+function errorText(err: unknown, locale: Locale = "ru"): string {
   const code = typeof err === "object" && err && "code" in err ? String((err as { code: unknown }).code) : String((err as Error)?.message || err);
-  switch (code) {
-    case "MANUAL_DAY_OFF":
-      return "Сегодня выходной";
-    case "RESTAURANT_CLOSED":
-      return "Сейчас заказы не принимаются";
-    case "ITEM_UNAVAILABLE":
-      return "Одно из блюд недоступно";
-    case "INVALID_QUANTITY":
-      return "Проверьте количество блюд";
-    case "EMPTY_CART":
-      return "В корзине нет доступных блюд";
-    case "IDEMPOTENCY_CONFLICT":
-      return "Заказ уже отправляется. Проверьте статус";
-    case "ACTIVE_ORDER_EXISTS":
-      return "У вас уже есть активный заказ. Новый можно оформить после доставки текущего.";
-    case "ORDER_STATUS_CONFLICT":
-      return "Заказ уже изменился. Обновите экран и проверьте статус.";
-    case "CALCULATION_EXPIRED":
-      return "Цены или заказ изменились. Пересчитайте сумму.";
-    case "AUTH_INVALID":
-      return "Telegram авторизация не прошла";
-    case "CONTACT_NOT_VERIFIED":
-      return "Для cash нужен телефон, подтверждённый через Telegram";
-    case "CASH_LOCATION_REQUIRED":
-      return "Для оплаты наличными подтвердите местоположение";
-    case "CASH_LOCATION_OUTSIDE":
-      return "Вы вне зоны доставки для оплаты наличными";
-    case "CASH_LOCATION_INACCURATE":
-      return "Геолокация неточная. Откройте заказ на телефоне или повторите у окна/на улице.";
-    case "INVALID_INPUT":
-      return "Поделитесь телефоном через Telegram и заполните адрес";
-    default:
-      return "Сервер недоступен. Попробуйте ещё раз";
-  }
+  const messages = {
+    ru: {
+      MANUAL_DAY_OFF: "Сегодня выходной",
+      RESTAURANT_CLOSED: "Сейчас заказы не принимаются",
+      ITEM_UNAVAILABLE: "Одно из блюд недоступно",
+      INVALID_QUANTITY: "Проверьте количество блюд",
+      EMPTY_CART: "В корзине нет доступных блюд",
+      IDEMPOTENCY_CONFLICT: "Заказ уже отправляется. Проверьте статус",
+      ACTIVE_ORDER_EXISTS: "У вас уже есть активный заказ. Новый можно оформить после доставки текущего.",
+      ORDER_STATUS_CONFLICT: "Заказ уже изменился. Обновите экран и проверьте статус.",
+      CALCULATION_EXPIRED: "Цены или заказ изменились. Пересчитайте сумму.",
+      AUTH_INVALID: "Telegram авторизация не прошла",
+      CONTACT_NOT_VERIFIED: "Для cash нужен телефон, подтверждённый через Telegram",
+      CASH_LOCATION_REQUIRED: "Для оплаты наличными подтвердите местоположение",
+      CASH_LOCATION_OUTSIDE: "Вы вне зоны доставки для оплаты наличными",
+      CASH_LOCATION_INACCURATE: "Геолокация неточная. Повторите проверку у окна или на улице.",
+      INVALID_INPUT: "Поделитесь телефоном через Telegram и заполните адрес",
+      RATE_LIMITED: "Слишком много запросов. Подождите минуту и попробуйте ещё раз.",
+      INTERNAL: "Сервер недоступен. Попробуйте ещё раз",
+      SERVER_UNAVAILABLE: "Сервер недоступен. Попробуйте ещё раз",
+    },
+    sr: {
+      MANUAL_DAY_OFF: "Danas je neradni dan",
+      RESTAURANT_CLOSED: "Porudžbine trenutno nisu dostupne",
+      ITEM_UNAVAILABLE: "Jedno od jela nije dostupno",
+      INVALID_QUANTITY: "Proverite količinu jela",
+      EMPTY_CART: "U korpi nema dostupnih jela",
+      IDEMPOTENCY_CONFLICT: "Porudžbina se već šalje. Proverite status.",
+      ACTIVE_ORDER_EXISTS: "Već imate aktivnu porudžbinu. Novu možete poslati nakon završetka trenutne.",
+      ORDER_STATUS_CONFLICT: "Porudžbina se promenila. Osvežite ekran i proverite status.",
+      CALCULATION_EXPIRED: "Cene ili porudžbina su se promenile. Ponovo izračunajte iznos.",
+      AUTH_INVALID: "Telegram autorizacija nije prošla",
+      CONTACT_NOT_VERIFIED: "Za gotovinu je potreban telefon potvrđen preko Telegrama",
+      CASH_LOCATION_REQUIRED: "Za plaćanje gotovinom potvrdite lokaciju",
+      CASH_LOCATION_OUTSIDE: "Van ste zone za plaćanje gotovinom",
+      CASH_LOCATION_INACCURATE: "Geolokacija nije dovoljno precizna. Ponovite proveru pored prozora ili napolju.",
+      INVALID_INPUT: "Podelite telefon preko Telegrama i unesite adresu",
+      RATE_LIMITED: "Previše zahteva. Sačekajte minut i pokušajte ponovo.",
+      INTERNAL: "Server nije dostupan. Pokušajte ponovo.",
+      SERVER_UNAVAILABLE: "Server nije dostupan. Pokušajte ponovo.",
+    },
+    en: {
+      MANUAL_DAY_OFF: "We are closed today",
+      RESTAURANT_CLOSED: "Orders are not accepted now",
+      ITEM_UNAVAILABLE: "One of the items is unavailable",
+      INVALID_QUANTITY: "Check item quantities",
+      EMPTY_CART: "There are no available items in the cart",
+      IDEMPOTENCY_CONFLICT: "The order is already being submitted. Check the status.",
+      ACTIVE_ORDER_EXISTS: "You already have an active order. Place a new one after the current order is completed.",
+      ORDER_STATUS_CONFLICT: "The order has changed. Refresh the screen and check the status.",
+      CALCULATION_EXPIRED: "Prices or the order changed. Recalculate the total.",
+      AUTH_INVALID: "Telegram authorization failed",
+      CONTACT_NOT_VERIFIED: "Cash payment requires a phone confirmed through Telegram",
+      CASH_LOCATION_REQUIRED: "Confirm your location for cash payment",
+      CASH_LOCATION_OUTSIDE: "You are outside the cash payment delivery area",
+      CASH_LOCATION_INACCURATE: "Geolocation is not accurate enough. Repeat the check near a window or outside.",
+      INVALID_INPUT: "Share your phone through Telegram and enter the address",
+      RATE_LIMITED: "Too many requests. Wait a minute and try again.",
+      INTERNAL: "Server is unavailable. Try again.",
+      SERVER_UNAVAILABLE: "Server is unavailable. Try again.",
+    },
+  } satisfies Record<Locale, Record<string, string>>;
+  const localeMessages: Record<string, string> = messages[locale];
+  return localeMessages[code] || localeMessages.SERVER_UNAVAILABLE;
 }
 
 function delay(ms: number): Promise<void> {

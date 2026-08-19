@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -202,6 +203,88 @@ func TestPerformanceBeaconRejectsOutOfRangeMetric(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestIPRateLimiterPrunesToHardCap(t *testing.T) {
+	limiter := newIPRateLimiter()
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	policy := rateLimitPolicy{limit: 100, window: time.Minute}
+
+	for index := 0; index < 5000; index++ {
+		if !limiter.allow(fmt.Sprintf("ip-%04d", index), now.Add(time.Duration(index)*time.Millisecond), policy) {
+			t.Fatalf("first request for ip-%04d was rate limited", index)
+		}
+	}
+
+	if len(limiter.buckets) > 4096 {
+		t.Fatalf("bucket count = %d, want <= 4096", len(limiter.buckets))
+	}
+}
+
+func TestWriteErrorReturnsInternalForUnknownErrors(t *testing.T) {
+	w := httptest.NewRecorder()
+
+	writeError(w, fmt.Errorf("database driver failed"))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusInternalServerError, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"code":"INTERNAL"`) {
+		t.Fatalf("body missing INTERNAL code: %s", w.Body.String())
+	}
+}
+
+func TestWriteErrorReturnsInvalidInputForBadJSON(t *testing.T) {
+	w := httptest.NewRecorder()
+
+	writeError(w, io.ErrUnexpectedEOF)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"code":"INVALID_INPUT"`) {
+		t.Fatalf("body missing INVALID_INPUT code: %s", w.Body.String())
+	}
+}
+
+func TestDecodeJSONRejectsTrailingPayload(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(`{"ok":true}{"ok":false}`))
+	var payload struct {
+		OK bool `json:"ok"`
+	}
+
+	err := decodeJSON(req, &payload)
+
+	if !errors.Is(err, core.ErrInvalidInput) {
+		t.Fatalf("decodeJSON error = %v, want ErrInvalidInput", err)
+	}
+}
+
+func TestDecodeReasonBodyOrQueryPrefersJSONBody(t *testing.T) {
+	req := httptest.NewRequest(http.MethodDelete, "/test?reason=query-reason", strings.NewReader(`{"reason":"body reason"}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	reason, err := decodeReasonBodyOrQuery(req)
+
+	if err != nil {
+		t.Fatalf("decode reason: %v", err)
+	}
+	if reason != "body reason" {
+		t.Fatalf("reason = %q, want body reason", reason)
+	}
+}
+
+func TestDecodeReasonBodyOrQueryFallsBackToQuery(t *testing.T) {
+	req := httptest.NewRequest(http.MethodDelete, "/test?reason=query-reason", nil)
+
+	reason, err := decodeReasonBodyOrQuery(req)
+
+	if err != nil {
+		t.Fatalf("decode reason: %v", err)
+	}
+	if reason != "query-reason" {
+		t.Fatalf("reason = %q, want query reason", reason)
 	}
 }
 

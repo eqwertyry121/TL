@@ -3,11 +3,17 @@ import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry"
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
 import { clientLabel, courierEtaLink, courierTimeText, createStaffApi, isAuthError, mapLink, money, openTelegramLink, paymentText, problemLink, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
-import { Check, Copy, MapPin, MoreVertical, Phone, RefreshCw, WifiOff } from "lucide-react";
+import { AlertTriangle, Check, Copy, MapPin, MoreVertical, Phone, RefreshCw, WifiOff } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const api = createStaffApi("COURIER");
 const courierSeenOrdersKey = "tk-courier-seen-orders-v1";
+type ConfirmDialogState = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  resolve(confirmed: boolean): void;
+};
 
 export function App() {
   const [token, setToken] = useState("");
@@ -15,8 +21,10 @@ export function App() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [offline, setOffline] = useState(false);
+  const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState("");
   const [etaBusy, setEtaBusy] = useState("");
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const seenIdsRef = useRef(loadSeenOrderIds(courierSeenOrdersKey));
   const [seenIds, setSeenIds] = useState<Set<string>>(() => new Set(seenIdsRef.current));
   const authRetry = useMemo(() => createSingleFlightAuthRetry({
@@ -56,6 +64,15 @@ export function App() {
     return authRetry.withAuth(action, authToken);
   }
 
+  function askConfirm(input: Omit<ConfirmDialogState, "resolve">): Promise<boolean> {
+    return new Promise((resolve) => setConfirmDialog({ ...input, resolve }));
+  }
+
+  function closeConfirm(confirmed: boolean) {
+    confirmDialog?.resolve(confirmed);
+    setConfirmDialog(null);
+  }
+
   async function refresh(signal?: AbortSignal, authToken = token) {
     try {
       const response = await withAuth((currentToken) => api.listCourierOrders(currentToken, signal), authToken);
@@ -87,14 +104,17 @@ export function App() {
   }, [token]);
 
   async function markDelivered(order: Order) {
-    const text = order.payment_method === "cash" ? `Получены наличные ${money(order.total_minor)}?` : `Заказ #${order.public_number} доставлен?`;
-    if (!window.confirm(text)) return;
+    const text = order.payment_method === "cash" ? `Получены наличные ${money(order.total_minor)}?` : "Заказ доставлен?";
+    const confirmed = await askConfirm({ title: `Заказ #${order.public_number}`, message: text, confirmLabel: "Доставлено" });
+    if (!confirmed) return;
     markSeen(order.id);
     setBusy(order.id);
+    setActionError("");
     try {
       await withAuth((authToken) => api.markDelivered(authToken, order.id, `delivered-${order.id}-${order.version}`, order.version));
       setOrders((current) => current.filter((entry) => entry.id !== order.id));
-    } catch {
+    } catch (err) {
+      setActionError(staffActionErrorText(err));
       await refresh();
     } finally {
       setBusy("");
@@ -111,9 +131,11 @@ export function App() {
 
     const key = `${order.id}:${minutes}`;
     setEtaBusy(key);
+    setActionError("");
     try {
       await withAuth((authToken) => api.sendCourierETA(authToken, order.id, minutes));
-    } catch {
+    } catch (err) {
+      setActionError(staffActionErrorText(err));
       await refresh();
     } finally {
       setEtaBusy("");
@@ -130,6 +152,7 @@ export function App() {
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>
       </header>
       {offline && <div className="status bad"><WifiOff size={18} /><span>Нет связи с сервером</span></div>}
+      {actionError && <div className="status bad"><AlertTriangle size={18} /><span>{actionError}</span></div>}
       {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="COURIER" />}
       <main className="list">
         {sortedOrders.length === 0 ? <div className="empty">Готовых доставок нет</div> : sortedOrders.map((order) => {
@@ -156,14 +179,21 @@ export function App() {
                   <MapPin size={18} />
                   <span>{order.address || "Адрес не указан"}</span>
                 </div>
-                <a
-                  className="phone-compact"
-                  href={`tel:${order.phone || ""}`}
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <Phone size={18} />
-                  <span>{order.phone || "Телефон не указан"}</span>
-                </a>
+                {order.phone ? (
+                  <a
+                    className="phone-compact"
+                    href={`tel:${order.phone}`}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <Phone size={18} />
+                    <span>{order.phone}</span>
+                  </a>
+                ) : (
+                  <div className="phone-compact is-disabled">
+                    <Phone size={18} />
+                    <span>Телефон не указан</span>
+                  </div>
+                )}
                 <ul className="items-compact" aria-label={`Состав заказа #${order.public_number}`}>
                   {order.items.map((item, index) => (
                     <li key={`${item.menu_item_id}-${index}`}>
@@ -205,6 +235,22 @@ export function App() {
           );
         })}
       </main>
+      {confirmDialog && <ConfirmDialog dialog={confirmDialog} onClose={closeConfirm} />}
+    </div>
+  );
+}
+
+function ConfirmDialog({ dialog, onClose }: { dialog: ConfirmDialogState; onClose(confirmed: boolean): void }) {
+  return (
+    <div className="dialog-backdrop" role="presentation" onClick={() => onClose(false)}>
+      <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={(event) => event.stopPropagation()}>
+        <h2 id="confirm-title">{dialog.title}</h2>
+        <p>{dialog.message}</p>
+        <div className="dialog-actions">
+          <button type="button" onClick={() => onClose(false)}>Отмена</button>
+          <button className="primary" type="button" onClick={() => onClose(true)}>{dialog.confirmLabel}</button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -263,6 +309,8 @@ function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
 
 function Menu({ order }: { order: Order }) {
   const [open, setOpen] = useState(false);
+  const phone = order.phone?.trim();
+  const address = order.address?.trim();
   return (
     <div className="menu">
       <button
@@ -277,10 +325,16 @@ function Menu({ order }: { order: Order }) {
       </button>
       {open && (
         <div className="popover" onClick={(event) => event.stopPropagation()}>
-          <a href={`tel:${order.phone || ""}`}>Позвонить</a>
-          <button onClick={() => void navigator.clipboard?.writeText(order.address || "")}><Copy size={16} /> Скопировать адрес</button>
-          <a href={mapLink(order.address)} target="_blank">Открыть карту</a>
-          <a href={problemLink(order)} target="_blank">Проблема с доставкой</a>
+          {phone ? <a href={`tel:${phone}`}>Позвонить</a> : <span>Телефон не указан</span>}
+          {address ? (
+            <>
+              <button type="button" onClick={() => void navigator.clipboard?.writeText(address)}><Copy size={16} /> Скопировать адрес</button>
+              <a href={mapLink(address)} target="_blank" rel="noreferrer">Открыть карту</a>
+            </>
+          ) : (
+            <span>Адрес не указан</span>
+          )}
+          <a href={problemLink(order)} target="_blank" rel="noreferrer">Проблема с доставкой</a>
         </div>
       )}
     </div>
@@ -289,6 +343,15 @@ function Menu({ order }: { order: Order }) {
 
 function secondsAgo(value: Date) {
   return Math.max(0, Math.floor((Date.now() - value.getTime()) / 1000));
+}
+
+function staffActionErrorText(err: unknown): string {
+  const code = typeof err === "object" && err && "code" in err ? String((err as { code?: unknown }).code) : "";
+  if (code === "ORDER_STATUS_CONFLICT") return "Заказ уже изменился. Экран обновлён, проверьте актуальный статус.";
+  if (code === "IDEMPOTENCY_CONFLICT") return "Действие уже отправляется. Подождите и обновите экран.";
+  if (code === "RATE_LIMITED") return "Слишком много запросов. Подождите минуту и попробуйте ещё раз.";
+  if (code === "FORBIDDEN" || code === "AUTH_INVALID") return "Сессия устарела или нет доступа. Откройте Mini App заново из Telegram.";
+  return "Действие не выполнено. Экран обновлён, попробуйте ещё раз.";
 }
 
 function loadSeenOrderIds(key: string): Set<string> {

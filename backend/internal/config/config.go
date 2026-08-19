@@ -44,12 +44,30 @@ type Config struct {
 	NotificationConcurrency   int
 	NotificationBacklogAfter  time.Duration
 	ServerTimingEnabled       bool
+	FiscalProcessAccepted     bool
+	PIIRetentionDays          int
 }
 
 func Load() (Config, error) {
 	_ = godotenv.Load(".env.local", ".env")
+	env, err := loadAppEnv()
+	if err != nil {
+		return Config{}, err
+	}
+	localRoleSwitcherEnabled, err := getBoolStrict("LOCAL_ROLE_SWITCHER_ENABLED", env != "production")
+	if err != nil {
+		return Config{}, err
+	}
+	notificationDryRun, err := getBoolStrict("NOTIFICATION_DRY_RUN", false)
+	if err != nil {
+		return Config{}, err
+	}
+	fiscalProcessAccepted, err := getBoolStrict("FISCAL_PROCESS_ACCEPTED", false)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
-		Env:                      get("APP_ENV", "development"),
+		Env:                      env,
 		BuildSHA:                 get("APP_BUILD_SHA", "dev"),
 		HTTPAddr:                 get("HTTP_ADDR", ":8080"),
 		PublicBaseURL:            get("APP_PUBLIC_BASE_URL", "http://127.0.0.1:8080"),
@@ -67,14 +85,16 @@ func Load() (Config, error) {
 		TelegramWebhookSecret:    os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
 		AllowedOrigins:           splitCSV(get("APP_ALLOWED_ORIGINS", defaultAllowedOrigins())),
 		BootstrapOwnerTelegramID: mustInt64(get("BOOTSTRAP_OWNER_TELEGRAM_ID", "1048084234")),
-		LocalRoleSwitcherEnabled: getBool("LOCAL_ROLE_SWITCHER_ENABLED", true),
+		LocalRoleSwitcherEnabled: localRoleSwitcherEnabled,
 		SessionTTL:               getDuration("SESSION_TTL", 24*time.Hour),
 		InitDataMaxAge:           getDuration("TELEGRAM_INIT_DATA_MAX_AGE", 24*time.Hour),
 		MaxItemQuantity:          int(mustInt64(get("MAX_ITEM_QUANTITY", "10"))),
-		NotificationDryRun:       getBool("NOTIFICATION_DRY_RUN", true),
+		NotificationDryRun:       notificationDryRun,
 		NotificationPollInterval: getDuration("NOTIFICATION_POLL_INTERVAL", 5*time.Second),
 		NotificationConcurrency:  int(mustInt64(get("NOTIFICATION_CONCURRENCY", "4"))),
 		NotificationBacklogAfter: getDuration("NOTIFICATION_BACKLOG_ALERT_AFTER", 60*time.Second),
+		FiscalProcessAccepted:    fiscalProcessAccepted,
+		PIIRetentionDays:         int(mustInt64(get("PII_RETENTION_DAYS", "730"))),
 	}
 	cfg.BootstrapOwnerTelegramIDs = bootstrapOwnerTelegramIDs()
 	if len(cfg.BootstrapOwnerTelegramIDs) > 0 {
@@ -82,7 +102,10 @@ func Load() (Config, error) {
 	}
 	cfg.ServerTimingEnabled = cfg.Env != "production"
 	if strings.TrimSpace(os.Getenv("SERVER_TIMING_ENABLED")) != "" {
-		cfg.ServerTimingEnabled = getBool("SERVER_TIMING_ENABLED", cfg.ServerTimingEnabled)
+		cfg.ServerTimingEnabled, err = getBoolStrict("SERVER_TIMING_ENABLED", cfg.ServerTimingEnabled)
+		if err != nil {
+			return Config{}, err
+		}
 	}
 	key, err := loadEncryptionKey(cfg.Env)
 	if err != nil {
@@ -97,6 +120,18 @@ func Load() (Config, error) {
 	if cfg.Env == "production" {
 		if strings.TrimSpace(os.Getenv("PII_HASH_KEY")) == strings.TrimSpace(os.Getenv("APP_ENCRYPTION_KEY")) {
 			return Config{}, fmt.Errorf("%w: PII_HASH_KEY must be different from APP_ENCRYPTION_KEY", core.ErrProductionUnsafeValue)
+		}
+		if cfg.LocalRoleSwitcherEnabled {
+			return Config{}, fmt.Errorf("%w: LOCAL_ROLE_SWITCHER_ENABLED must be false in production", core.ErrProductionUnsafeValue)
+		}
+		if cfg.NotificationDryRun {
+			return Config{}, fmt.Errorf("%w: NOTIFICATION_DRY_RUN must be false in production", core.ErrProductionUnsafeValue)
+		}
+		if cfg.ServerTimingEnabled {
+			return Config{}, fmt.Errorf("%w: SERVER_TIMING_ENABLED must be false in production", core.ErrProductionUnsafeValue)
+		}
+		if !cfg.FiscalProcessAccepted {
+			return Config{}, fmt.Errorf("%w: FISCAL_PROCESS_ACCEPTED must be true before production sales", core.ErrProductionUnsafeValue)
 		}
 		if cfg.ClientBotToken == "" {
 			return Config{}, fmt.Errorf("%w: missing client bot token", core.ErrProductionUnsafeValue)
@@ -126,6 +161,12 @@ func Load() (Config, error) {
 	if cfg.NotificationConcurrency > 4 {
 		cfg.NotificationConcurrency = 4
 	}
+	if cfg.PIIRetentionDays < 30 {
+		cfg.PIIRetentionDays = 30
+	}
+	if cfg.PIIRetentionDays > 3650 {
+		cfg.PIIRetentionDays = 3650
+	}
 	return cfg, nil
 }
 
@@ -136,12 +177,29 @@ func get(key, fallback string) string {
 	return fallback
 }
 
-func getBool(key string, fallback bool) bool {
+func getBoolStrict(key string, fallback bool) (bool, error) {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
-	return value == "1" || strings.EqualFold(value, "true") || strings.EqualFold(value, "yes")
+	switch strings.ToLower(value) {
+	case "1", "true", "yes":
+		return true, nil
+	case "0", "false", "no":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%w: %s must be a boolean", core.ErrProductionUnsafeValue, key)
+	}
+}
+
+func loadAppEnv() (string, error) {
+	env := strings.ToLower(strings.TrimSpace(get("APP_ENV", "development")))
+	switch env {
+	case "development", "test", "testing", "production":
+		return env, nil
+	default:
+		return "", fmt.Errorf("%w: APP_ENV must be development, test, testing, or production", core.ErrProductionUnsafeValue)
+	}
 }
 
 func getDuration(key string, fallback time.Duration) time.Duration {

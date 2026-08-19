@@ -3,6 +3,7 @@ export { startVisiblePolling } from "@tk-delivery/api-client/polling";
 
 const demoOrdersKey = "tk-client-demo-orders-v1";
 const getCache = new Map<string, { etag: string; payload: unknown }>();
+const getCacheLimit = 64;
 
 export type StaffRole = "KITCHEN" | "COURIER";
 
@@ -291,9 +292,19 @@ async function read(response: Response, cacheKey?: string) {
   }
   const etag = response.headers.get("ETag");
   if (cacheKey && etag) {
-    getCache.set(cacheKey, { etag, payload });
+    rememberGetCache(cacheKey, etag, payload);
   }
   return payload;
+}
+
+function rememberGetCache(cacheKey: string, etag: string, payload: unknown): void {
+  if (getCache.has(cacheKey)) getCache.delete(cacheKey);
+  getCache.set(cacheKey, { etag, payload });
+  while (getCache.size > getCacheLimit) {
+    const oldestKey = getCache.keys().next().value;
+    if (!oldestKey) return;
+    getCache.delete(oldestKey);
+  }
 }
 
 function staffApiError(code: string, status?: number): StaffApiError {

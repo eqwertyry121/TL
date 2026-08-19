@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -45,6 +46,7 @@ type Server struct {
 	loadRuntime        func(context.Context) (core.Runtime, int, error)
 	loadMenuRevision   func(context.Context, string) (int64, []core.Category, error)
 	telegramHTTPClient *http.Client
+	publicRateLimiter  *ipRateLimiter
 }
 
 type contextKey string
@@ -71,12 +73,70 @@ type menuCacheEntry struct {
 	expires    time.Time
 }
 
+type rateLimitPolicy struct {
+	name   string
+	limit  int
+	window time.Duration
+}
+
+type rateLimitBucket struct {
+	count    int
+	resetAt  time.Time
+	lastSeen time.Time
+}
+
+type ipRateLimiter struct {
+	mu      sync.Mutex
+	buckets map[string]rateLimitBucket
+}
+
+func newIPRateLimiter() *ipRateLimiter {
+	return &ipRateLimiter{buckets: map[string]rateLimitBucket{}}
+}
+
+func (l *ipRateLimiter) allow(key string, now time.Time, policy rateLimitPolicy) bool {
+	if l == nil || policy.limit <= 0 || policy.window <= 0 {
+		return true
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	bucket := l.buckets[key]
+	if bucket.resetAt.IsZero() || now.After(bucket.resetAt) {
+		bucket = rateLimitBucket{resetAt: now.Add(policy.window)}
+	}
+	bucket.count++
+	bucket.lastSeen = now
+	l.buckets[key] = bucket
+	if len(l.buckets) > 4096 {
+		for bucketKey, current := range l.buckets {
+			if now.Sub(current.lastSeen) > 2*policy.window {
+				delete(l.buckets, bucketKey)
+			}
+		}
+		for len(l.buckets) > 4096 {
+			var oldestKey string
+			var oldestSeen time.Time
+			for bucketKey, current := range l.buckets {
+				if oldestKey == "" || current.lastSeen.Before(oldestSeen) {
+					oldestKey = bucketKey
+					oldestSeen = current.lastSeen
+				}
+			}
+			if oldestKey == "" {
+				break
+			}
+			delete(l.buckets, oldestKey)
+		}
+	}
+	return bucket.count <= policy.limit
+}
+
 func New(cfg config.Config, st *store.Store, loggers ...*slog.Logger) *Server {
 	logger := slog.Default()
 	if len(loggers) > 0 && loggers[0] != nil {
 		logger = loggers[0]
 	}
-	server := &Server{cfg: cfg, store: st, logger: logger, now: time.Now, menuCache: map[string]menuCacheEntry{}}
+	server := &Server{cfg: cfg, store: st, logger: logger, now: time.Now, menuCache: map[string]menuCacheEntry{}, publicRateLimiter: newIPRateLimiter()}
 	server.loadRuntime = server.runtimePayload
 	server.loadMenuRevision = func(ctx context.Context, locale string) (int64, []core.Category, error) {
 		return server.store.MenuWithRevision(ctx, locale)
@@ -112,6 +172,7 @@ func (s *Server) Routes() http.Handler {
 	}
 
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(s.withPublicRateLimit)
 		r.Get("/version", s.version)
 		r.Get("/runtime", s.runtime)
 		r.Get("/menu", s.menu)
@@ -147,6 +208,7 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/courier/orders/{id}/delivered", s.markDelivered)
 
 			r.Get("/admin/orders", s.adminOrders)
+			r.Post("/admin/orders/search", s.adminOrdersSearch)
 			r.Get("/admin/orders/{id}", s.adminOrder)
 			r.Post("/admin/orders/{id}/cancel", s.adminCancelOrder)
 			r.Post("/admin/orders/{id}/return-to-new", s.adminReturnOrderToNew)
@@ -1022,6 +1084,32 @@ func (s *Server) adminOrders(w http.ResponseWriter, r *http.Request) {
 	writeConditionalJSON(w, r, http.StatusOK, page, "private, no-cache, no-store")
 }
 
+func (s *Server) adminOrdersSearch(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Status string `json:"status"`
+		Query  string `json:"q"`
+		Date   string `json:"date"`
+		Limit  int    `json:"limit"`
+		Offset int    `json:"offset"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	page, err := s.store.AdminOrders(r.Context(), mustSession(r), store.AdminOrderFilter{
+		Status: req.Status,
+		Query:  req.Query,
+		Date:   req.Date,
+		Limit:  req.Limit,
+		Offset: req.Offset,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
 func (s *Server) adminOrder(w http.ResponseWriter, r *http.Request) {
 	id, err := parseUUIDParam(r, "id")
 	if err != nil {
@@ -1254,7 +1342,12 @@ func (s *Server) adminDeleteCategory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	result, err := s.store.DeleteOrArchiveCategory(r.Context(), mustSession(r), id, r.URL.Query().Get("reason"))
+	reason, err := decodeReasonBodyOrQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	result, err := s.store.DeleteOrArchiveCategory(r.Context(), mustSession(r), id, reason)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1357,7 +1450,12 @@ func (s *Server) adminDeleteMenuItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	result, err := s.store.DeleteOrArchiveMenuItem(r.Context(), mustSession(r), id, r.URL.Query().Get("reason"))
+	reason, err := decodeReasonBodyOrQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	result, err := s.store.DeleteOrArchiveMenuItem(r.Context(), mustSession(r), id, reason)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1611,6 +1709,18 @@ func (s *Server) adminAnalyticsCSV(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("%d", row.RevenueMinor),
 		})
 	}
+	_ = writer.Write([]string{})
+	_ = writer.Write([]string{"payment_method", "orders", "delivered", "paid", "cancelled", "revenue_minor"})
+	for _, row := range analytics.Payments {
+		_ = writer.Write([]string{
+			row.Key,
+			fmt.Sprintf("%d", row.Count),
+			fmt.Sprintf("%d", row.DeliveredCount),
+			fmt.Sprintf("%d", row.PaidCount),
+			fmt.Sprintf("%d", row.CancelledCount),
+			fmt.Sprintf("%d", row.RevenueMinor),
+		})
+	}
 	writer.Flush()
 }
 
@@ -1739,6 +1849,55 @@ func (s *Server) withSession(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), sessionKey, sess)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func (s *Server) withPublicRateLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		policy, ok := publicRateLimitPolicy(r.Method, r.URL.Path)
+		if !ok {
+			next.ServeHTTP(w, r)
+			return
+		}
+		key := policy.name + ":" + clientIP(r)
+		if !s.publicRateLimiter.allow(key, s.now(), policy) {
+			w.Header().Set("Retry-After", strconv.Itoa(int(policy.window.Seconds())))
+			writeJSON(w, http.StatusTooManyRequests, map[string]any{
+				"error": map[string]any{
+					"code":        "RATE_LIMITED",
+					"message_key": "rate_limited",
+				},
+			})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func publicRateLimitPolicy(method, path string) (rateLimitPolicy, bool) {
+	switch {
+	case method == http.MethodGet && (path == "/api/v1/bootstrap/public" || path == "/api/v1/menu" || path == "/api/v1/runtime" || path == "/api/v1/version"):
+		return rateLimitPolicy{name: "public_read", limit: 240, window: time.Minute}, true
+	case method == http.MethodPost && (path == "/api/v1/bootstrap/client" || path == "/api/v1/bootstrap/staff" || path == "/api/v1/bootstrap/admin"):
+		return rateLimitPolicy{name: "bootstrap", limit: 120, window: time.Minute}, true
+	case method == http.MethodPost && path == "/api/v1/auth/telegram":
+		return rateLimitPolicy{name: "auth", limit: 60, window: time.Minute}, true
+	case method == http.MethodPost && path == "/api/v1/dev/session":
+		return rateLimitPolicy{name: "dev_session", limit: 30, window: time.Minute}, true
+	case method == http.MethodPost && path == "/api/v1/telegram/client/webhook":
+		return rateLimitPolicy{name: "telegram_webhook", limit: 300, window: time.Minute}, true
+	case method == http.MethodPost && path == "/api/v1/performance/beacon":
+		return rateLimitPolicy{name: "performance_beacon", limit: 120, window: time.Minute}, true
+	default:
+		return rateLimitPolicy{}, false
+	}
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 func (s *Server) withRequestLog(next http.Handler) http.Handler {
@@ -2065,7 +2224,31 @@ func decodeJSON(r *http.Request, target any) error {
 	defer r.Body.Close()
 	dec := json.NewDecoder(io.LimitReader(r.Body, 64*1024))
 	dec.DisallowUnknownFields()
-	return dec.Decode(target)
+	if err := dec.Decode(target); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return core.ErrInvalidInput
+	}
+	return nil
+}
+
+func decodeReasonBodyOrQuery(r *http.Request) (string, error) {
+	queryReason := r.URL.Query().Get("reason")
+	if r.Body == nil || r.ContentLength == 0 {
+		return queryReason, nil
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		return queryReason, nil
+	}
+	return req.Reason, nil
 }
 
 func bodyHash(raw []byte) string {
@@ -2205,9 +2388,10 @@ func etagMatches(headerValue, etag string) bool {
 }
 
 func writeError(w http.ResponseWriter, err error) {
-	status := http.StatusBadRequest
-	code := "BAD_REQUEST"
-	messageKey := "bad_request"
+	status := http.StatusInternalServerError
+	code := "INTERNAL"
+	messageKey := "internal"
+	known := true
 	switch {
 	case errors.Is(err, core.ErrForbidden):
 		status, code, messageKey = http.StatusForbidden, "FORBIDDEN", "forbidden"
@@ -2235,6 +2419,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code, messageKey = http.StatusConflict, "PAYMENT_NOT_CONFIRMED", "payment_not_confirmed"
 	case errors.Is(err, core.ErrTermsRequired):
 		status, code, messageKey = http.StatusBadRequest, "TERMS_REQUIRED", "terms_required"
+	case isBadJSONError(err):
+		status, code, messageKey = http.StatusBadRequest, "INVALID_INPUT", "invalid_input"
 	case errors.Is(err, core.ErrContactNotVerified):
 		status, code, messageKey = http.StatusConflict, "CONTACT_NOT_VERIFIED", "contact_not_verified"
 	case errors.Is(err, core.ErrCashLocationRequired):
@@ -2245,6 +2431,11 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code, messageKey = http.StatusConflict, "CASH_LOCATION_INACCURATE", "cash_location_inaccurate"
 	case errors.Is(err, tgauth.ErrInvalidInitData):
 		status, code, messageKey = http.StatusUnauthorized, "AUTH_INVALID", "auth_invalid"
+	default:
+		known = false
+	}
+	if !known {
+		slog.Default().Error("http handler error", "error", redactedInternalError(err))
 	}
 	writeJSON(w, status, map[string]any{
 		"error": map[string]any{
@@ -2252,4 +2443,28 @@ func writeError(w http.ResponseWriter, err error) {
 			"message_key": messageKey,
 		},
 	})
+}
+
+func redactedInternalError(err error) string {
+	value := strings.TrimSpace(err.Error())
+	if value == "" {
+		return "unknown"
+	}
+	if strings.Contains(value, "api.telegram.org/bot") {
+		return "telegram_request_error"
+	}
+	if len(value) > 240 {
+		return value[:240]
+	}
+	return value
+}
+
+func isBadJSONError(err error) bool {
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	return errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.As(err, &syntaxErr) ||
+		errors.As(err, &typeErr) ||
+		strings.HasPrefix(err.Error(), "json: unknown field ")
 }

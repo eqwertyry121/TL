@@ -134,6 +134,7 @@ export interface CreateOrderInput {
   fulfillment_type: FulfillmentType;
   payment_method: Extract<PaymentMethod, "cash" | "crypto">;
   terms_accepted: boolean;
+  terms_version: string;
   locale: Locale;
 }
 

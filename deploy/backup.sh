@@ -5,6 +5,8 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 COMPOSE_FILE=${COMPOSE_FILE:-"$SCRIPT_DIR/docker-compose.api.yml"}
 BACKUP_DIR=${BACKUP_DIR:-"/var/backups/tk-delivery"}
 RETENTION_DAYS=${RETENTION_DAYS:-14}
+BACKUP_RSYNC_DEST=${BACKUP_RSYNC_DEST:-}
+BACKUP_RCLONE_REMOTE=${BACKUP_RCLONE_REMOTE:-}
 
 case "$BACKUP_DIR" in
   ""|"/"|"/var"|"/var/backups")
@@ -48,6 +50,21 @@ fi
 
 tar -tzf "$uploads_file" >/dev/null
 
+if [ -n "$BACKUP_RSYNC_DEST" ]; then
+  rsync -a -- "$db_file" "$uploads_file" "$BACKUP_RSYNC_DEST"/
+fi
+
+if [ -n "$BACKUP_RCLONE_REMOTE" ]; then
+  rclone copy "$db_file" "$BACKUP_RCLONE_REMOTE"
+  rclone copy "$uploads_file" "$BACKUP_RCLONE_REMOTE"
+fi
+
 find "$BACKUP_DIR" -type f \( -name "postgres-*.dump" -o -name "uploads-*.tar.gz" \) -mtime +"$RETENTION_DAYS" -delete
 
 printf 'Backup OK\nPostgreSQL: %s\nUploads: %s\nRestore check DB: %s\n' "$db_file" "$uploads_file" "$restore_db"
+if [ -n "$BACKUP_RSYNC_DEST" ]; then
+  printf 'Offsite rsync: %s\n' "$BACKUP_RSYNC_DEST"
+fi
+if [ -n "$BACKUP_RCLONE_REMOTE" ]; then
+  printf 'Offsite rclone: %s\n' "$BACKUP_RCLONE_REMOTE"
+fi

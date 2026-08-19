@@ -260,6 +260,17 @@ export interface OrderSummaryPage {
   has_more?: boolean;
 }
 
+export interface AdminOrderCounts {
+  active: number;
+  new: number;
+  ready: number;
+  history: number;
+}
+
+export interface AdminOrdersPage extends OrderSummaryPage {
+  counts?: AdminOrderCounts;
+}
+
 export interface StaffBootstrap {
   session: Session;
   roles: Role[];
@@ -274,12 +285,7 @@ export interface AdminBootstrap {
     categories: AdminCategory[];
     items: AdminMenuItem[];
   };
-  orders?: {
-    orders: OrderSummary[];
-    limit?: number;
-    offset?: number;
-    has_more?: boolean;
-  };
+  orders?: AdminOrdersPage;
   settings?: Settings;
   schedule?: {
     schedule: ScheduleDay[];
@@ -312,6 +318,9 @@ export interface AnalyticsSummary {
 export interface AnalyticsBreakdown {
   key: string;
   count: number;
+  delivered_count: number;
+  paid_count: number;
+  cancelled_count: number;
   revenue_minor: number;
 }
 

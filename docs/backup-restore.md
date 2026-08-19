@@ -33,6 +33,8 @@ Optional variables:
 COMPOSE_FILE=/path/to/deploy/docker-compose.api.yml
 BACKUP_DIR=/var/backups/tk-delivery
 RETENTION_DAYS=14
+BACKUP_RSYNC_DEST=backup-user@backup-host:/backups/tk-delivery
+BACKUP_RCLONE_REMOTE=remote:tk-delivery
 ```
 
 `BACKUP_DIR` must be a dedicated directory. The script refuses broad locations
@@ -48,13 +50,23 @@ Example daily run at 03:20 Belgrade server time:
 
 ## Off-VPS Copy
 
-A backup that stays only on the same VPS is not enough. Sync the backup
-directory to external storage after each successful run. Use the provider chosen
-for the restaurant, for example S3-compatible storage, rsync to another server,
-or another encrypted backup tool.
+A backup that stays only on the same VPS is not enough. `deploy/backup.sh`
+can copy the exact dump and uploads archive after the local restore check:
+
+- set `BACKUP_RSYNC_DEST` to push both files to another server with `rsync`;
+- or set `BACKUP_RCLONE_REMOTE` to push both files to an rclone remote.
+
+If either variable is set and the external copy fails, the script exits non-zero.
 
 The external copy must include both dump and uploads archive from the same
 timestamp.
+
+## PII Retention
+
+`PII_RETENTION_DAYS` controls automatic cleanup of old personal data. Closed
+orders older than this value keep totals/status/history but clear phone,
+address and customer comment. User phone data is also cleared when the user has
+no active or recent orders. Default: `730` days.
 
 ## Manual Restore Check
 

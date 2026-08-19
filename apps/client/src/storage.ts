@@ -39,10 +39,22 @@ let legacySensitiveLocalStorageCleared = false;
 function clearLegacySensitiveLocalStorage(): void {
   if (legacySensitiveLocalStorageCleared) return;
   legacySensitiveLocalStorageCleared = true;
+  removeLocalStorageItem(CHECKOUT_KEY);
+  removeLocalStorageItem(CHECKOUT_PROGRESS_KEY);
+  removeLocalStorageItem(IDEMPOTENCY_KEY);
+}
+
+function removeLocalStorageItem(key: string): void {
   try {
-    localStorage.removeItem(CHECKOUT_KEY);
-    localStorage.removeItem(CHECKOUT_PROGRESS_KEY);
-    localStorage.removeItem(IDEMPOTENCY_KEY);
+    localStorage.removeItem(key);
+  } catch {
+    // ignore storage access errors
+  }
+}
+
+function removeSessionStorageItem(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
   } catch {
     // ignore storage access errors
   }
@@ -71,11 +83,15 @@ export function loadCart(): CartState {
 }
 
 export function saveCart(cart: CartState): void {
-  localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  try {
+    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  } catch {
+    // Cart persistence is best-effort; current in-memory state stays usable.
+  }
 }
 
 export function clearCart(): void {
-  localStorage.removeItem(CART_KEY);
+  removeLocalStorageItem(CART_KEY);
 }
 
 export function upsertCartLine(cart: CartState, line: CartLine): CartState {
@@ -95,19 +111,23 @@ export function loadCheckoutDraft(): CheckoutDraft {
     if (parsed?.version === 1 && parsed.draft && isRecent(parsed.savedAt, CHECKOUT_DRAFT_TTL_MS)) {
       return normalizeCheckoutDraft(parsed.draft);
     }
-    sessionStorage.removeItem(CHECKOUT_KEY);
+    removeSessionStorageItem(CHECKOUT_KEY);
   } catch {
-    sessionStorage.removeItem(CHECKOUT_KEY);
+    removeSessionStorageItem(CHECKOUT_KEY);
   }
   return emptyCheckoutDraft();
 }
 
 export function saveCheckoutDraft(draft: CheckoutDraft): void {
-  sessionStorage.setItem(CHECKOUT_KEY, JSON.stringify({
-    version: 1,
-    draft,
-    savedAt: new Date().toISOString(),
-  } satisfies StoredCheckoutDraft));
+  try {
+    sessionStorage.setItem(CHECKOUT_KEY, JSON.stringify({
+      version: 1,
+      draft,
+      savedAt: new Date().toISOString(),
+    } satisfies StoredCheckoutDraft));
+  } catch {
+    // Checkout draft persistence is best-effort and must not break ordering.
+  }
 }
 
 function normalizeCheckoutDraft(draft: Partial<CheckoutDraft> & { details?: string }): CheckoutDraft {
@@ -177,26 +197,38 @@ export function saveCheckoutProgress(cartSignature: string, calculation: Calcula
     cashLocation: cashLocation && isFuture(cashLocation.expires_at) ? cashLocation : null,
     savedAt: new Date().toISOString(),
   };
-  sessionStorage.setItem(CHECKOUT_PROGRESS_KEY, JSON.stringify(progress));
+  try {
+    sessionStorage.setItem(CHECKOUT_PROGRESS_KEY, JSON.stringify(progress));
+  } catch {
+    // Progress cache is an accelerator only.
+  }
 }
 
 export function clearCheckoutProgress(): void {
-  sessionStorage.removeItem(CHECKOUT_PROGRESS_KEY);
+  removeSessionStorageItem(CHECKOUT_PROGRESS_KEY);
 }
 
 export function loadLocale(fallback: Locale): Locale {
-  const stored = localStorage.getItem(LOCALE_KEY);
-  return stored === "sr" || stored === "en" || stored === "ru" ? stored : fallback;
+  try {
+    const stored = localStorage.getItem(LOCALE_KEY);
+    return stored === "sr" || stored === "en" || stored === "ru" ? stored : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 export function saveLocale(locale: Locale): void {
-  localStorage.setItem(LOCALE_KEY, locale);
+  try {
+    localStorage.setItem(LOCALE_KEY, locale);
+  } catch {
+    // Locale can fall back to Telegram/browser language on next load.
+  }
 }
 
 export function loadCachedPublicData(locale: Locale): CachedPublicData | null {
   const key = publicDataKey(locale);
   try {
-    localStorage.removeItem(LEGACY_PUBLIC_DATA_KEY);
+    removeLocalStorageItem(LEGACY_PUBLIC_DATA_KEY);
     const parsed = JSON.parse(localStorage.getItem(key) || "") as CachedPublicData;
     if (
       parsed?.version === 2 &&
@@ -207,17 +239,17 @@ export function loadCachedPublicData(locale: Locale): CachedPublicData | null {
     ) {
       return parsed;
     }
-    localStorage.removeItem(key);
+    removeLocalStorageItem(key);
   } catch {
     // Public cache is only a startup accelerator.
-    localStorage.removeItem(key);
+    removeLocalStorageItem(key);
   }
   return null;
 }
 
 export function saveCachedPublicData(locale: Locale, menuRevision: number, categories: Category[]): void {
   try {
-    localStorage.removeItem(LEGACY_PUBLIC_DATA_KEY);
+    removeLocalStorageItem(LEGACY_PUBLIC_DATA_KEY);
     localStorage.setItem(publicDataKey(locale), JSON.stringify({
       version: 2,
       locale,
@@ -236,27 +268,35 @@ function publicDataKey(locale: Locale): string {
 
 export function pendingIdempotencyKey(): string {
   clearLegacySensitiveLocalStorage();
-  let key = sessionStorage.getItem(IDEMPOTENCY_KEY);
-  if (!key) {
-    key = crypto.randomUUID();
-    sessionStorage.setItem(IDEMPOTENCY_KEY, key);
+  try {
+    let key = sessionStorage.getItem(IDEMPOTENCY_KEY);
+    if (!key) {
+      key = crypto.randomUUID();
+      sessionStorage.setItem(IDEMPOTENCY_KEY, key);
+    }
+    return key;
+  } catch {
+    return crypto.randomUUID();
   }
-  return key;
 }
 
 export function resetPendingIdempotencyKey(): void {
-  sessionStorage.removeItem(IDEMPOTENCY_KEY);
+  removeSessionStorageItem(IDEMPOTENCY_KEY);
 }
 
 export function pendingAdditionIdempotencyKey(orderId: string, signature: string): string {
   clearLegacySensitiveLocalStorage();
   const key = `${ADDITION_IDEMPOTENCY_KEY_PREFIX}${orderId}.${signature}`;
-  let value = sessionStorage.getItem(key);
-  if (!value) {
-    value = crypto.randomUUID();
-    sessionStorage.setItem(key, value);
+  try {
+    let value = sessionStorage.getItem(key);
+    if (!value) {
+      value = crypto.randomUUID();
+      sessionStorage.setItem(key, value);
+    }
+    return value;
+  } catch {
+    return crypto.randomUUID();
   }
-  return value;
 }
 
 export function resetPendingAdditionIdempotencyKey(orderId: string): void {
@@ -264,7 +304,7 @@ export function resetPendingAdditionIdempotencyKey(orderId: string): void {
     for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
       const key = sessionStorage.key(index);
       if (key?.startsWith(`${ADDITION_IDEMPOTENCY_KEY_PREFIX}${orderId}.`)) {
-        sessionStorage.removeItem(key);
+        removeSessionStorageItem(key);
       }
     }
   } catch {

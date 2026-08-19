@@ -16,7 +16,9 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("Admin render error", { error, info });
+    void error;
+    void info;
+    console.error("Admin render error");
   }
 
   render() {
@@ -26,7 +28,7 @@ export class ErrorBoundary extends Component<Props, State> {
       <main className="fatal-error">
         <section className="fatal-error__panel">
           <h1>Админка не загрузилась</h1>
-          <p>Обновите страницу. Если ошибка повторится, нужно проверить консоль и API-ответ.</p>
+          <p>Обновите страницу. Если ошибка повторится, сообщите разработчику.</p>
           <button type="button" className="primary" onClick={() => window.location.reload()}>
             Обновить
           </button>

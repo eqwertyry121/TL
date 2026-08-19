@@ -25,6 +25,7 @@ var buildSHA = "dev"
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
 	if err := run(logger); err != nil {
 		logger.Error("app stopped", "error", err)
 		os.Exit(1)
@@ -83,7 +84,20 @@ func run(logger *slog.Logger) error {
 		}
 	}
 
-	worker := notifications.New(pool, box, cfg.NotificationPollInterval, cfg.NotificationDryRun, cfg.NotificationConcurrency, cfg.NotificationBacklogAfter, cfg.ClientBotToken, cfg.StaffBotToken, cfg.PublicBaseURL, logger)
+	worker := notifications.New(
+		pool,
+		box,
+		cfg.NotificationPollInterval,
+		cfg.NotificationDryRun,
+		cfg.NotificationConcurrency,
+		cfg.NotificationBacklogAfter,
+		cfg.ClientBotToken,
+		cfg.StaffBotToken,
+		cfg.PublicBaseURL,
+		logger,
+		cfg.BootstrapOwnerTelegramIDs,
+		cfg.PIIRetentionDays,
+	)
 	go worker.Run(ctx)
 
 	srv := &http.Server{

@@ -36,6 +36,7 @@ const (
 	phoneHashHMACPrefix       = "hmac-sha256:"
 	orderAdditionWindow       = 5 * time.Minute
 	pickupAddressSnapshot     = "Самовывоз"
+	currentTermsVersion       = "2026-08-17"
 	maxPhoneLength            = 32
 	maxAddressLength          = 240
 	maxCustomerCommentLength  = 300
@@ -64,6 +65,7 @@ type CreateOrderInput struct {
 	FulfillmentType         core.FulfillmentType `json:"fulfillment_type"`
 	PaymentMethod           core.PaymentMethod   `json:"payment_method"`
 	TermsAccepted           bool                 `json:"terms_accepted"`
+	TermsVersion            string               `json:"terms_version"`
 	Locale                  string               `json:"locale"`
 }
 
@@ -150,11 +152,19 @@ type ClientOrdersPage struct {
 	HasMore bool                `json:"has_more"`
 }
 
+type AdminOrderCounts struct {
+	Active  int `json:"active"`
+	New     int `json:"new"`
+	Ready   int `json:"ready"`
+	History int `json:"history"`
+}
+
 type AdminOrdersPage struct {
 	Orders  []core.OrderSummary `json:"orders"`
 	Limit   int                 `json:"limit"`
 	Offset  int                 `json:"offset"`
 	HasMore bool                `json:"has_more"`
+	Counts  AdminOrderCounts    `json:"counts"`
 }
 
 type AuditLogPage struct {
@@ -467,17 +477,27 @@ func (s *Store) SetManualDayOff(ctx context.Context, sess core.Session, enabled 
 	if err != nil {
 		return core.Settings{}, err
 	}
-	_, err = s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.Settings{}, err
+	}
+	defer rollback(ctx, tx)
+	_, err = tx.Exec(ctx, `
 		UPDATE app_settings SET manual_day_off=$1, version=version+1, updated_at=now() WHERE id=true
 	`, enabled)
 	if err != nil {
+		return core.Settings{}, err
+	}
+	if err := s.insertAuditTx(ctx, tx, sess, "settings.manual_day_off", "app_settings", nil, "", map[string]any{"manual_day_off": before.ManualDayOff}, map[string]any{"manual_day_off": enabled}); err != nil {
+		return core.Settings{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return core.Settings{}, err
 	}
 	after, err := s.Settings(ctx)
 	if err != nil {
 		return core.Settings{}, err
 	}
-	_ = s.insertAudit(ctx, sess, "settings.manual_day_off", "app_settings", nil, "", map[string]any{"manual_day_off": before.ManualDayOff}, map[string]any{"manual_day_off": after.ManualDayOff})
 	return after, nil
 }
 
@@ -520,7 +540,12 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 	if err != nil {
 		return core.Settings{}, err
 	}
-	result, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.Settings{}, err
+	}
+	defer rollback(ctx, tx)
+	result, err := tx.Exec(ctx, `
 		UPDATE app_settings
 		SET flat_delivery_fee_minor=$1, support_text=$2, support_phone=$3, terms_url=$4,
 			max_item_quantity=$5, max_comment_length=$6, cash_enabled=$7, card_enabled=false,
@@ -538,11 +563,33 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 	if result.RowsAffected() == 0 {
 		return core.Settings{}, core.ErrOrderStatusConflict
 	}
+	afterAudit := before
+	afterAudit.FlatDeliveryFeeMinor = input.FlatDeliveryFeeMinor
+	afterAudit.SupportText = safe(input.SupportText)
+	afterAudit.SupportPhone = safe(input.SupportPhone)
+	afterAudit.TermsURL = safe(input.TermsURL)
+	afterAudit.MaxItemQuantity = input.MaxItemQuantity
+	afterAudit.MaxCommentLength = input.MaxCommentLength
+	afterAudit.CashEnabled = input.CashEnabled
+	afterAudit.CardEnabled = false
+	afterAudit.CryptoEnabled = false
+	afterAudit.CashLocationRequired = input.CashLocationRequired
+	afterAudit.RestaurantLatitude = input.RestaurantLatitude
+	afterAudit.RestaurantLongitude = input.RestaurantLongitude
+	afterAudit.CashLocationRadiusMeters = input.CashLocationRadiusMeters
+	afterAudit.CashLocationTTLSeconds = input.CashLocationTTLSeconds
+	afterAudit.CashLocationMaxAccuracyMeters = input.CashLocationMaxAccuracyMeters
+	afterAudit.Version = before.Version + 1
+	if err := s.insertAuditTx(ctx, tx, sess, "settings.update", "app_settings", nil, "", safeSettingsAudit(before), safeSettingsAudit(afterAudit)); err != nil {
+		return core.Settings{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.Settings{}, err
+	}
 	after, err := s.Settings(ctx)
 	if err != nil {
 		return core.Settings{}, err
 	}
-	_ = s.insertAudit(ctx, sess, "settings.update", "app_settings", nil, "", safeSettingsAudit(before), safeSettingsAudit(after))
 	return after, nil
 }
 
@@ -851,6 +898,16 @@ func (s *Store) UpdateCategory(ctx context.Context, sess core.Session, id uuid.U
 	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
 		return core.AdminCategory{}, err
 	}
+	afterAudit := before
+	afterAudit.TitleRU = safe(input.TitleRU)
+	afterAudit.TitleSR = safe(input.TitleSR)
+	afterAudit.TitleEN = safe(input.TitleEN)
+	afterAudit.SortOrder = input.SortOrder
+	afterAudit.Visible = input.Visible
+	afterAudit.Version = before.Version + 1
+	if err := s.insertAuditTx(ctx, tx, sess, "category.update", "category", &id, "", categoryAudit(before), categoryAudit(afterAudit)); err != nil {
+		return core.AdminCategory{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return core.AdminCategory{}, err
 	}
@@ -858,7 +915,6 @@ func (s *Store) UpdateCategory(ctx context.Context, sess core.Session, id uuid.U
 	if err != nil {
 		return core.AdminCategory{}, err
 	}
-	_ = s.insertAudit(ctx, sess, "category.update", "category", &id, "", categoryAudit(before), categoryAudit(after))
 	return after, nil
 }
 
@@ -888,6 +944,13 @@ func (s *Store) ArchiveCategory(ctx context.Context, sess core.Session, id uuid.
 	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
 		return core.AdminCategory{}, err
 	}
+	afterAudit := before
+	afterAudit.Visible = false
+	afterAudit.Archived = true
+	afterAudit.Version = before.Version + 1
+	if err := s.insertAuditTx(ctx, tx, sess, "category.archive", "category", &id, safe(reason), categoryAudit(before), categoryAudit(afterAudit)); err != nil {
+		return core.AdminCategory{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return core.AdminCategory{}, err
 	}
@@ -895,7 +958,6 @@ func (s *Store) ArchiveCategory(ctx context.Context, sess core.Session, id uuid.
 	if err != nil {
 		return core.AdminCategory{}, err
 	}
-	_ = s.insertAudit(ctx, sess, "category.archive", "category", &id, safe(reason), categoryAudit(before), categoryAudit(after))
 	return after, nil
 }
 
@@ -925,6 +987,13 @@ func (s *Store) RestoreCategory(ctx context.Context, sess core.Session, id uuid.
 	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
 		return core.AdminCategory{}, err
 	}
+	afterAudit := before
+	afterAudit.Visible = true
+	afterAudit.Archived = false
+	afterAudit.Version = before.Version + 1
+	if err := s.insertAuditTx(ctx, tx, sess, "category.restore", "category", &id, safe(reason), categoryAudit(before), categoryAudit(afterAudit)); err != nil {
+		return core.AdminCategory{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return core.AdminCategory{}, err
 	}
@@ -932,7 +1001,6 @@ func (s *Store) RestoreCategory(ctx context.Context, sess core.Session, id uuid.
 	if err != nil {
 		return core.AdminCategory{}, err
 	}
-	_ = s.insertAudit(ctx, sess, "category.restore", "category", &id, safe(reason), categoryAudit(before), categoryAudit(after))
 	return after, nil
 }
 
@@ -1043,6 +1111,33 @@ func (s *Store) UpdateMenuItem(ctx context.Context, sess core.Session, id uuid.U
 	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
 		return core.AdminMenuItem{}, err
 	}
+	afterAudit := before
+	afterAudit.CategoryID = input.CategoryID
+	afterAudit.TitleRU = safe(input.TitleRU)
+	afterAudit.TitleSR = safe(input.TitleSR)
+	afterAudit.TitleEN = safe(input.TitleEN)
+	afterAudit.DescriptionRU = safe(input.DescriptionRU)
+	afterAudit.DescriptionSR = safe(input.DescriptionSR)
+	afterAudit.DescriptionEN = safe(input.DescriptionEN)
+	afterAudit.PriceMinor = input.PriceMinor
+	afterAudit.PhotoPath = safe(input.PhotoPath)
+	afterAudit.WeightText = safe(input.WeightText)
+	afterAudit.MinQuantity = input.MinQuantity
+	afterAudit.AllergenTextRU = safe(input.AllergenTextRU)
+	afterAudit.AllergenTextSR = safe(input.AllergenTextSR)
+	afterAudit.AllergenTextEN = safe(input.AllergenTextEN)
+	afterAudit.SortOrder = input.SortOrder
+	afterAudit.Visible = input.Visible
+	afterAudit.Version = before.Version + 1
+	action := "menu_item.update"
+	reason := ""
+	if before.PriceMinor != afterAudit.PriceMinor {
+		action = "menu_item.price_change"
+		reason = fmt.Sprintf("%d -> %d", before.PriceMinor, afterAudit.PriceMinor)
+	}
+	if err := s.insertAuditTx(ctx, tx, sess, action, "menu_item", &id, reason, menuItemAudit(before), menuItemAudit(afterAudit)); err != nil {
+		return core.AdminMenuItem{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return core.AdminMenuItem{}, err
 	}
@@ -1050,13 +1145,6 @@ func (s *Store) UpdateMenuItem(ctx context.Context, sess core.Session, id uuid.U
 	if err != nil {
 		return core.AdminMenuItem{}, err
 	}
-	action := "menu_item.update"
-	reason := ""
-	if before.PriceMinor != after.PriceMinor {
-		action = "menu_item.price_change"
-		reason = fmt.Sprintf("%d -> %d", before.PriceMinor, after.PriceMinor)
-	}
-	_ = s.insertAudit(ctx, sess, action, "menu_item", &id, reason, menuItemAudit(before), menuItemAudit(after))
 	return after, nil
 }
 
@@ -1086,6 +1174,13 @@ func (s *Store) ArchiveMenuItem(ctx context.Context, sess core.Session, id uuid.
 	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
 		return core.AdminMenuItem{}, err
 	}
+	afterAudit := before
+	afterAudit.Visible = false
+	afterAudit.Archived = true
+	afterAudit.Version = before.Version + 1
+	if err := s.insertAuditTx(ctx, tx, sess, "menu_item.archive", "menu_item", &id, safe(reason), menuItemAudit(before), menuItemAudit(afterAudit)); err != nil {
+		return core.AdminMenuItem{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return core.AdminMenuItem{}, err
 	}
@@ -1093,7 +1188,6 @@ func (s *Store) ArchiveMenuItem(ctx context.Context, sess core.Session, id uuid.
 	if err != nil {
 		return core.AdminMenuItem{}, err
 	}
-	_ = s.insertAudit(ctx, sess, "menu_item.archive", "menu_item", &id, safe(reason), menuItemAudit(before), menuItemAudit(after))
 	return after, nil
 }
 
@@ -1123,6 +1217,13 @@ func (s *Store) RestoreMenuItem(ctx context.Context, sess core.Session, id uuid.
 	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
 		return core.AdminMenuItem{}, err
 	}
+	afterAudit := before
+	afterAudit.Visible = true
+	afterAudit.Archived = false
+	afterAudit.Version = before.Version + 1
+	if err := s.insertAuditTx(ctx, tx, sess, "menu_item.restore", "menu_item", &id, safe(reason), menuItemAudit(before), menuItemAudit(afterAudit)); err != nil {
+		return core.AdminMenuItem{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return core.AdminMenuItem{}, err
 	}
@@ -1130,7 +1231,6 @@ func (s *Store) RestoreMenuItem(ctx context.Context, sess core.Session, id uuid.
 	if err != nil {
 		return core.AdminMenuItem{}, err
 	}
-	_ = s.insertAudit(ctx, sess, "menu_item.restore", "menu_item", &id, safe(reason), menuItemAudit(before), menuItemAudit(after))
 	return after, nil
 }
 
@@ -1994,6 +2094,13 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if !input.TermsAccepted {
 		return core.Order{}, core.ErrTermsRequired
 	}
+	termsVersion := safe(input.TermsVersion)
+	if termsVersion == "" {
+		termsVersion = currentTermsVersion
+	}
+	if !requiredText(termsVersion, 40) {
+		return core.Order{}, core.ErrInvalidInput
+	}
 	fulfillmentType, err := normalizeFulfillmentType(input.FulfillmentType)
 	if err != nil {
 		return core.Order{}, err
@@ -2095,12 +2202,12 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		INSERT INTO orders (
 			client_user_id, fulfillment_type, fulfillment_status, payment_method, payment_status, subtotal_minor, delivery_fee_minor,
 			total_minor, currency, phone_ciphertext, phone_hash, address_ciphertext, customer_comment, locale,
-			cash_location_challenge_id, cash_location_verified_at, cash_location_distance_meters
+			terms_version, terms_accepted_at, cash_location_challenge_id, cash_location_verified_at, cash_location_distance_meters
 		)
-		VALUES ($1, $2, 'NEW', 'cash', 'CASH_PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $2, 'NEW', 'cash', 'CASH_PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15)
 		RETURNING id, public_number, created_at
 	`, sess.UserID, string(fulfillmentType), subtotal, delivery, total, currency, phoneCipher, phoneHash, addressCipher, comment, localeOrDefault(input.Locale),
-		uuidSQL(cashLocationChallengeID), timeSQL(cashLocationVerifiedAt), intSQL(cashLocationDistance)).
+		termsVersion, uuidSQL(cashLocationChallengeID), timeSQL(cashLocationVerifiedAt), intSQL(cashLocationDistance)).
 		Scan(&orderID, &publicNumber, &createdAt)
 	if err != nil {
 		if isUniqueViolation(err, "idx_orders_one_active_per_client") {
@@ -2357,48 +2464,33 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 	if offset < 0 {
 		offset = 0
 	}
-	where := []string{"true"}
-	args := []any{}
+	baseWhere, baseArgs, err := s.adminOrderBaseWhere(filter)
+	if err != nil {
+		return AdminOrdersPage{}, err
+	}
+	var counts AdminOrderCounts
+	countsQuery := fmt.Sprintf(`
+		SELECT
+			COUNT(*) FILTER (WHERE o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY'))::int,
+			COUNT(*) FILTER (WHERE o.fulfillment_status='NEW')::int,
+			COUNT(*) FILTER (WHERE o.fulfillment_status='OUT_FOR_DELIVERY')::int,
+			COUNT(*) FILTER (WHERE o.fulfillment_status IN ('DELIVERED', 'CANCELLED'))::int
+		FROM orders o
+		JOIN users u ON u.id=o.client_user_id
+		WHERE %s
+	`, strings.Join(baseWhere, " AND "))
+	if err := s.pool.QueryRow(ctx, countsQuery, baseArgs...).Scan(&counts.Active, &counts.New, &counts.Ready, &counts.History); err != nil {
+		return AdminOrdersPage{}, err
+	}
+	where := append([]string(nil), baseWhere...)
+	args := append([]any(nil), baseArgs...)
 	if filter.Status != "" {
-		if !validFulfillmentStatus(filter.Status) {
-			return AdminOrdersPage{}, core.ErrInvalidInput
-		}
-		where = append(where, fmt.Sprintf("o.fulfillment_status=$%d", len(args)+1))
-		args = append(args, filter.Status)
-	}
-	if filter.Date != "" {
-		loc, err := time.LoadLocation("Europe/Belgrade")
+		statusWhere, statusArgs, err := adminOrderStatusPredicate(filter.Status, len(args)+1)
 		if err != nil {
-			loc = time.FixedZone("Europe/Belgrade", 3600)
+			return AdminOrdersPage{}, err
 		}
-		from, err := time.ParseInLocation("2006-01-02", filter.Date, loc)
-		if err != nil {
-			return AdminOrdersPage{}, core.ErrInvalidInput
-		}
-		args = append(args, from.UTC(), from.AddDate(0, 0, 1).UTC())
-		where = append(where, fmt.Sprintf("o.created_at >= $%d AND o.created_at < $%d", len(args)-1, len(args)))
-	}
-	query := strings.TrimSpace(filter.Query)
-	if query != "" {
-		if !optionalText(query, maxAdminSearchLength) {
-			return AdminOrdersPage{}, core.ErrInvalidInput
-		}
-		phoneHashes := s.phoneHashCandidates(query)
-		phoneHashPlaceholders := make([]string, 0, len(phoneHashes))
-		for _, hash := range phoneHashes {
-			args = append(args, hash)
-			phoneHashPlaceholders = append(phoneHashPlaceholders, fmt.Sprintf("$%d", len(args)))
-		}
-		likePlaceholder := len(args) + 1
-		args = append(args, "%"+strings.ToLower(query)+"%")
-		profilePredicate := fmt.Sprintf("(lower(COALESCE(u.username, '')) LIKE $%d OR lower(COALESCE(u.first_name, '')) LIKE $%d)", likePlaceholder, likePlaceholder)
-		if publicNumber, err := strconv.Atoi(query); err == nil {
-			publicNumberPlaceholder := len(args) + 1
-			args = append(args, publicNumber)
-			where = append(where, fmt.Sprintf("(o.public_number=$%d OR o.phone_hash IN (%s) OR %s)", publicNumberPlaceholder, strings.Join(phoneHashPlaceholders, ","), profilePredicate))
-		} else {
-			where = append(where, fmt.Sprintf("(o.phone_hash IN (%s) OR %s)", strings.Join(phoneHashPlaceholders, ","), profilePredicate))
-		}
+		where = append(where, statusWhere)
+		args = append(args, statusArgs...)
 	}
 	args = append(args, limit+1, offset)
 	sqlQuery := fmt.Sprintf(
@@ -2435,7 +2527,65 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 		Limit:   limit,
 		Offset:  offset,
 		HasMore: hasMore,
+		Counts:  counts,
 	}, nil
+}
+
+func (s *Store) adminOrderBaseWhere(filter AdminOrderFilter) ([]string, []any, error) {
+	where := []string{"true"}
+	args := []any{}
+	if filter.Date != "" {
+		loc, err := time.LoadLocation("Europe/Belgrade")
+		if err != nil {
+			loc = time.FixedZone("Europe/Belgrade", 3600)
+		}
+		from, err := time.ParseInLocation("2006-01-02", filter.Date, loc)
+		if err != nil {
+			return nil, nil, core.ErrInvalidInput
+		}
+		args = append(args, from.UTC(), from.AddDate(0, 0, 1).UTC())
+		where = append(where, fmt.Sprintf("o.created_at >= $%d AND o.created_at < $%d", len(args)-1, len(args)))
+	}
+	query := strings.TrimSpace(filter.Query)
+	if query != "" {
+		if !optionalText(query, maxAdminSearchLength) {
+			return nil, nil, core.ErrInvalidInput
+		}
+		phoneHashes := s.phoneHashCandidates(query)
+		phoneHashPlaceholders := make([]string, 0, len(phoneHashes))
+		for _, hash := range phoneHashes {
+			args = append(args, hash)
+			phoneHashPlaceholders = append(phoneHashPlaceholders, fmt.Sprintf("$%d", len(args)))
+		}
+		likePlaceholder := len(args) + 1
+		args = append(args, "%"+strings.ToLower(query)+"%")
+		profilePredicate := fmt.Sprintf("(lower(COALESCE(u.username, '')) LIKE $%d OR lower(COALESCE(u.first_name, '')) LIKE $%d)", likePlaceholder, likePlaceholder)
+		if publicNumber, err := strconv.Atoi(query); err == nil {
+			publicNumberPlaceholder := len(args) + 1
+			args = append(args, publicNumber)
+			where = append(where, fmt.Sprintf("(o.public_number=$%d OR o.phone_hash IN (%s) OR %s)", publicNumberPlaceholder, strings.Join(phoneHashPlaceholders, ","), profilePredicate))
+		} else {
+			where = append(where, fmt.Sprintf("(o.phone_hash IN (%s) OR %s)", strings.Join(phoneHashPlaceholders, ","), profilePredicate))
+		}
+	}
+	return where, args, nil
+}
+
+func adminOrderStatusPredicate(status string, nextPlaceholder int) (string, []any, error) {
+	normalized := strings.ToUpper(strings.TrimSpace(status))
+	switch normalized {
+	case "ACTIVE":
+		return "o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY')", nil, nil
+	case "HISTORY":
+		return "o.fulfillment_status IN ('DELIVERED', 'CANCELLED')", nil, nil
+	case "READY":
+		return "o.fulfillment_status='OUT_FOR_DELIVERY'", nil, nil
+	default:
+		if !validFulfillmentStatus(normalized) {
+			return "", nil, core.ErrInvalidInput
+		}
+		return fmt.Sprintf("o.fulfillment_status=$%d", nextPlaceholder), []any{normalized}, nil
+	}
 }
 
 func (s *Store) AdminOrderByID(ctx context.Context, sess core.Session, orderID uuid.UUID) (core.Order, error) {
@@ -2957,6 +3107,9 @@ func (s *Store) AdminAnalytics(ctx context.Context, sess core.Session, from, to 
 	}
 	statusRows, err := s.pool.Query(ctx, `
 		SELECT fulfillment_status, COUNT(*)::int,
+			COUNT(*) FILTER (WHERE fulfillment_status='DELIVERED')::int,
+			COUNT(*) FILTER (WHERE payment_status='PAID')::int,
+			COUNT(*) FILTER (WHERE fulfillment_status='CANCELLED')::int,
 			COALESCE(SUM(total_minor) FILTER (WHERE fulfillment_status='DELIVERED' AND payment_status='PAID'), 0)::int
 		FROM orders
 		WHERE created_at >= $1 AND created_at < $2
@@ -2969,7 +3122,7 @@ func (s *Store) AdminAnalytics(ctx context.Context, sess core.Session, from, to 
 	defer statusRows.Close()
 	for statusRows.Next() {
 		var row core.AnalyticsBreakdown
-		if err := statusRows.Scan(&row.Key, &row.Count, &row.RevenueMinor); err != nil {
+		if err := statusRows.Scan(&row.Key, &row.Count, &row.DeliveredCount, &row.PaidCount, &row.CancelledCount, &row.RevenueMinor); err != nil {
 			return core.AdminAnalytics{}, err
 		}
 		analytics.Statuses = append(analytics.Statuses, row)
@@ -2979,6 +3132,9 @@ func (s *Store) AdminAnalytics(ctx context.Context, sess core.Session, from, to 
 	}
 	paymentRows, err := s.pool.Query(ctx, `
 		SELECT payment_method, COUNT(*)::int,
+			COUNT(*) FILTER (WHERE fulfillment_status='DELIVERED')::int,
+			COUNT(*) FILTER (WHERE payment_status='PAID')::int,
+			COUNT(*) FILTER (WHERE fulfillment_status='CANCELLED')::int,
 			COALESCE(SUM(total_minor) FILTER (WHERE fulfillment_status='DELIVERED' AND payment_status='PAID'), 0)::int
 		FROM orders
 		WHERE created_at >= $1 AND created_at < $2
@@ -2991,7 +3147,7 @@ func (s *Store) AdminAnalytics(ctx context.Context, sess core.Session, from, to 
 	defer paymentRows.Close()
 	for paymentRows.Next() {
 		var row core.AnalyticsBreakdown
-		if err := paymentRows.Scan(&row.Key, &row.Count, &row.RevenueMinor); err != nil {
+		if err := paymentRows.Scan(&row.Key, &row.Count, &row.DeliveredCount, &row.PaidCount, &row.CancelledCount, &row.RevenueMinor); err != nil {
 			return core.AdminAnalytics{}, err
 		}
 		analytics.Payments = append(analytics.Payments, row)

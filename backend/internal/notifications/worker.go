@@ -19,20 +19,22 @@ import (
 )
 
 type Worker struct {
-	pool            *pgxpool.Pool
-	interval        time.Duration
-	dryRun          bool
-	concurrency     int
-	backlogAfter    time.Duration
-	lastBacklogWarn time.Time
-	clientToken     string
-	staffToken      string
-	publicBaseURL   string
-	box             *cryptobox.Box
-	httpClient      *http.Client
-	logger          *slog.Logger
-	claimJobsFunc   func(context.Context) ([]job, error)
-	processJobFunc  func(context.Context, job) error
+	pool             *pgxpool.Pool
+	interval         time.Duration
+	dryRun           bool
+	concurrency      int
+	backlogAfter     time.Duration
+	lastBacklogWarn  time.Time
+	clientToken      string
+	staffToken       string
+	publicBaseURL    string
+	box              *cryptobox.Box
+	httpClient       *http.Client
+	logger           *slog.Logger
+	ownerTelegramIDs []int64
+	piiRetentionDays int
+	claimJobsFunc    func(context.Context) ([]job, error)
+	processJobFunc   func(context.Context, job) error
 }
 
 type job struct {
@@ -43,25 +45,33 @@ type job struct {
 	attempts      int
 }
 
-func New(pool *pgxpool.Pool, box *cryptobox.Box, interval time.Duration, dryRun bool, concurrency int, backlogAfter time.Duration, clientToken, staffToken, publicBaseURL string, logger *slog.Logger) *Worker {
+func New(pool *pgxpool.Pool, box *cryptobox.Box, interval time.Duration, dryRun bool, concurrency int, backlogAfter time.Duration, clientToken, staffToken, publicBaseURL string, logger *slog.Logger, ownerTelegramIDs []int64, piiRetentionDays int) *Worker {
 	if concurrency < 1 {
 		concurrency = 1
 	}
 	if concurrency > 4 {
 		concurrency = 4
 	}
+	if piiRetentionDays < 30 {
+		piiRetentionDays = 30
+	}
+	if piiRetentionDays > 3650 {
+		piiRetentionDays = 3650
+	}
 	return &Worker{
-		pool:          pool,
-		box:           box,
-		interval:      interval,
-		dryRun:        dryRun,
-		concurrency:   concurrency,
-		backlogAfter:  backlogAfter,
-		clientToken:   strings.TrimSpace(clientToken),
-		staffToken:    strings.TrimSpace(staffToken),
-		publicBaseURL: strings.TrimRight(strings.TrimSpace(publicBaseURL), "/"),
-		httpClient:    newTelegramHTTPClient(),
-		logger:        logger,
+		pool:             pool,
+		box:              box,
+		interval:         interval,
+		dryRun:           dryRun,
+		concurrency:      concurrency,
+		backlogAfter:     backlogAfter,
+		clientToken:      strings.TrimSpace(clientToken),
+		staffToken:       strings.TrimSpace(staffToken),
+		publicBaseURL:    strings.TrimRight(strings.TrimSpace(publicBaseURL), "/"),
+		httpClient:       newTelegramHTTPClient(),
+		logger:           logger,
+		ownerTelegramIDs: append([]int64(nil), ownerTelegramIDs...),
+		piiRetentionDays: piiRetentionDays,
 	}
 }
 
@@ -295,11 +305,11 @@ func (w *Worker) buildMessage(ctx context.Context, current job) (string, int64, 
 		if w.clientToken == "" {
 			return "", 0, "", fmt.Errorf("missing_client_bot_token")
 		}
-		chatID, number, err := w.clientOrderTarget(ctx, current.orderID)
+		chatID, number, locale, err := w.clientOrderTarget(ctx, current.orderID)
 		if err != nil {
 			return "", 0, "", err
 		}
-		return w.clientToken, chatID, clientText(number, current.template), nil
+		return w.clientToken, chatID, clientText(number, current.template, locale), nil
 	case "courier":
 		if w.staffToken == "" {
 			return "", 0, "", fmt.Errorf("missing_staff_bot_token")
@@ -340,25 +350,40 @@ func (w *Worker) buildMessage(ctx context.Context, current job) (string, int64, 
 	}
 }
 
-func (w *Worker) clientOrderTarget(ctx context.Context, orderID uuid.UUID) (int64, int, error) {
+func (w *Worker) clientOrderTarget(ctx context.Context, orderID uuid.UUID) (int64, int, string, error) {
 	var chatID int64
 	var publicNumber int
+	var locale string
 	err := w.pool.QueryRow(ctx, `
-		SELECT u.telegram_user_id, o.public_number
+		SELECT u.telegram_user_id, o.public_number, o.locale
 		FROM orders o
 		JOIN users u ON u.id=o.client_user_id
 		WHERE o.id=$1
-	`, orderID).Scan(&chatID, &publicNumber)
-	return chatID, publicNumber, err
+	`, orderID).Scan(&chatID, &publicNumber, &locale)
+	return chatID, publicNumber, locale, err
 }
 
 func (w *Worker) staffTarget(ctx context.Context, role string) (int64, error) {
 	var chatID int64
+	if len(w.ownerTelegramIDs) > 0 {
+		err := w.pool.QueryRow(ctx, `
+			SELECT telegram_user_id
+			FROM staff
+			WHERE role=$1 AND active=true
+			ORDER BY
+				CASE WHEN telegram_user_id = ANY($2::bigint[]) THEN 1 ELSE 0 END,
+				updated_at DESC,
+				created_at DESC,
+				telegram_user_id
+			LIMIT 1
+		`, role, w.ownerTelegramIDs).Scan(&chatID)
+		return chatID, err
+	}
 	err := w.pool.QueryRow(ctx, `
 		SELECT telegram_user_id
 		FROM staff
 		WHERE role=$1 AND active=true
-		ORDER BY created_at
+		ORDER BY updated_at DESC, created_at DESC, telegram_user_id
 		LIMIT 1
 	`, role).Scan(&chatID)
 	return chatID, err
@@ -493,9 +518,17 @@ func (w *Worker) markFailed(ctx context.Context, current job, cause error) {
 }
 
 func (w *Worker) cleanupExpired(ctx context.Context) error {
+	piiRetentionDays := w.piiRetentionDays
+	if piiRetentionDays < 30 {
+		piiRetentionDays = 30
+	}
+	if piiRetentionDays > 3650 {
+		piiRetentionDays = 3650
+	}
 	statements := []struct {
 		name string
 		sql  string
+		args []any
 	}{
 		{
 			name: "sessions",
@@ -573,9 +606,59 @@ func (w *Worker) cleanupExpired(ctx context.Context) error {
 				WHERE c.id = expired.id
 			`,
 		},
+		{
+			name: "order_pii",
+			sql: `
+				WITH expired AS (
+					SELECT id
+					FROM orders
+					WHERE fulfillment_status IN ('DELIVERED', 'CANCELLED')
+						AND updated_at < now() - ($1::int * interval '1 day')
+						AND (phone_ciphertext <> '' OR phone_hash <> '' OR address_ciphertext <> '' OR customer_comment <> '')
+					LIMIT 200
+				)
+				UPDATE orders o
+				SET phone_ciphertext='',
+					phone_hash='',
+					address_ciphertext='',
+					customer_comment='',
+					updated_at=now()
+				FROM expired
+				WHERE o.id = expired.id
+			`,
+			args: []any{piiRetentionDays},
+		},
+		{
+			name: "user_pii",
+			sql: `
+				WITH expired AS (
+					SELECT u.id
+					FROM users u
+					WHERE (u.phone_ciphertext <> '' OR u.phone_hash <> '' OR u.phone_verified_at IS NOT NULL)
+						AND NOT EXISTS (
+							SELECT 1
+							FROM orders o
+							WHERE o.client_user_id = u.id
+								AND (
+									o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY')
+									OR o.updated_at >= now() - ($1::int * interval '1 day')
+								)
+						)
+					LIMIT 200
+				)
+				UPDATE users u
+				SET phone_ciphertext='',
+					phone_hash='',
+					phone_verified_at=NULL,
+					updated_at=now()
+				FROM expired
+				WHERE u.id = expired.id
+			`,
+			args: []any{piiRetentionDays},
+		},
 	}
 	for _, statement := range statements {
-		tag, err := w.pool.Exec(ctx, statement.sql)
+		tag, err := w.pool.Exec(ctx, statement.sql, statement.args...)
 		if err != nil {
 			return fmt.Errorf("%s: %w", statement.name, err)
 		}
@@ -586,22 +669,52 @@ func (w *Worker) cleanupExpired(ctx context.Context) error {
 	return nil
 }
 
-func clientText(publicNumber int, template string) string {
+func clientText(publicNumber int, template string, locale string) string {
+	locale = normalizeLocale(locale)
 	if strings.HasPrefix(template, "client_eta_") {
 		minutes := strings.TrimPrefix(template, "client_eta_")
-		return fmt.Sprintf("Заказ #%d скоро приедет. Курьер ориентировочно будет у вас в течение %s минут.", publicNumber, minutes)
+		switch locale {
+		case "sr":
+			return fmt.Sprintf("Porudžbina #%d uskoro stiže. Kurir će okvirno biti kod vas za %s minuta.", publicNumber, minutes)
+		case "en":
+			return fmt.Sprintf("Order #%d is arriving soon. The courier should reach you in about %s minutes.", publicNumber, minutes)
+		default:
+			return fmt.Sprintf("Заказ #%d скоро приедет. Курьер ориентировочно будет у вас в течение %s минут.", publicNumber, minutes)
+		}
 	}
 	switch template {
 	case "client_order_out_for_delivery":
-		return fmt.Sprintf("Заказ #%d передан в доставку.", publicNumber)
+		return localizedOrderText(publicNumber, locale, "Заказ #%d передан в доставку.", "Porudžbina #%d je predata kuriru.", "Order #%d is out for delivery.")
 	case "client_order_ready_for_pickup":
-		return fmt.Sprintf("Заказ #%d готов к самовывозу. Можно забирать.", publicNumber)
+		return localizedOrderText(publicNumber, locale, "Заказ #%d готов к самовывозу. Можно забирать.", "Porudžbina #%d je spremna za preuzimanje.", "Order #%d is ready for pickup.")
 	case "client_order_delivered":
-		return fmt.Sprintf("Заказ #%d доставлен. Спасибо!", publicNumber)
+		return localizedOrderText(publicNumber, locale, "Заказ #%d доставлен. Спасибо!", "Porudžbina #%d je dostavljena. Hvala!", "Order #%d has been delivered. Thank you!")
 	case "client_order_pickup_completed":
-		return fmt.Sprintf("Заказ #%d выдан. Спасибо!", publicNumber)
+		return localizedOrderText(publicNumber, locale, "Заказ #%d выдан. Спасибо!", "Porudžbina #%d je preuzeta. Hvala!", "Order #%d has been picked up. Thank you!")
 	default:
-		return fmt.Sprintf("Обновление по заказу #%d.", publicNumber)
+		return localizedOrderText(publicNumber, locale, "Обновление по заказу #%d.", "Ažuriranje za porudžbinu #%d.", "Update for order #%d.")
+	}
+}
+
+func localizedOrderText(publicNumber int, locale, ru, sr, en string) string {
+	switch normalizeLocale(locale) {
+	case "sr":
+		return fmt.Sprintf(sr, publicNumber)
+	case "en":
+		return fmt.Sprintf(en, publicNumber)
+	default:
+		return fmt.Sprintf(ru, publicNumber)
+	}
+}
+
+func normalizeLocale(locale string) string {
+	switch strings.ToLower(strings.TrimSpace(locale)) {
+	case "sr", "sr-latn", "sr_rs", "sr-rs":
+		return "sr"
+	case "en", "en-us", "en-gb":
+		return "en"
+	default:
+		return "ru"
 	}
 }
 

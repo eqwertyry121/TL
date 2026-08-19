@@ -1120,6 +1120,45 @@ func TestCreateCashOrderQueryCountIsBoundedByCartSize(t *testing.T) {
 	assertQueryBudget(t, "create cash order eight items", eightItemQueries, singleItemQueries)
 }
 
+func TestCreateCashOrderPersistsTermsVersion(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	now := time.Now().UTC()
+	session, input := prepareCashOrderForCart(
+		t,
+		ctx,
+		st,
+		clientTelegramID,
+		"+38160111455",
+		"Novi Sad terms version",
+		seededMenuItemInputs[:1],
+		now,
+	)
+	input.TermsVersion = "2026-08-19"
+
+	order, err := st.CreateCashOrder(ctx, session, input, "idem-create-terms-version", "request-hash-create-terms-version", now)
+	if err != nil {
+		t.Fatalf("create cash order: %v", err)
+	}
+	var termsVersion string
+	var acceptedAt time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT terms_version, terms_accepted_at
+		FROM orders
+		WHERE id=$1
+	`, order.ID).Scan(&termsVersion, &acceptedAt); err != nil {
+		t.Fatalf("read terms acceptance: %v", err)
+	}
+	if termsVersion != input.TermsVersion {
+		t.Fatalf("terms_version = %q, want %q", termsVersion, input.TermsVersion)
+	}
+	if acceptedAt.IsZero() {
+		t.Fatal("terms_accepted_at was not persisted")
+	}
+}
+
 func TestOrderListQueryCountIsBoundedByOrderCount(t *testing.T) {
 	ctx := context.Background()
 	st, pool, counter := newIntegrationStoreWithQueryCounter(t, ctx)
@@ -1184,7 +1223,10 @@ func TestOrderListQueryCountIsBoundedByOrderCount(t *testing.T) {
 	if len(page.Orders) != 20 {
 		t.Fatalf("expected 20 admin orders, got %d", len(page.Orders))
 	}
-	assertQueryBudget(t, "admin order summaries 20", adminQueries, 1)
+	if page.Counts.Active != 20 || page.Counts.Ready != 20 {
+		t.Fatalf("unexpected admin order counts: %+v", page.Counts)
+	}
+	assertQueryBudget(t, "admin order summaries 20", adminQueries, 2)
 	detail, err := st.AdminOrderByID(ctx, adminSession, page.Orders[0].ID)
 	if err != nil {
 		t.Fatalf("admin order detail: %v", err)

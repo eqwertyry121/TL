@@ -30,7 +30,6 @@
     "perf:full": "node tests/performance/run-full.mjs",
     "perf:lab:build": "node tests/performance/build-lab.mjs",
     "perf:playwright": "pnpm exec playwright test -c tests/performance/playwright.config.ts",
-    "perf:lighthouse": "pnpm exec lhci autorun --config tests/performance/lighthouserc.cjs",
     "perf:smoke": "node scripts/load-smoke.mjs",
     "perf:external-smoke": "node scripts/external-smoke.mjs",
     "perf:production-contract": "node scripts/production-contract.mjs",
@@ -57,7 +56,6 @@
     "admin:dev": "pnpm --filter @tk-delivery/admin dev"
   },
   "devDependencies": {
-    "@lhci/cli": "^0.15.1",
     "@playwright/test": "^1.62.1"
   }
 }

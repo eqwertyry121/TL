@@ -1,4 +1,4 @@
-import type { AdminAnalytics, AdminCategory, AdminDashboard, AdminMenuItem, AuditEntry, AuditLogResponse, Order, OrderSummary, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
+import type { AdminAnalytics, AdminCategory, AdminDashboard, AdminMenuItem, AdminOrderCounts, AnalyticsBreakdown, AuditEntry, AuditLogResponse, Order, OrderSummary, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
 import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { startVisiblePolling } from "@tk-delivery/api-client/polling";
@@ -47,9 +47,12 @@ const moreTabs = navItems(["schedule", "analytics", "settings", "audit"]);
 const moreTabIds = new Set<AdminTab>(moreTabs.map((entry) => entry.id));
 
 const quickSchedule = { open_time: "13:00", order_cutoff_time: "21:00", close_time: "22:00" };
-type AdminActionRunner = <T>(action: (authToken: string) => Promise<T>) => Promise<T | undefined>;
+type AdminActionOptions = { reload?: boolean; refreshDashboard?: boolean; successMessage?: string };
+type AdminActionRunner = <T>(action: (authToken: string) => Promise<T>, options?: AdminActionOptions) => Promise<T | undefined>;
 type AdminLoadKey = "dashboard" | "menu" | "settings" | "schedule" | "orders" | "analytics" | "audit";
 type OrdersView = "active" | "new" | "ready" | "history";
+type OrderLoadFilter = { status?: string; q?: string; date?: string; limit?: number; offset?: number };
+type AdminOrdersPageState = Pick<AdminOrdersResponse, "limit" | "offset" | "has_more" | "counts">;
 type ConfirmDialogState = {
   title: string;
   message: string;
@@ -88,8 +91,9 @@ export function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [schedule, setSchedule] = useState<ScheduleDay[]>([]);
   const [orders, setOrders] = useState<OrderSummary[]>([]);
-  const [ordersPage, setOrdersPage] = useState<Pick<AdminOrdersResponse, "limit" | "offset" | "has_more">>({ limit: 20, offset: 0, has_more: false });
+  const [ordersPage, setOrdersPage] = useState<AdminOrdersPageState>({ limit: 20, offset: 0, has_more: false });
   const [ordersInitialView, setOrdersInitialView] = useState<OrdersView>("active");
+  const [ordersFilter, setOrdersFilter] = useState<OrderLoadFilter>(() => ordersLoadFilter("active", "", "", 20, 0));
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [auditPage, setAuditPage] = useState<Pick<AuditLogResponse, "limit" | "offset" | "has_more">>({ limit: 50, offset: 0, has_more: false });
@@ -204,6 +208,7 @@ export function App() {
 
   function openOrdersView(view: OrdersView) {
     setOrdersInitialView(view);
+    setOrdersFilter(ordersLoadFilter(view, "", "", 20, 0));
     openTab("orders");
   }
 
@@ -227,7 +232,7 @@ export function App() {
     } else if (targetTab === "menu") {
       sections.push(["menu", api.menu(authToken)]);
     } else if (targetTab === "orders") {
-      sections.push(["orders", api.orders(authToken, { limit: 20, offset: 0 })]);
+      sections.push(["orders", api.orders(authToken, normalizeOrderLoadFilter(ordersFilter))]);
     } else if (targetTab === "schedule") {
       sections.push(["schedule", api.schedule(authToken)]);
     } else if (targetTab === "settings") {
@@ -266,8 +271,9 @@ export function App() {
     setError("");
     try {
       const currentToken = authToken || (await refreshAuth());
+      const filter = normalizeOrderLoadFilter(ordersFilter, ordersPage);
       const [page, nextDashboard] = await Promise.all([
-        withAuth((nextToken) => api.orders(nextToken, { limit: 20, offset: 0 }, signal), currentToken),
+        withAuth((nextToken) => api.orders(nextToken, filter, signal), currentToken),
         withAuth((nextToken) => api.dashboard(nextToken, signal), currentToken),
       ]);
       setOrders(page.orders);
@@ -336,12 +342,20 @@ export function App() {
     return startVisiblePolling((signal) => refreshHomeSection(signal), 10000);
   }, [tab, token]);
 
-  async function run<T>(action: (authToken: string) => Promise<T>): Promise<T | undefined> {
+  async function run<T>(action: (authToken: string) => Promise<T>, options: AdminActionOptions = {}): Promise<T | undefined> {
     setError("");
     try {
       const result = await withAuth(action);
-      await load();
-      showToast("Сохранено");
+      if (options.reload !== false) {
+        await load();
+      } else if (options.refreshDashboard) {
+        try {
+          setDashboard(await withAuth((authToken) => api.dashboard(authToken)));
+        } catch {
+          // Keep successful mutation visible even if a secondary dashboard refresh fails.
+        }
+      }
+      showToast(options.successMessage || "Сохранено");
       return result;
     } catch (err) {
       setError(errorText(err));
@@ -349,10 +363,12 @@ export function App() {
     }
   }
 
-  async function loadOrders(filter: { status?: string; q?: string; date?: string; limit?: number; offset?: number }, signal?: AbortSignal) {
+  async function loadOrders(filter: OrderLoadFilter, signal?: AbortSignal) {
     setError("");
+    const normalizedFilter = normalizeOrderLoadFilter(filter, ordersPage);
+    setOrdersFilter(normalizedFilter);
     try {
-      const page = await withAuth((authToken) => api.orders(authToken, filter, signal));
+      const page = await withAuth((authToken) => api.orders(authToken, normalizedFilter, signal));
       setOrders(page.orders);
       setOrdersPage(orderPageMeta(page));
       return page;
@@ -496,7 +512,9 @@ class SectionErrorBoundary extends Component<{ children: ReactNode; resetKey: st
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("Admin section render error", { error, info });
+    void error;
+    void info;
+    console.error("Admin section render error");
   }
 
   componentDidUpdate(previous: { resetKey: string }) {
@@ -753,41 +771,99 @@ function HomeTab({
   );
 }
 
+type MenuMode = "items" | "categories";
+
 function MenuTab({ menu, onAction }: { menu: AdminMenuResponse; onAction: AdminActionRunner }) {
+  const [mode, setMode] = useState<MenuMode>("items");
   const [cat, setCat] = useState<AdminCategory | null>(null);
   const [item, setItem] = useState<AdminMenuItem | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const activeCategories = menu.categories.filter((entry) => !entry.archived);
-  const visibleCategories = showArchived ? menu.categories : menu.categories.filter((entry) => !entry.archived);
-  const visibleItems = showArchived ? menu.items : menu.items.filter((entry) => !entry.archived);
+  const filteredCategories = showArchived ? menu.categories : activeCategories;
+  const filteredItems = (showArchived ? menu.items : menu.items.filter((entry) => !entry.archived))
+    .filter((entry) => categoryFilter === "all" || entry.category_id === categoryFilter);
+  const newItemCategory = activeCategories.find((entry) => entry.id === categoryFilter) || activeCategories[0];
 
   function openCategory(category: AdminCategory) {
+    setMode("categories");
     setCat(category);
     setItem(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function openItem(dish: AdminMenuItem) {
+    setMode("items");
     setItem(dish);
     setCat(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function toggleCategory(category: AdminCategory) {
+    await onAction((authToken) => api.updateCategory(authToken, category.id, categoryInputFromForm({ ...category, visible: !category.visible })), {
+      successMessage: category.visible ? "Категория скрыта" : "Категория в меню",
+    });
+  }
+
+  async function toggleDish(dish: AdminMenuItem) {
+    await onAction((authToken) => api.updateItem(authToken, dish.id, dishInputFromForm({ ...dish, visible: !dish.visible })), {
+      successMessage: dish.visible ? "Блюдо скрыто" : "Блюдо в меню",
+    });
   }
 
   return (
     <section className="stack">
       <div className="panel menu-toolbar">
         <div>
-          <h2>Меню ресторана</h2>
-          <p className="muted">Редактирование открывается сразу здесь. Архив можно показать и восстановить.</p>
+          <h2>Меню</h2>
+          <div className="segmented compact-segmented" role="tablist" aria-label="Раздел меню">
+            <button className={mode === "items" ? "active" : ""} type="button" onClick={() => { setMode("items"); setCat(null); }}>
+              Блюда
+            </button>
+            <button className={mode === "categories" ? "active" : ""} type="button" onClick={() => { setMode("categories"); setItem(null); }}>
+              Категории
+            </button>
+          </div>
         </div>
         <div className="actions">
-          <button className="primary" onClick={() => openCategory(emptyCategory())}>+ Категория</button>
-          <button className="primary" disabled={!activeCategories.length} onClick={() => openItem(emptyItem(activeCategories[0]?.id || ""))}>+ Блюдо</button>
-          <label className="check archive-toggle"><input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} /> Показать архив</label>
+          <button
+            className="primary"
+            disabled={mode === "items" && !activeCategories.length}
+            onClick={() => mode === "items" ? openItem(emptyItem(newItemCategory?.id || "")) : openCategory(emptyCategory())}
+          >
+            + Добавить
+          </button>
+          <button type="button" onClick={() => setShowArchived((value) => !value)}>
+            <MoreHorizontal size={16} /> {showArchived ? "Скрыть архив" : "Архив"}
+          </button>
         </div>
       </div>
 
-      {cat && <CategoryForm category={cat} onCancel={() => setCat(null)} onSave={(input) => onAction((authToken) => cat.id ? api.updateCategory(authToken, cat.id, input) : api.createCategory(authToken, input)).then(() => setCat(null))} />}
+      {mode === "items" && (
+        <div className="category-chips" aria-label="Фильтр по категории">
+          <button className={categoryFilter === "all" ? "active" : ""} type="button" onClick={() => setCategoryFilter("all")}>Все</button>
+          {activeCategories.map((category) => (
+            <button
+              className={categoryFilter === category.id ? "active" : ""}
+              type="button"
+              key={category.id}
+              onClick={() => setCategoryFilter(category.id)}
+            >
+              {category.title_ru || "Без названия"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {cat && (
+        <CategoryForm
+          category={cat}
+          onCancel={() => setCat(null)}
+          onSave={(input) => onAction((authToken) => cat.id ? api.updateCategory(authToken, cat.id, input) : api.createCategory(authToken, input)).then(() => setCat(null))}
+          onArchive={cat.id ? () => onAction((authToken) => api.archiveCategory(authToken, cat.id, "archive from admin editor"), { successMessage: "Категория в архиве" }).then(() => setCat(null)) : undefined}
+          onDelete={cat.id ? () => onAction((authToken) => api.deleteCategory(authToken, cat.id, "delete/archive from admin editor"), { successMessage: "Категория удалена" }).then(() => setCat(null)) : undefined}
+        />
+      )}
       {item && (
         <DishForm
           item={item}
@@ -795,83 +871,114 @@ function MenuTab({ menu, onAction }: { menu: AdminMenuResponse; onAction: AdminA
           onCancel={() => setItem(null)}
           onUpload={(file) => onAction((authToken) => api.uploadMenuPhoto(authToken, file))}
           onSave={(input) => onAction((authToken) => item.id ? api.updateItem(authToken, item.id, input) : api.createItem(authToken, input)).then(() => setItem(null))}
+          onArchive={item.id ? () => onAction((authToken) => api.archiveItem(authToken, item.id, "archive from admin editor"), { successMessage: "Блюдо в архиве" }).then(() => setItem(null)) : undefined}
+          onDelete={item.id ? () => onAction((authToken) => api.deleteItem(authToken, item.id, "delete/archive from admin editor"), { successMessage: "Блюдо удалено" }).then(() => setItem(null)) : undefined}
         />
       )}
 
-      <div className="two">
-        <div className="panel">
-          <h2>Категории</h2>
-          {visibleCategories.length === 0 ? <p className="muted">Категорий нет</p> : visibleCategories.map((category) => (
-            <div className="row menu-row" key={category.id}>
-              <div>
-                <strong>{category.title_ru || "Без названия"}</strong>
-                <span>{category.item_count} блюд · порядок {category.sort_order} · v{category.version}</span>
-              </div>
-              <StatusPills visible={category.visible} archived={category.archived} />
-              <div className="row-actions">
-                {!category.archived && <button onClick={() => openCategory(category)}>Редактировать</button>}
+      <div className="panel menu-list-panel">
+        {mode === "categories" ? (
+          <>
+            <h2>Категории</h2>
+            {filteredCategories.length === 0 ? <p className="muted">Категорий нет</p> : filteredCategories.map((category) => (
+              <div className="row menu-row" key={category.id}>
+                <button className="menu-row-open" type="button" onClick={() => openCategory(category)}>
+                  <strong>{category.title_ru || "Без названия"}</strong>
+                  <span>{category.item_count} блюд</span>
+                </button>
                 {category.archived ? (
                   <button className="primary" onClick={() => void onAction((authToken) => api.restoreCategory(authToken, category.id, "restore from admin"))}>Восстановить</button>
                 ) : (
-                  <>
-                    <button onClick={() => void onAction((authToken) => api.archiveCategory(authToken, category.id, "archive from admin"))}><Archive size={16} /> В архив</button>
-                    <button className="danger-button" onClick={() => void onAction((authToken) => api.deleteCategory(authToken, category.id, "delete/archive from admin"))}><Trash2 size={16} /> Удалить</button>
-                  </>
+                  <label className="visibility-switch">
+                    <input type="checkbox" checked={category.visible} onChange={() => void toggleCategory(category)} />
+                    <span>{category.visible ? "В меню" : "Скрыта"}</span>
+                  </label>
                 )}
               </div>
-            </div>
-          ))}
-        </div>
-        <div className="panel">
-          <h2>Блюда</h2>
-          {visibleItems.length === 0 ? <p className="muted">Блюд нет</p> : visibleItems.map((dish) => (
-            <div className="row menu-row" key={dish.id}>
-              <div>
-                <strong>{dish.title_ru || "Без названия"}</strong>
-                <span>{money(dish.price_minor)} · {categoryTitle(menu.categories, dish.category_id)} · мин. {dish.min_quantity || 1} шт · v{dish.version}</span>
-              </div>
-              <StatusPills visible={dish.visible} archived={dish.archived} />
-              <div className="row-actions">
-                {!dish.archived && <button onClick={() => openItem(dish)}>Редактировать</button>}
-                {dish.archived ? (
-                  <button className="primary" onClick={() => void onAction((authToken) => api.restoreItem(authToken, dish.id, "restore from admin"))}>Восстановить</button>
-                ) : (
-                  <>
-                    <button onClick={() => void onAction((authToken) => api.archiveItem(authToken, dish.id, "archive from admin"))}><Archive size={16} /> В архив</button>
-                    <button className="danger-button" onClick={() => void onAction((authToken) => api.deleteItem(authToken, dish.id, "delete/archive from admin"))}><Trash2 size={16} /> Удалить</button>
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </>
+        ) : (
+          <>
+            <h2>Блюда</h2>
+            {filteredItems.length === 0 ? <p className="muted">Блюд нет</p> : filteredItems.map((dish) => {
+              const preview = adminPhotoPreview(dish);
+              return (
+                <div className="row menu-row dish-menu-row" key={dish.id}>
+                  <button className="menu-row-open dish-row-open" type="button" onClick={() => openItem(dish)}>
+                    <span className="dish-thumb">{preview.url ? <img src={preview.url} width={preview.width} height={preview.height} alt="" loading="lazy" decoding="async" /> : "🍽️"}</span>
+                    <span>
+                      <strong>{dish.title_ru || "Без названия"}</strong>
+                      <span>{categoryTitle(menu.categories, dish.category_id)}</span>
+                    </span>
+                  </button>
+                  <strong className="menu-price">{money(dish.price_minor)}</strong>
+                  {dish.archived ? (
+                    <button className="primary" onClick={() => void onAction((authToken) => api.restoreItem(authToken, dish.id, "restore from admin"))}>Восстановить</button>
+                  ) : (
+                    <label className="visibility-switch">
+                      <input type="checkbox" checked={dish.visible} onChange={() => void toggleDish(dish)} />
+                      <span>{dish.visible ? "В меню" : "Скрыто"}</span>
+                    </label>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        )}
       </div>
     </section>
   );
 }
 
-function CategoryForm({ category, onSave, onCancel }: { category: AdminCategory; onSave(input: CategoryInput): Promise<void>; onCancel(): void }) {
+function CategoryForm({
+  category,
+  onSave,
+  onCancel,
+  onArchive,
+  onDelete,
+}: {
+  category: AdminCategory;
+  onSave(input: CategoryInput): Promise<void>;
+  onCancel(): void;
+  onArchive?: () => Promise<void>;
+  onDelete?: () => Promise<void>;
+}) {
   const [form, setForm] = useState(category);
   return (
     <div className="panel editor">
       <div className="editor-head">
         <div>
-          <h2>{category.id ? "Редактирование категории" : "Новая категория"}</h2>
-          <p className="muted">RU обязателен. SR/EN можно заполнить позже.</p>
+          <h2>{category.id ? "Категория" : "Новая категория"}</h2>
         </div>
         <button onClick={onCancel}>Закрыть</button>
       </div>
       <div className="form-grid">
         <Text label="Название RU" value={form.title_ru} onChange={(title_ru) => setForm({ ...form, title_ru })} />
-        <Text label="Название SR-Latn" value={form.title_sr} onChange={(title_sr) => setForm({ ...form, title_sr })} />
-        <Text label="Название EN" value={form.title_en} onChange={(title_en) => setForm({ ...form, title_en })} />
-        <NumberInput label="Порядок" value={form.sort_order} onChange={(sort_order) => setForm({ ...form, sort_order })} />
       </div>
       <label className="check"><input type="checkbox" checked={form.visible} onChange={(event) => setForm({ ...form, visible: event.target.checked })} /> Показывать клиентам</label>
+      <details className="advanced-fields">
+        <summary>Переводы и порядок</summary>
+        <div className="advanced-fields-body">
+          <div className="form-grid">
+            <Text label="Название SR-Latn" value={form.title_sr} onChange={(title_sr) => setForm({ ...form, title_sr })} />
+            <Text label="Название EN" value={form.title_en} onChange={(title_en) => setForm({ ...form, title_en })} />
+            <NumberInput label="Порядок" value={form.sort_order} onChange={(sort_order) => setForm({ ...form, sort_order })} />
+          </div>
+        </div>
+      </details>
       <div className="actions">
-        <button className="primary" onClick={() => void onSave(form)}><Save size={16} /> Сохранить</button>
+        <button className="primary" onClick={() => void onSave(categoryInputFromForm(form))}><Save size={16} /> Сохранить</button>
         <button onClick={onCancel}>Отмена</button>
       </div>
+      {(onArchive || onDelete) && !category.archived && (
+        <details className="advanced-fields danger-zone">
+          <summary>Опасные действия</summary>
+          <div className="advanced-fields-body danger-actions">
+            {onArchive && <button type="button" onClick={() => void onArchive()}><Archive size={16} /> В архив</button>}
+            {onDelete && <button className="danger-button" type="button" onClick={() => void onDelete()}><Trash2 size={16} /> Удалить</button>}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -882,12 +989,16 @@ function DishForm({
   onSave,
   onCancel,
   onUpload,
+  onArchive,
+  onDelete,
 }: {
   item: AdminMenuItem;
   categories: AdminCategory[];
   onSave(input: MenuItemInput): Promise<void>;
   onCancel(): void;
   onUpload(file: File): Promise<unknown>;
+  onArchive?: () => Promise<void>;
+  onDelete?: () => Promise<void>;
 }) {
   const [form, setForm] = useState(item);
   const preview = adminPhotoPreview(form);
@@ -905,41 +1016,39 @@ function DishForm({
     <div className="panel editor">
       <div className="editor-head">
         <div>
-          <h2>{item.id ? "Редактирование блюда" : "Новое блюдо"}</h2>
-          <p className="muted">Цена хранится целым числом в RSD. Старые заказы не меняются.</p>
+          <h2>{item.id ? "Блюдо" : "Новое блюдо"}</h2>
         </div>
         <button onClick={onCancel}>Закрыть</button>
       </div>
       <div className="editor-layout">
+        <div className="photo-panel">
+          <label className="upload primary-upload"><Upload size={16} /> Заменить фото <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void upload(event.target.files?.[0])} /></label>
+          {preview.url ? (
+            <div className="photo-preview">
+              <img src={preview.url} width={preview.width} height={preview.height} alt="" loading="lazy" decoding="async" />
+              <span>Фото блюда</span>
+            </div>
+          ) : <p className="muted">Фото не загружено</p>}
+          {form.photo_path && <button type="button" onClick={() => update({ photo_path: "", photo_variants: undefined })}>Удалить фото</button>}
+        </div>
         <div className="editor-main">
           <div className="form-grid primary-fields">
+            <Text label="Название" value={form.title_ru} onChange={(title_ru) => update({ title_ru })} />
+            <NumberInput label="Цена, RSD" value={form.price_minor} onChange={(price_minor) => update({ price_minor })} />
             <label><span>Категория</span><select value={form.category_id} onChange={(event) => update({ category_id: event.target.value })}>
               {categories.map((category) => <option key={category.id} value={category.id}>{category.title_ru}</option>)}
             </select></label>
-            <Text label="Название" value={form.title_ru} onChange={(title_ru) => update({ title_ru })} />
-            <NumberInput label="Цена, RSD" value={form.price_minor} onChange={(price_minor) => update({ price_minor })} />
           </div>
           <Textarea label="Описание" value={form.description_ru} onChange={(description_ru) => update({ description_ru })} />
           <div className="form-grid compact-fields">
-            <Text label="Вес/порция" value={form.weight_text} onChange={(weight_text) => update({ weight_text })} />
-            <NumberInput label="Порядок" value={form.sort_order} onChange={(sort_order) => update({ sort_order })} />
             <NumberInput label="Минимум, шт" value={form.min_quantity || 1} onChange={(min_quantity) => update({ min_quantity: Math.max(1, min_quantity) })} />
+            <Text label="Вес/порция" value={form.weight_text} onChange={(weight_text) => update({ weight_text })} />
           </div>
           <label className="check"><input type="checkbox" checked={form.visible} onChange={(event) => update({ visible: event.target.checked })} /> Показывать клиентам</label>
         </div>
-        <div className="photo-panel">
-          <label className="upload primary-upload"><Upload size={16} /> Загрузить фото <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void upload(event.target.files?.[0])} /></label>
-          {preview.url && (
-            <div className="photo-preview">
-              <img src={preview.url} width={preview.width} height={preview.height} alt="" loading="lazy" decoding="async" />
-              <span>Preview фото блюда</span>
-            </div>
-          )}
-          <Text label="Путь фото" value={form.photo_path} onChange={(photo_path) => update({ photo_path, photo_variants: undefined })} />
-        </div>
       </div>
       <details className="advanced-fields">
-        <summary>Переводы и аллергены</summary>
+        <summary>Переводы</summary>
         <div className="advanced-fields-body">
           <div className="form-grid">
             <Text label="Название SR-Latn" value={form.title_sr} onChange={(title_sr) => update({ title_sr })} />
@@ -949,18 +1058,33 @@ function DishForm({
             <Textarea label="Описание SR-Latn" value={form.description_sr} onChange={(description_sr) => update({ description_sr })} />
             <Textarea label="Описание EN" value={form.description_en} onChange={(description_en) => update({ description_en })} />
           </div>
+        </div>
+      </details>
+      <details className="advanced-fields">
+        <summary>Аллергены и порядок</summary>
+        <div className="advanced-fields-body">
           <div className="form-grid">
             <Text label="Аллергены RU" value={form.allergen_text_ru} onChange={(allergen_text_ru) => update({ allergen_text_ru })} />
             <Text label="Аллергены SR-Latn" value={form.allergen_text_sr} onChange={(allergen_text_sr) => update({ allergen_text_sr })} />
             <Text label="Аллергены EN" value={form.allergen_text_en} onChange={(allergen_text_en) => update({ allergen_text_en })} />
+            <NumberInput label="Порядок" value={form.sort_order} onChange={(sort_order) => update({ sort_order })} />
           </div>
         </div>
       </details>
-      {item.id && item.price_minor !== form.price_minor && <div className="warn">Цена меняется: {money(item.price_minor)} → {money(form.price_minor)}. Старые заказы останутся с прежней ценой.</div>}
+      {item.id && item.price_minor !== form.price_minor && <div className="warn">Цена изменится: {money(item.price_minor)} → {money(form.price_minor)}.</div>}
       <div className="actions">
         <button className="primary" onClick={() => void onSave(dishInputFromForm(form))}><Save size={16} /> Сохранить</button>
         <button onClick={onCancel}>Отмена</button>
       </div>
+      {(onArchive || onDelete) && !item.archived && (
+        <details className="advanced-fields danger-zone">
+          <summary>Опасные действия</summary>
+          <div className="advanced-fields-body danger-actions">
+            {onArchive && <button type="button" onClick={() => void onArchive()}><Archive size={16} /> В архив</button>}
+            {onDelete && <button className="danger-button" type="button" onClick={() => void onDelete()}><Trash2 size={16} /> Удалить</button>}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -974,9 +1098,9 @@ function OrdersTab({
   onAction,
 }: {
   orders: OrderSummary[];
-  page: Pick<AdminOrdersResponse, "limit" | "offset" | "has_more">;
+  page: AdminOrdersPageState;
   initialView: OrdersView;
-  onLoad(filter: { status?: string; q?: string; date?: string; limit?: number; offset?: number }, signal?: AbortSignal): Promise<AdminOrdersResponse | undefined>;
+  onLoad(filter: OrderLoadFilter, signal?: AbortSignal): Promise<AdminOrdersResponse | undefined>;
   onLoadOrder(id: string): Promise<Order | undefined>;
   onAction: AdminActionRunner;
 }) {
@@ -991,33 +1115,33 @@ function OrdersTab({
   const [dialog, setDialog] = useState<OrderDialogState | null>(null);
   const limit = page.limit || 20;
   const offset = page.offset || 0;
-  const counts = useMemo(() => ({
-    active: orders.filter((order) => orderMatchesView(order, "active")).length,
-    new: orders.filter((order) => order.fulfillment_status === "NEW").length,
-    ready: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").length,
-    history: orders.filter((order) => orderMatchesView(order, "history")).length,
-  }), [orders]);
-  const visibleOrders = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return orders.filter((order) => orderMatchesView(order, view) && orderSearchMatch(order, q) && orderDateMatch(order, date));
-  }, [date, orders, query, view]);
+  const counts = useMemo(() => page.counts || fallbackOrderCounts(orders), [orders, page.counts]);
+  const visibleOrders = orders;
   const selectedOrder = detail;
+  const onLoadRef = useRef(onLoad);
+  const onLoadOrderRef = useRef(onLoadOrder);
+
+  useEffect(() => {
+    onLoadRef.current = onLoad;
+    onLoadOrderRef.current = onLoadOrder;
+  }, [onLoad, onLoadOrder]);
 
   useEffect(() => {
     setView(initialView);
     setSelectedID("");
     setDetail(null);
     setActionMenuID("");
-  }, [initialView]);
+    void onLoadRef.current(ordersLoadFilter(initialView, "", "", limit, 0));
+  }, [initialView, limit]);
 
   useEffect(() => {
     return startVisiblePolling(async (signal) => {
-      await onLoad(ordersLoadFilter(view, query, date, limit, 0), signal);
+      await onLoadRef.current(ordersLoadFilter(view, query, date, limit, offset), signal);
       if (signal.aborted || !selectedID) return;
-      const loaded = await onLoadOrder(selectedID);
+      const loaded = await onLoadOrderRef.current(selectedID);
       if (!signal.aborted) setDetail(loaded || null);
     }, 5000);
-  }, [date, limit, onLoad, onLoadOrder, query, selectedID, view]);
+  }, [date, limit, offset, query, selectedID, view]);
 
   async function applyFilter(nextOffset = 0) {
     setSelectedID("");
@@ -1034,7 +1158,7 @@ function OrdersTab({
     setSelectedID("");
     setDetail(null);
     setActionMenuID("");
-    await onLoad({ limit, offset: 0 });
+    await onLoad(ordersLoadFilter("active", "", "", limit, 0));
   }
 
   async function selectOrder(order: OrderSummary) {
@@ -1051,11 +1175,12 @@ function OrdersTab({
   }
 
   async function executeOrderAction<T>(action: (authToken: string) => Promise<T>) {
-    const result = await onAction(action);
+    const result = await onAction(action, { reload: false, refreshDashboard: true });
     if (isOrderResponse(result)) {
       setDetail(result);
       setSelectedID(result.id);
     }
+    await onLoad(ordersLoadFilter(view, query, date, limit, offset));
     setActionMenuID("");
   }
 
@@ -1134,7 +1259,7 @@ function OrdersTab({
         {(offset > 0 || page.has_more) && (
           <div className="orders-pagination">
             <button disabled={offset === 0} onClick={() => void applyFilter(Math.max(0, offset - limit))}>Назад</button>
-            <span>{orders.length ? `${offset + 1}–${offset + orders.length}` : "0"}</span>
+            <span>{visibleOrders.length ? `${offset + 1}–${offset + visibleOrders.length}` : "0"}</span>
             <button disabled={!page.has_more} onClick={() => void applyFilter(offset + limit)}>Дальше</button>
           </div>
         )}
@@ -1481,15 +1606,14 @@ function ScheduleTab({ schedule, onSave }: { schedule: ScheduleDay[]; onSave(sch
     <section className="stack">
       <div className="panel">
         <h2>Рабочее время</h2>
-        <p className="muted">Базовое правило: понедельник — выходной. Вторник–воскресенье: работаем 13:00–22:00, заказы принимаем до 21:00. Таймзона Europe/Belgrade.</p>
-        <p className="muted">Кнопки “Сделать рабочим”, “Выходной” и быстрый шаблон сохраняются сразу. Ручное изменение времени сохраняется нижней кнопкой.</p>
+        <p className="muted">Время Нови-Сада.</p>
       </div>
       <div className="schedule-grid">
         {draft.map((day, index) => (
           <article className={day.closed ? "schedule-card is-closed" : "schedule-card"} key={day.day_of_week}>
             <div className="schedule-card-head">
               <div>
-                <strong>{weekday(day.day_of_week)}</strong>
+                <strong>{weekdayShort(day.day_of_week)}</strong>
                 <span>{day.closed ? "Выходной" : `${day.open_time}–${day.close_time}, заказы до ${day.order_cutoff_time}`}</span>
               </div>
               <button
@@ -1518,36 +1642,80 @@ function SettingsTab({ settings, demoMode, onSave }: { settings: Settings; demoM
   const [form, setForm] = useState(settings);
   useEffect(() => setForm(settings), [settings]);
   return (
-    <section className="panel editor">
-      <div className="warn">Доставка сейчас бесплатная: отдельная цена доставки отключена.</div>
-      <div className="form-grid">
-        <NumberInput label="Максимум одного блюда" value={form.max_item_quantity} onChange={(max_item_quantity) => setForm({ ...form, max_item_quantity })} />
-        <NumberInput label="Максимум символов в комментарии" value={form.max_comment_length} onChange={(max_comment_length) => setForm({ ...form, max_comment_length })} />
-        <Text label="Telegram поддержки" value={form.support_text} onChange={(support_text) => setForm({ ...form, support_text })} />
-        <Text label="Телефон поддержки" value={form.support_phone} onChange={(support_phone) => setForm({ ...form, support_phone })} />
-        <Text label="Ссылка на условия" value={form.terms_url} onChange={(terms_url) => setForm({ ...form, terms_url })} />
+    <section className="settings-workspace">
+      <div className="panel settings-card">
+        <h2>Заказы</h2>
+        <div className="form-grid">
+          <NumberInput label="Максимум блюда" value={form.max_item_quantity} onChange={(max_item_quantity) => setForm({ ...form, max_item_quantity })} />
+          <NumberInput label="Комментарий" value={form.max_comment_length} onChange={(max_comment_length) => setForm({ ...form, max_comment_length })} />
+        </div>
       </div>
-      <label className="check"><input type="checkbox" checked={form.cash_enabled} onChange={(event) => setForm({ ...form, cash_enabled: event.target.checked })} /> Принимать оплату наличными</label>
-      <label className="check"><input type="checkbox" checked={form.cash_location_required} onChange={(event) => setForm({ ...form, cash_location_required: event.target.checked })} /> Требовать геопроверку для cash</label>
-      <div className="form-grid three">
-        <NumberInput label="Широта ресторана" value={form.restaurant_latitude} onChange={(restaurant_latitude) => setForm({ ...form, restaurant_latitude })} />
-        <NumberInput label="Долгота ресторана" value={form.restaurant_longitude} onChange={(restaurant_longitude) => setForm({ ...form, restaurant_longitude })} />
-        <NumberInput label="Радиус cash, м" value={form.cash_location_radius_meters} onChange={(cash_location_radius_meters) => setForm({ ...form, cash_location_radius_meters })} />
-        <NumberInput label="TTL проверки, сек" value={form.cash_location_ttl_seconds} onChange={(cash_location_ttl_seconds) => setForm({ ...form, cash_location_ttl_seconds })} />
-        <NumberInput label="Макс. погрешность GPS, м" value={form.cash_location_max_accuracy_meters} onChange={(cash_location_max_accuracy_meters) => setForm({ ...form, cash_location_max_accuracy_meters })} />
+
+      <div className="panel settings-card">
+        <div className="settings-card-head">
+          <h2>Поддержка</h2>
+          <p>Эти контакты видит клиент в разделе “Поддержка” и в юридических страницах.</p>
+        </div>
+        <div className="support-settings">
+          <label>
+            <span>Telegram поддержки</span>
+            <input value={form.support_text} placeholder="@Tako_Lako" onChange={(event) => setForm({ ...form, support_text: event.target.value })} />
+            <small>Основной канал: клиент нажимает кнопку и сразу пишет сюда.</small>
+          </label>
+          <label>
+            <span>Телефон поддержки</span>
+            <input value={form.support_phone} placeholder="+381 ..." onChange={(event) => setForm({ ...form, support_phone: event.target.value })} />
+            <small>Можно оставить пустым, если сейчас работает только Telegram.</small>
+          </label>
+          <label>
+            <span>Ссылка на условия</span>
+            <input value={form.terms_url} placeholder="Оставь пустым — откроется встроенная страница" onChange={(event) => setForm({ ...form, terms_url: event.target.value })} />
+            <small>Нужна только если условия будут на внешнем сайте.</small>
+          </label>
+        </div>
+        <div className="support-preview">
+          <span>Как это выглядит клиенту</span>
+          <strong>{form.support_text.trim() || "@Tako_Lako"}</strong>
+          {form.support_phone.trim() && <small>{form.support_phone.trim()}</small>}
+        </div>
       </div>
-      <div className="warn">Точные координаты клиента не сохраняются. Cash-заказ использует только одноразовый Telegram challenge.</div>
-      <label className={demoMode ? "check" : "check disabled-check"}>
-        <input
-          type="checkbox"
-          checked={Boolean(form.crypto_enabled)}
-          disabled={!demoMode}
-          onChange={(event) => setForm({ ...form, crypto_enabled: event.target.checked })}
-        />
-        Тестовая crypto-оплата в demo
-      </label>
-      <div className="warn">{demoMode ? "Crypto сейчас работает только как sandbox: реальных денег, кошельков и provider webhook нет." : "Карта и crypto остаются выключены до этапа 5 и подключения реального provider."}</div>
-      <button className="primary" onClick={() => void onSave({ ...form, flat_delivery_fee_minor: 0, card_enabled: false, crypto_enabled: demoMode ? form.crypto_enabled : false })}><Save size={16} /> Сохранить настройки</button>
+
+      <div className="panel settings-card">
+        <h2>Наличные</h2>
+        <label className="check"><input type="checkbox" checked={form.cash_enabled} onChange={(event) => setForm({ ...form, cash_enabled: event.target.checked })} /> Принимать наличные</label>
+        <label className="check"><input type="checkbox" checked={form.cash_location_required} onChange={(event) => setForm({ ...form, cash_location_required: event.target.checked })} /> Проверять геопозицию</label>
+      </div>
+
+      <div className="panel settings-card">
+        <h2>Способы оплаты</h2>
+        <label className="check disabled-check"><input type="checkbox" checked={false} disabled /> Карта — этап 5</label>
+        <label className={demoMode ? "check" : "check disabled-check"}>
+          <input
+            type="checkbox"
+            checked={Boolean(form.crypto_enabled)}
+            disabled={!demoMode}
+            onChange={(event) => setForm({ ...form, crypto_enabled: event.target.checked })}
+          />
+          Crypto demo
+        </label>
+      </div>
+
+      <details className="panel advanced-fields settings-card">
+        <summary>Расширенные</summary>
+        <div className="advanced-fields-body">
+          <div className="form-grid three">
+            <NumberInput label="Широта" value={form.restaurant_latitude} onChange={(restaurant_latitude) => setForm({ ...form, restaurant_latitude })} />
+            <NumberInput label="Долгота" value={form.restaurant_longitude} onChange={(restaurant_longitude) => setForm({ ...form, restaurant_longitude })} />
+            <NumberInput label="Радиус проверки" value={form.cash_location_radius_meters} onChange={(cash_location_radius_meters) => setForm({ ...form, cash_location_radius_meters })} />
+            <NumberInput label="Срок подтверждения" value={form.cash_location_ttl_seconds} onChange={(cash_location_ttl_seconds) => setForm({ ...form, cash_location_ttl_seconds })} />
+            <NumberInput label="Погрешность" value={form.cash_location_max_accuracy_meters} onChange={(cash_location_max_accuracy_meters) => setForm({ ...form, cash_location_max_accuracy_meters })} />
+          </div>
+        </div>
+      </details>
+
+      <button className="primary sticky-save" onClick={() => void onSave({ ...form, flat_delivery_fee_minor: 0, card_enabled: false, crypto_enabled: demoMode ? form.crypto_enabled : false })}>
+        <Save size={16} /> Сохранить настройки
+      </button>
     </section>
   );
 }
@@ -1556,6 +1724,7 @@ function AnalyticsTab({ analytics, range, onRange, onExport }: { analytics: Admi
   const labels: Record<AnalyticsRange, string> = { today: "Сегодня", "7d": "7 дней", month: "Месяц" };
   const topDishes = analytics.top_dishes ?? [];
   const dailyRows = analytics.daily_rows ?? [];
+  const paymentRows = paymentBreakdownRows(analytics.payments ?? []);
   return (
     <section className="stack">
       <div className="toolbar panel">
@@ -1569,12 +1738,48 @@ function AnalyticsTab({ analytics, range, onRange, onExport }: { analytics: Admi
         <Metric title="Выручка" value={money(analytics.summary.revenue_minor)} />
         <Metric title="Средний чек" value={money(analytics.summary.average_check_minor)} />
       </div>
+      <section className="panel analytics-payments">
+        <div>
+          <h2>Оплата</h2>
+          <p className="muted">Разделение по способу оплаты: сколько заказов пришло, сколько доставлено, сколько оплачено и какая выручка закрыта.</p>
+        </div>
+        <div className="payment-breakdown">
+          {paymentRows.map((row) => (
+            <article className={`payment-card payment-kind-${row.key}`} key={row.key}>
+              <div className="payment-card-head">
+                <span>{paymentMethodLabel(row.key)}</span>
+                <strong>{money(row.revenue_minor)}</strong>
+              </div>
+              <div className="payment-card-grid">
+                <span>Всего <b>{row.count}</b></span>
+                <span>Доставлено <b>{row.delivered_count}</b></span>
+                <span>Оплачено <b>{row.paid_count}</b></span>
+                <span>Отменено <b>{row.cancelled_count}</b></span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
       <div className="two">
         <SimpleTable title="Популярные блюда" rows={topDishes.map((dish) => [dish.title, `${dish.quantity} шт`, money(dish.revenue_minor)])} />
         <SimpleTable title="По дням" rows={dailyRows.map((row) => [row.day, `${row.orders} заказов`, money(row.revenue_minor)])} />
       </div>
     </section>
   );
+}
+
+function paymentBreakdownRows(rows: AnalyticsBreakdown[]): AnalyticsBreakdown[] {
+  const empty = (key: string): AnalyticsBreakdown => ({ key, count: 0, delivered_count: 0, paid_count: 0, cancelled_count: 0, revenue_minor: 0 });
+  const byKey = new Map(rows.map((row) => [row.key, row]));
+  const orderedKeys = ["cash", "card", ...rows.map((row) => row.key).filter((key) => key !== "cash" && key !== "card")];
+  return [...new Set(orderedKeys)].map((key) => ({ ...empty(key), ...(byKey.get(key) || {}) }));
+}
+
+function paymentMethodLabel(method: string): string {
+  if (method === "cash") return "Наличные";
+  if (method === "card") return "Карта";
+  if (method === "crypto") return "Crypto";
+  return method;
 }
 
 function AuditTab({
@@ -1593,7 +1798,7 @@ function AuditTab({
       {entries.length === 0 ? <p className="muted">Журнал пуст</p> : entries.map((entry) => (
         <div className="audit" key={entry.id}>
           <strong>{auditActionText(entry.action)}</strong>
-          <span>{auditTargetText(entry.target_type)} · {roleText(entry.actor_role)} · {new Date(entry.created_at).toLocaleString("ru-RU")}</span>
+          <span>{new Date(entry.created_at).toLocaleString("ru-RU")}</span>
           {entry.reason && <p>{entry.reason}</p>}
         </div>
       ))}
@@ -1712,6 +1917,18 @@ function emptyItem(categoryID: string): AdminMenuItem {
   };
 }
 
+function categoryInputFromForm(form: AdminCategory): CategoryInput {
+  const titleRU = form.title_ru.trim();
+  return {
+    title_ru: titleRU,
+    title_sr: form.title_sr.trim() || titleRU,
+    title_en: form.title_en.trim() || titleRU,
+    sort_order: Math.round(form.sort_order || 100),
+    visible: form.visible,
+    version: form.version,
+  };
+}
+
 function dishInputFromForm(form: AdminMenuItem): MenuItemInput {
   const titleRU = form.title_ru.trim();
   const descriptionRU = form.description_ru.trim();
@@ -1741,19 +1958,32 @@ function categoryTitle(categories: AdminCategory[], id: string): string {
   return categories.find((category) => category.id === id)?.title_ru || "без категории";
 }
 
-function weekday(day: number): string {
-  return ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"][day] || String(day);
+function weekdayShort(day: number): string {
+  return ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"][day] || String(day);
 }
 
 function replace<T>(items: T[], index: number, value: T): T[] {
   return items.map((item, current) => current === index ? value : item);
 }
 
-function orderPageMeta(page: AdminOrdersResponse): Pick<AdminOrdersResponse, "limit" | "offset" | "has_more"> {
+function orderPageMeta(page: AdminOrdersResponse): AdminOrdersPageState {
   return {
     limit: page.limit || 20,
     offset: page.offset || 0,
     has_more: Boolean(page.has_more),
+    counts: page.counts,
+  };
+}
+
+function normalizeOrderLoadFilter(filter: OrderLoadFilter, page?: Pick<AdminOrdersResponse, "limit" | "offset">): OrderLoadFilter {
+  const rawLimit = typeof filter.limit === "number" && Number.isFinite(filter.limit) ? filter.limit : page?.limit;
+  const rawOffset = typeof filter.offset === "number" && Number.isFinite(filter.offset) ? filter.offset : page?.offset;
+  return {
+    status: filter.status || "ACTIVE",
+    q: filter.q?.trim() || undefined,
+    date: filter.date || undefined,
+    limit: Math.min(Math.max(Math.trunc(rawLimit || 20), 1), 50),
+    offset: Math.max(Math.trunc(rawOffset ?? 0), 0),
   };
 }
 
@@ -1768,18 +1998,35 @@ function auditPageMeta(page: AuditLogResponse): Pick<AuditLogResponse, "limit" |
 function bootstrapOptions(tab: AdminTab, range: AnalyticsRange) {
   return {
     range,
+    status: tab === "orders" ? "ACTIVE" : undefined,
     limit: tab === "audit" ? 50 : 20,
     offset: 0,
   };
 }
 
-function ordersLoadFilter(view: OrdersView, query: string, date: string, limit: number, offset: number): { status?: string; q?: string; date?: string; limit?: number; offset?: number } {
-  void view;
+function ordersLoadFilter(view: OrdersView, query: string, date: string, limit: number, offset: number): OrderLoadFilter {
   return {
+    status: orderViewStatus(view),
     q: query.trim() || undefined,
     date: date || undefined,
     limit,
     offset,
+  };
+}
+
+function orderViewStatus(view: OrdersView): string {
+  if (view === "active") return "ACTIVE";
+  if (view === "new") return "NEW";
+  if (view === "ready") return "OUT_FOR_DELIVERY";
+  return "HISTORY";
+}
+
+function fallbackOrderCounts(orders: OrderSummary[]): AdminOrderCounts {
+  return {
+    active: orders.filter((order) => orderMatchesView(order, "active")).length,
+    new: orders.filter((order) => order.fulfillment_status === "NEW").length,
+    ready: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").length,
+    history: orders.filter((order) => orderMatchesView(order, "history")).length,
   };
 }
 
@@ -1940,23 +2187,6 @@ function compactRuntimeReason(reason: string): string {
   return "Заказы до 21:00";
 }
 
-function roleText(role: string): string {
-  if (role === "KITCHEN") return "Кухня";
-  if (role === "COURIER") return "Курьер";
-  if (role === "ADMIN") return "Админ";
-  return role;
-}
-
-function auditTargetText(target: string): string {
-  if (target === "category") return "Категория";
-  if (target === "menu_item") return "Блюдо";
-  if (target === "order") return "Заказ";
-  if (target === "staff") return "Сотрудник";
-  if (target === "app_settings") return "Настройки";
-  if (target === "restaurant_schedule") return "График";
-  return target;
-}
-
 function auditActionText(action: string): string {
   const map: Record<string, string> = {
     "category.create": "Создание категории",
@@ -1991,7 +2221,9 @@ function errorText(error: unknown): string {
   if (code === "TELEGRAM_INIT_DATA_MISSING") return "Откройте админку именно через Telegram Mini App. В обычном браузере или внешней вкладке Telegram не передаёт данные входа.";
   if (code === "AUTH_INVALID") return "Telegram-сессия устарела или открыта не через @TakoLako_main_bot. Полностью закройте Mini App и откройте заново из бота.";
   if (code === "FORBIDDEN") return "Нет ADMIN доступа.";
-  return code || "Ошибка запроса";
+  if (code === "RATE_LIMITED") return "Слишком много запросов. Подождите минуту и попробуйте ещё раз.";
+  if (code === "SERVER_UNAVAILABLE" || code === "INTERNAL") return "Сервер недоступен. Попробуйте ещё раз.";
+  return "Ошибка запроса. Попробуйте ещё раз.";
 }
 
 function adminLoadLabel(key: AdminLoadKey): string {

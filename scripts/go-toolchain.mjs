@@ -88,20 +88,26 @@ function downloadedToolchainCandidates(required) {
   if (!goos || !goarch) return [];
 
   const exe = process.platform === "win32" ? "go.exe" : "go";
+  const candidates = [
+    path.join(homedir(), "sdk", `go${required}`, "bin", exe),
+  ];
   const gopaths = new Set([
     process.env.GOPATH,
     path.join(homedir(), "go"),
   ].filter(Boolean));
 
-  return [...gopaths].map((gopath) => path.join(
-    gopath,
-    "pkg",
-    "mod",
-    "golang.org",
-    `toolchain@v0.0.1-go${required}.${goos}-${goarch}`,
-    "bin",
-    exe,
-  ));
+  for (const gopath of gopaths) {
+    candidates.push(path.join(
+      gopath,
+      "pkg",
+      "mod",
+      "golang.org",
+      `toolchain@v0.0.1-go${required}.${goos}-${goarch}`,
+      "bin",
+      exe,
+    ));
+  }
+  return candidates;
 }
 
 function compareVersions(a, b) {

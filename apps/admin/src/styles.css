@@ -714,6 +714,36 @@ p {
   justify-content: space-between;
 }
 
+.segmented,
+.category-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.compact-segmented {
+  margin-top: 0.55rem;
+}
+
+.segmented button,
+.category-chips button {
+  min-height: 2.5rem;
+  border-color: rgba(107, 31, 42, 0.16);
+  background: #fffdf8;
+}
+
+.segmented button.active,
+.category-chips button.active {
+  border-color: rgba(107, 31, 42, 0.3);
+  background: #6b1f2a;
+  color: #fff;
+}
+
+.menu-list-panel {
+  display: grid;
+  gap: 0.35rem;
+}
+
 .row,
 .audit,
 .order-info {
@@ -727,6 +757,62 @@ p {
 .menu-row,
 .staff-row {
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.dish-menu-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.menu-row-open {
+  display: grid;
+  min-width: 0;
+  min-height: 3rem;
+  justify-items: start;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+
+.dish-row-open {
+  grid-template-columns: 3.3rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.dish-thumb {
+  display: grid;
+  place-items: center;
+  width: 3.1rem;
+  height: 3.1rem;
+  overflow: hidden;
+  border-radius: 0.9rem;
+  background: #f8f1e5;
+}
+
+.dish-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.menu-price {
+  white-space: nowrap;
+}
+
+.visibility-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.75rem;
+  white-space: nowrap;
+}
+
+.visibility-switch input {
+  width: 1.15rem;
+  min-width: 1.15rem;
+  height: 1.15rem;
 }
 
 .row div,
@@ -896,6 +982,15 @@ p {
 
 .advanced-fields-body {
   padding: 0 0.85rem 0.85rem;
+}
+
+.danger-zone {
+  border-color: rgba(107, 31, 42, 0.26);
+}
+
+.danger-actions {
+  display: flex;
+  flex-wrap: wrap;
 }
 
 .check {
@@ -1628,6 +1723,145 @@ p {
   box-shadow: 0 0.9rem 2rem rgba(107, 31, 42, 0.18);
 }
 
+.settings-workspace {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: var(--gap);
+  align-items: start;
+}
+
+.settings-card {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.settings-card-head {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.settings-card-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.support-settings {
+  display: grid;
+  gap: 0.72rem;
+}
+
+.support-settings label {
+  display: grid;
+  gap: 0.32rem;
+  border: 1px solid rgba(107, 31, 42, 0.1);
+  border-radius: var(--radius-sm);
+  padding: 0.72rem;
+  background: rgba(255, 253, 248, 0.72);
+}
+
+.support-settings small,
+.support-preview span,
+.support-preview small {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.support-preview {
+  display: grid;
+  gap: 0.24rem;
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  background: linear-gradient(135deg, rgba(107, 31, 42, 0.08), rgba(200, 155, 60, 0.12));
+}
+
+.support-preview strong {
+  color: var(--accent);
+  font-size: 1.08rem;
+}
+
+.settings-workspace .sticky-save {
+  grid-column: 1 / -1;
+}
+
+.analytics-payments {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.analytics-payments h2,
+.analytics-payments p {
+  margin: 0;
+}
+
+.payment-breakdown {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 0.75rem;
+}
+
+.payment-card {
+  display: grid;
+  gap: 0.72rem;
+  border: 1px solid rgba(107, 31, 42, 0.12);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem;
+  background: rgba(255, 253, 248, 0.82);
+}
+
+.payment-card.payment-kind-cash {
+  border-color: rgba(200, 155, 60, 0.32);
+  background: linear-gradient(135deg, rgba(255, 253, 248, 0.92), rgba(200, 155, 60, 0.1));
+}
+
+.payment-card.payment-kind-card {
+  border-color: rgba(107, 31, 42, 0.22);
+}
+
+.payment-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.payment-card-head span {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 850;
+}
+
+.payment-card-head strong {
+  color: var(--accent);
+  font-size: clamp(1.25rem, 3vw, 1.65rem);
+}
+
+.payment-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.payment-card-grid span {
+  border-radius: 0.78rem;
+  padding: 0.46rem 0.55rem;
+  background: rgba(248, 241, 229, 0.82);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.payment-card-grid b {
+  display: block;
+  margin-top: 0.08rem;
+  color: var(--text);
+  font-size: 1rem;
+}
+
 .audit {
   grid-template-columns: 1fr;
   background: #f2e6d8;
@@ -1766,6 +2000,15 @@ p {
 
   .row-actions {
     justify-content: flex-start;
+  }
+
+  .dish-menu-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dish-menu-row .menu-price,
+  .dish-menu-row .visibility-switch {
+    justify-self: flex-start;
   }
 
   .form-grid.three {

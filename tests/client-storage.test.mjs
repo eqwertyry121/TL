@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { loadCachedPublicData, saveCachedPublicData } from "../apps/client/src/storage.ts";
+import {
+  clearCart,
+  loadCachedPublicData,
+  loadCart,
+  loadCheckoutDraft,
+  loadLocale,
+  pendingIdempotencyKey,
+  saveCachedPublicData,
+  saveCart,
+  saveCheckoutDraft,
+  saveCheckoutProgress,
+  saveLocale,
+} from "../apps/client/src/storage.ts";
 
 test("public menu cache is isolated per locale and clears the legacy shared key", () => {
   const env = installLocalStorage();
@@ -51,6 +63,40 @@ test("public menu cache safely removes corrupt, old-schema and expired entries",
   }
 });
 
+test("client storage helpers survive unavailable browser storage", () => {
+  const env = installThrowingStorage();
+  try {
+    assert.deepEqual(loadCart(), { version: 1, lines: {} });
+    assert.doesNotThrow(() => saveCart({ version: 1, lines: {} }));
+    assert.doesNotThrow(() => clearCart());
+    assert.deepEqual(loadCheckoutDraft(), {
+      phone: "",
+      street: "",
+      houseNumber: "",
+      entrance: "",
+      floor: "",
+      apartment: "",
+      comment: "",
+    });
+    assert.doesNotThrow(() => saveCheckoutDraft({
+      phone: "",
+      street: "",
+      houseNumber: "",
+      entrance: "",
+      floor: "",
+      apartment: "",
+      comment: "",
+    }));
+    assert.doesNotThrow(() => saveCheckoutProgress("", null, null));
+    assert.equal(loadLocale("ru"), "ru");
+    assert.doesNotThrow(() => saveLocale("sr"));
+    assert.equal(loadCachedPublicData("ru"), null);
+    assert.match(pendingIdempotencyKey(), /^[0-9a-f-]{36}$/i);
+  } finally {
+    env.restore();
+  }
+});
+
 function installLocalStorage() {
   const previous = globalThis.localStorage;
   const values = new Map();
@@ -74,6 +120,44 @@ function installLocalStorage() {
         delete globalThis.localStorage;
       } else {
         globalThis.localStorage = previous;
+      }
+    },
+  };
+}
+
+function installThrowingStorage() {
+  const previousLocal = globalThis.localStorage;
+  const previousSession = globalThis.sessionStorage;
+  const throwingStorage = {
+    getItem() {
+      throw new Error("storage unavailable");
+    },
+    setItem() {
+      throw new Error("storage unavailable");
+    },
+    removeItem() {
+      throw new Error("storage unavailable");
+    },
+    key() {
+      throw new Error("storage unavailable");
+    },
+    get length() {
+      throw new Error("storage unavailable");
+    },
+  };
+  globalThis.localStorage = throwingStorage;
+  globalThis.sessionStorage = throwingStorage;
+  return {
+    restore() {
+      if (previousLocal === undefined) {
+        delete globalThis.localStorage;
+      } else {
+        globalThis.localStorage = previousLocal;
+      }
+      if (previousSession === undefined) {
+        delete globalThis.sessionStorage;
+      } else {
+        globalThis.sessionStorage = previousSession;
       }
     },
   };

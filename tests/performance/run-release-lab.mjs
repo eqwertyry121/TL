@@ -13,9 +13,9 @@ export const releaseLabSteps = [
     args: ["exec", "playwright", "test", "-c", "tests/performance/playwright.config.ts"],
   },
   {
-    name: "lighthouse-client-lab",
+    name: "bundle-budget-gate",
     command: "pnpm",
-    args: ["exec", "lhci", "autorun", "--config", "tests/performance/lighthouserc.cjs"],
+    args: ["perf:budgets"],
   },
 ];
 

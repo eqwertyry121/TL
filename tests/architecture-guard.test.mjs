@@ -53,6 +53,43 @@ test("client sensitive checkout state stays out of localStorage", () => {
   assert.doesNotMatch(source, /localStorage\.setItem\(IDEMPOTENCY_KEY/);
 });
 
+test("mini apps do not use blocking browser prompt/alert/confirm dialogs", () => {
+  const files = [
+    "apps/admin/src/App.tsx",
+    "apps/client/src/App.tsx",
+    "apps/kitchen/src/App.tsx",
+    "apps/courier/src/App.tsx",
+  ];
+  const violations = files.flatMap((file) => {
+    const source = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+    return [
+      /\bwindow\.confirm\s*\(/,
+      /\bwindow\.prompt\s*\(/,
+      /\bwindow\.alert\s*\(/,
+      /\bconfirm\s*\(/,
+      /\bprompt\s*\(/,
+      /\balert\s*\(/,
+    ].filter((pattern) => pattern.test(source)).map((pattern) => `${file}: ${pattern}`);
+  });
+
+  assert.deepEqual(violations, []);
+});
+
+test("frontend conditional GET caches are bounded", () => {
+  const files = [
+    "apps/admin/src/api.ts",
+    "apps/client/src/api.ts",
+    "packages/staff-core/src/index.ts",
+  ];
+
+  for (const file of files) {
+    const source = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+    assert.match(source, /const getCacheLimit = 64/);
+    assert.match(source, /while \(getCache\.size > getCacheLimit\)/);
+    assert.match(source, /getCache\.delete\(oldestKey\)/);
+  }
+});
+
 function listTextFiles(root) {
   const out = [];
   walk(root, out);

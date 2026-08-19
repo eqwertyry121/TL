@@ -201,6 +201,20 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [calculation_token, phone, fulfillment_type, payment_method, terms_accepted, terms_version, locale]
+              properties:
+                terms_accepted:
+                  type: boolean
+                  const: true
+                terms_version:
+                  type: string
+                  maxLength: 40
       responses:
         "201":
           description: Created cash order. Request must include fulfillment_type=delivery|pickup. Delivery cash orders require a verified unused cash_location_challenge_id when cash location is enabled; pickup orders do not notify courier.
@@ -319,6 +333,15 @@ paths:
     delete:
       parameters:
         - $ref: "#/components/parameters/id"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
       responses:
         "200":
           description: Empty category deleted, otherwise archived
@@ -355,6 +378,15 @@ paths:
     delete:
       parameters:
         - $ref: "#/components/parameters/id"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
       responses:
         "200":
           description: Unused dish deleted, used dish archived
@@ -402,7 +434,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [NEW, OUT_FOR_DELIVERY, DELIVERED, CANCELLED]
+            enum: [ACTIVE, NEW, OUT_FOR_DELIVERY, DELIVERED, CANCELLED, HISTORY]
         - name: q
           in: query
           schema:
@@ -438,6 +470,37 @@ paths:
                 type: string
         "304":
           description: Admin order summary page did not change for the supplied If-None-Match validator.
+  /admin/orders/search:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                status:
+                  type: string
+                  enum: [ACTIVE, NEW, OUT_FOR_DELIVERY, DELIVERED, CANCELLED, HISTORY]
+                q:
+                  type: string
+                  maxLength: 80
+                date:
+                  type: string
+                  format: date
+                limit:
+                  type: integer
+                  minimum: 1
+                  maximum: 50
+                  default: 20
+                offset:
+                  type: integer
+                  minimum: 0
+                  default: 0
+      responses:
+        "200":
+          description: Admin order summary page with counts and body-based search so phone numbers are not placed in URLs.
   /admin/orders/{id}:
     get:
       parameters:
@@ -501,6 +564,10 @@ paths:
       responses:
         "200":
           description: Simple PostgreSQL analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAnalytics"
   /admin/analytics.csv:
     get:
       responses:
@@ -576,6 +643,99 @@ components:
           type: number
           minimum: 0
           maximum: 60000
+    AnalyticsSummary:
+      type: object
+      additionalProperties: false
+      required: [all_orders, delivered_orders, cancelled_orders, revenue_minor, average_check_minor]
+      properties:
+        all_orders:
+          type: integer
+        delivered_orders:
+          type: integer
+        cancelled_orders:
+          type: integer
+        revenue_minor:
+          type: integer
+        average_check_minor:
+          type: integer
+    AnalyticsBreakdown:
+      type: object
+      additionalProperties: false
+      required: [key, count, delivered_count, paid_count, cancelled_count, revenue_minor]
+      properties:
+        key:
+          type: string
+        count:
+          type: integer
+        delivered_count:
+          type: integer
+        paid_count:
+          type: integer
+        cancelled_count:
+          type: integer
+        revenue_minor:
+          type: integer
+    TopDish:
+      type: object
+      additionalProperties: false
+      required: [title, quantity, revenue_minor]
+      properties:
+        title:
+          type: string
+        quantity:
+          type: integer
+        revenue_minor:
+          type: integer
+    DailyAnalyticsRow:
+      type: object
+      additionalProperties: false
+      required: [day, orders, delivered, cancelled, revenue_minor]
+      properties:
+        day:
+          type: string
+        orders:
+          type: integer
+        delivered:
+          type: integer
+        cancelled:
+          type: integer
+        revenue_minor:
+          type: integer
+    AdminAnalytics:
+      type: object
+      additionalProperties: false
+      required: [currency, from, to, generated_at, summary, statuses, payments, top_dishes, daily_rows]
+      properties:
+        currency:
+          type: string
+          enum: [RSD]
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        generated_at:
+          type: string
+          format: date-time
+        summary:
+          $ref: "#/components/schemas/AnalyticsSummary"
+        statuses:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnalyticsBreakdown"
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnalyticsBreakdown"
+        top_dishes:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopDish"
+        daily_rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/DailyAnalyticsRow"
   parameters:
     id:
       name: id

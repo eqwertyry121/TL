@@ -22,7 +22,7 @@ test("release lab wrapper preserves explicit startup sample and SLO overrides", 
   assert.equal(env.PERF_RELEASE_STARTUP_SLO, "false");
 });
 
-test("release lab wrapper runs build, Playwright and Lighthouse in order", () => {
+test("release lab wrapper runs build, Playwright and bundle budgets in order", () => {
   const calls = [];
   const status = runReleaseLab({
     env: {},

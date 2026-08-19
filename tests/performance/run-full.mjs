@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 
 await run("node", ["tests/performance/build-lab.mjs"]);
 await run("pnpm", ["exec", "playwright", "test", "-c", "tests/performance/playwright.config.ts"]);
-await run("pnpm", ["exec", "lhci", "autorun", "--config", "tests/performance/lighthouserc.cjs"]);
+await run("pnpm", ["perf:budgets"]);
 await run("node", ["scripts/load-smoke.mjs"]);
 
 function run(command, args) {

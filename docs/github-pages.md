@@ -28,6 +28,9 @@ https://api.takolako.site/
   - `/admin/` from `apps/admin/dist`
 - Workflow: `.github/workflows/pages.yml`
 - В workflow используется официальный GitHub Pages deploy через Actions.
+- Frontend deploy запускается после успешного workflow `Backend CI` для того же
+  commit. API diagnostics больше не `continue-on-error`, поэтому Pages не
+  публикует frontend поверх неподнятого/устаревшего backend build.
 - Production frontend собирается с `VITE_API_BASE_URL=https://api.takolako.site`
   и ходит в backend по HTTPS.
 
@@ -40,9 +43,12 @@ https://api.takolako.site/
 3. В GitHub repo открыть `Settings -> Pages`.
 4. В `Custom domain` указать `takolako.site`.
 5. В `Build and deployment` выбрать source `GitHub Actions`.
-6. Push branch `main`.
-7. Дождаться зелёного deploy и открыть URL выше.
-8. После выпуска сертификата включить `Enforce HTTPS`.
+6. Для автоматического backend deploy на VPS добавить GitHub secrets:
+   `TK_DEPLOY_HOST`, `TK_DEPLOY_USER`, `TK_DEPLOY_SSH_KEY`, `TK_DEPLOY_PATH`.
+   Если их нет, `Backend CI` выполнит проверки, но deploy job будет пропущен.
+7. Push branch `main`.
+8. Дождаться зелёного deploy и открыть URL выше.
+9. После выпуска сертификата включить `Enforce HTTPS`.
 
 ## Ограничения
 

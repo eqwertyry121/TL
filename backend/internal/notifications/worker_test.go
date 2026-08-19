@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -251,6 +252,52 @@ func TestClaimJobsReclaimsOnlyStaleProcessingJobs(t *testing.T) {
 	assertNotificationJobStatusCount(t, ctx, pool, "processing", 2)
 }
 
+func TestStaffTargetPrefersRealStaffOverBootstrapOwner(t *testing.T) {
+	ctx := context.Background()
+	pool := newNotificationsIntegrationPool(t, ctx)
+	defer pool.Close()
+
+	ownerTelegramID := int64(1048084234)
+	realCourierTelegramID := int64(7000000001)
+	ownerUserID := insertNotificationTestUserWithTelegram(t, ctx, pool, ownerTelegramID)
+	realCourierUserID := insertNotificationTestUserWithTelegram(t, ctx, pool, realCourierTelegramID)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO staff (user_id, telegram_user_id, role, display_label, active)
+		VALUES
+			($1, $2, 'COURIER', 'Owner Courier', true),
+			($3, $4, 'COURIER', 'Real Courier', true)
+		ON CONFLICT (telegram_user_id, role)
+		DO UPDATE SET user_id=EXCLUDED.user_id, active=true, updated_at=now()
+	`, ownerUserID, ownerTelegramID, realCourierUserID, realCourierTelegramID); err != nil {
+		t.Fatalf("insert staff: %v", err)
+	}
+
+	worker := &Worker{
+		pool:             pool,
+		ownerTelegramIDs: []int64{ownerTelegramID, 8241921060},
+		logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	got, err := worker.staffTarget(ctx, "COURIER")
+	if err != nil {
+		t.Fatalf("staff target: %v", err)
+	}
+	if got != realCourierTelegramID {
+		t.Fatalf("staff target = %d, want real courier %d", got, realCourierTelegramID)
+	}
+}
+
+func TestClientTextUsesLocale(t *testing.T) {
+	if got := clientText(123, "client_order_ready_for_pickup", "en"); !strings.Contains(got, "ready for pickup") {
+		t.Fatalf("English client text = %q", got)
+	}
+	if got := clientText(123, "client_order_ready_for_pickup", "sr"); !strings.Contains(got, "spremna") {
+		t.Fatalf("Serbian client text = %q", got)
+	}
+	if got := clientText(123, "client_order_ready_for_pickup", "ru"); !strings.Contains(got, "готов") {
+		t.Fatalf("Russian client text = %q", got)
+	}
+}
+
 func TestCleanupExpiredKeepsUnexpiredAndUnfinishedRows(t *testing.T) {
 	ctx := context.Background()
 	pool := newNotificationsIntegrationPool(t, ctx)
@@ -272,6 +319,8 @@ func TestCleanupExpiredKeepsUnexpiredAndUnfinishedRows(t *testing.T) {
 	recentCalculation := "cleanup-calculation-recent-" + uuid.NewString()
 	expiredIdempotencyID := uuid.New()
 	recentIdempotencyID := uuid.New()
+	oldPIIUserID := insertNotificationTestUserWithTelegram(t, ctx, pool, 3000000099)
+	oldPIIOrderID := uuid.New()
 
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO sessions (token_hash, user_id, telegram_user_id, audience, active_role, expires_at)
@@ -332,10 +381,43 @@ func TestCleanupExpiredKeepsUnexpiredAndUnfinishedRows(t *testing.T) {
 	`, oldSentJobID, oldFailedJobID, recentSentJobID, oldPendingJobID, oldProcessingJobID, orderID, "sent-old-"+uuid.NewString(), "failed-old-"+uuid.NewString(), "sent-recent-"+uuid.NewString(), "pending-old-"+uuid.NewString(), "processing-old-"+uuid.NewString()); err != nil {
 		t.Fatalf("insert notification jobs: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE users
+		SET phone_ciphertext='encrypted-phone',
+			phone_hash='hmac-sha256:old',
+			phone_verified_at=now() - interval '40 days',
+			updated_at=now() - interval '40 days'
+		WHERE id=$1
+	`, oldPIIUserID); err != nil {
+		t.Fatalf("set old user PII: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO orders (
+			id,
+			client_user_id,
+			fulfillment_status,
+			payment_method,
+			payment_status,
+			subtotal_minor,
+			delivery_fee_minor,
+			total_minor,
+			phone_ciphertext,
+			phone_hash,
+			address_ciphertext,
+			customer_comment,
+			locale,
+			delivered_at,
+			updated_at
+		)
+		VALUES ($1, $2, 'DELIVERED', 'cash', 'PAID', 100, 0, 100, 'encrypted-phone', 'hmac-sha256:old', 'encrypted-address', 'old comment', 'ru', now() - interval '40 days', now() - interval '40 days')
+	`, oldPIIOrderID, oldPIIUserID); err != nil {
+		t.Fatalf("insert old PII order: %v", err)
+	}
 
 	worker := &Worker{
-		pool:   pool,
-		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		pool:             pool,
+		piiRetentionDays: 30,
+		logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	if err := worker.cleanupExpired(ctx); err != nil {
 		t.Fatalf("cleanup expired: %v", err)
@@ -355,6 +437,8 @@ func TestCleanupExpiredKeepsUnexpiredAndUnfinishedRows(t *testing.T) {
 	assertRowExists(t, ctx, pool, "notification_jobs", "id", recentSentJobID.String(), true)
 	assertRowExists(t, ctx, pool, "notification_jobs", "id", oldPendingJobID.String(), true)
 	assertRowExists(t, ctx, pool, "notification_jobs", "id", oldProcessingJobID.String(), true)
+	assertOrderPIICleared(t, ctx, pool, oldPIIOrderID)
+	assertUserPIICleared(t, ctx, pool, oldPIIUserID)
 }
 
 func updateMaxActive(maxActive *atomic.Int64, value int64) {
@@ -405,12 +489,19 @@ func insertNotificationTestOrder(t *testing.T, ctx context.Context, pool *pgxpoo
 
 func insertNotificationTestUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool) uuid.UUID {
 	t.Helper()
+	return insertNotificationTestUserWithTelegram(t, ctx, pool, time.Now().UnixNano())
+}
+
+func insertNotificationTestUserWithTelegram(t *testing.T, ctx context.Context, pool *pgxpool.Pool, telegramUserID int64) uuid.UUID {
+	t.Helper()
 	var userID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO users (telegram_user_id, username, first_name)
 		VALUES ($1, 'notification_test', 'Notification Test')
+		ON CONFLICT (telegram_user_id)
+		DO UPDATE SET username=EXCLUDED.username, first_name=EXCLUDED.first_name, updated_at=now()
 		RETURNING id
-	`, time.Now().UnixNano()).Scan(&userID); err != nil {
+	`, telegramUserID).Scan(&userID); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	return userID
@@ -459,6 +550,37 @@ func assertRowExists(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tabl
 	}
 	if got != want {
 		t.Fatalf("%s.%s=%s exists = %t, want %t", table, column, value, got, want)
+	}
+}
+
+func assertOrderPIICleared(t *testing.T, ctx context.Context, pool *pgxpool.Pool, orderID uuid.UUID) {
+	t.Helper()
+	var phoneCiphertext, phoneHash, addressCiphertext, comment string
+	if err := pool.QueryRow(ctx, `
+		SELECT phone_ciphertext, phone_hash, address_ciphertext, customer_comment
+		FROM orders
+		WHERE id=$1
+	`, orderID).Scan(&phoneCiphertext, &phoneHash, &addressCiphertext, &comment); err != nil {
+		t.Fatalf("read cleared order PII: %v", err)
+	}
+	if phoneCiphertext != "" || phoneHash != "" || addressCiphertext != "" || comment != "" {
+		t.Fatalf("order PII was not cleared: phone=%q hash=%q address=%q comment=%q", phoneCiphertext, phoneHash, addressCiphertext, comment)
+	}
+}
+
+func assertUserPIICleared(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID) {
+	t.Helper()
+	var phoneCiphertext, phoneHash string
+	var verifiedAt *time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT phone_ciphertext, phone_hash, phone_verified_at
+		FROM users
+		WHERE id=$1
+	`, userID).Scan(&phoneCiphertext, &phoneHash, &verifiedAt); err != nil {
+		t.Fatalf("read cleared user PII: %v", err)
+	}
+	if phoneCiphertext != "" || phoneHash != "" || verifiedAt != nil {
+		t.Fatalf("user PII was not cleared: phone=%q hash=%q verified=%v", phoneCiphertext, phoneHash, verifiedAt)
 	}
 }
 

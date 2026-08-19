@@ -1,4 +1,5 @@
 import type { Locale, Route } from "./types";
+import { termsVersion } from "./legal-version";
 
 type LegalSection = {
   id: string;
@@ -37,8 +38,6 @@ type LegalCopy = {
   returns: LegalDocument;
   privacy: LegalDocument;
 };
-
-const termsVersion = "2026-08-17";
 
 const ownerLegalDefaults = {
   businessName: "Siarhei Dashchynski pr Ugostiteljska radnja TAKO LAKO Novi Sad",
@@ -392,18 +391,6 @@ export function Returns({ locale }: { locale: Locale }) {
 
 export function Privacy({ locale }: { locale: Locale }) {
   return <LegalDocumentPage locale={locale} document="privacy" />;
-}
-
-export function LegalFooter({ locale }: { locale: Locale }) {
-  const copy = legalCopy[locale];
-  return (
-    <footer className="legal-footer">
-      <a href="#/terms">{copy.nav.terms}</a>
-      <a href="#/returns">{copy.nav.returns}</a>
-      <a href="#/privacy">{copy.nav.privacy}</a>
-      <small>© 2026 Tako Lako · {copy.updated}</small>
-    </footer>
-  );
 }
 
 export function legalContactText(locale: Locale): { title: string; intro: string; emailLabel: string; telegramLabel: string; missingEmail: string } {
