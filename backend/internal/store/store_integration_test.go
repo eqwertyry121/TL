@@ -1038,7 +1038,8 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("open pickup slots for test: %v", err)
 	}
-	now := time.Now().UTC()
+	// Keep the acceptance scenario inside restaurant hours regardless of when CI runs.
+	now := time.Date(2026, time.August, 18, 10, 0, 0, 0, time.UTC)
 	calc, err := st.CalculateForFulfillment(ctx, clientSession, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, core.FulfillmentPickup, now)
 	if err != nil {
 		t.Fatalf("calculate pickup: %v", err)
