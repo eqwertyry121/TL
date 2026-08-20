@@ -7,6 +7,7 @@ import {
   AlertCircle,
   ArrowLeft,
   Check,
+	ChevronDown,
   ChevronRight,
   MapPin,
   Minus,
@@ -2128,7 +2129,7 @@ function Booking({
 						<h2>{formatBookingDate(reservation.date, locale)}</h2>
 						<div className="booking-active-details">
 							<div><span>{copy.timeLabel}</span><strong>{reservation.start_hour}:00–{reservation.end_hour}:00</strong></div>
-							<div><span>{copy.guestLabel}</span><strong>{copy.guests(reservation.guests)}</strong></div>
+							<div><span>{copy.guestsLabel}</span><strong>{copy.guests(reservation.guests)}</strong></div>
 						</div>
 					</div>
 					<button className="secondary full booking-cancel" type="button" disabled={submitting} onClick={onCancel}>
@@ -2145,24 +2146,12 @@ function Booking({
 		<div className="page narrow booking-page">
 			<div className="page-title booking-title"><h1>{copy.title}</h1><p>{copy.lead}</p></div>
 			<section className="booking-guests" aria-label={copy.guestLabel}>
-				<div className="booking-guests-heading">
-					<strong>{copy.guestLabel}</strong>
-					<span>{copy.guestHint}</span>
-				</div>
-				<div className="booking-guest-options">
-					{[1, 2, 3, 4, 5].map((count) => (
-						<button
-							type="button"
-							className={guests === count ? "active" : ""}
-							aria-label={copy.guests(count)}
-							aria-pressed={guests === count}
-							disabled={submitting}
-							onClick={() => onGuests(count)}
-							key={count}
-						>
-							{count}
-						</button>
-					))}
+				<label htmlFor="booking-guests">{copy.guestLabel}</label>
+				<div className="booking-guest-select">
+					<select id="booking-guests" value={guests} disabled={submitting} onChange={(event) => onGuests(Number(event.target.value))}>
+						{[1, 2, 3, 4, 5].map((count) => <option value={count} key={count}>{copy.guests(count)}</option>)}
+					</select>
+					<ChevronDown size={20} aria-hidden="true" />
 				</div>
 			</section>
 			{activeDay && (
@@ -2195,19 +2184,19 @@ function Booking({
 function bookingCopy(locale: Locale) {
 	if (locale === "sr") return {
 		title: "Rezervacija stola", lead: "Izaberite broj gostiju i vreme.", loading: "Učitavanje...", booked: "Sto je rezervisan",
-		guestLabel: "Broj gostiju", guestHint: "Od 1 do 5", timeLabel: "Vreme", chooseDate: "Izaberite datum", chooseTime: "Slobodno vreme", guests: (count: number) => `${count} ${count === 1 ? "gost" : "gostiju"}`, noSlots: "Nema mesta", empty: "Nema slobodnih termina u narednih sedam dana.",
+		guestLabel: "Izaberite broj gostiju", guestsLabel: "Gosti", timeLabel: "Vreme", chooseDate: "Izaberite datum", chooseTime: "Slobodno vreme", guests: (count: number) => `${count} ${count === 1 ? "gost" : "gostiju"}`, noSlots: "Nema mesta", empty: "Nema slobodnih termina u narednih sedam dana.",
 		submit: "REZERVIŠI", booking: "REZERVIŠEMO...", cancel: "OTKAŽI REZERVACIJU", cancelling: "OTKAZUJEMO...",
 		cancelTitle: "Otkazati rezervaciju?", cancelMessage: "Termin će odmah biti oslobođen.", cancelConfirm: "Otkaži",
 	};
 	if (locale === "en") return {
 		title: "Table booking", lead: "Choose the number of guests and a time.", loading: "Loading...", booked: "Table booked",
-		guestLabel: "Number of guests", guestHint: "From 1 to 5", timeLabel: "Time", chooseDate: "Choose a date", chooseTime: "Available times", guests: (count: number) => `${count} ${count === 1 ? "guest" : "guests"}`, noSlots: "Full", empty: "No available times in the next seven days.",
+		guestLabel: "Choose the number of guests", guestsLabel: "Guests", timeLabel: "Time", chooseDate: "Choose a date", chooseTime: "Available times", guests: (count: number) => `${count} ${count === 1 ? "guest" : "guests"}`, noSlots: "Full", empty: "No available times in the next seven days.",
 		submit: "BOOK TABLE", booking: "BOOKING...", cancel: "CANCEL BOOKING", cancelling: "CANCELLING...",
 		cancelTitle: "Cancel the booking?", cancelMessage: "The time will become available immediately.", cancelConfirm: "Cancel",
 	};
 	return {
 		title: "Бронь стола", lead: "Выберите количество гостей и время.", loading: "Загрузка...", booked: "Стол забронирован",
-		guestLabel: "Количество гостей", guestHint: "От 1 до 5 человек", timeLabel: "Время", chooseDate: "Выберите дату", chooseTime: "Свободное время", guests: (count: number) => `${count} ${count === 1 ? "гость" : count < 5 ? "гостя" : "гостей"}`, noSlots: "Мест нет", empty: "На ближайшие семь дней свободного времени нет.",
+		guestLabel: "Выберите количество гостей", guestsLabel: "Гости", timeLabel: "Время", chooseDate: "Выберите дату", chooseTime: "Свободное время", guests: (count: number) => `${count} ${count === 1 ? "гость" : count < 5 ? "гостя" : "гостей"}`, noSlots: "Мест нет", empty: "На ближайшие семь дней свободного времени нет.",
 		submit: "ЗАБРОНИРОВАТЬ", booking: "БРОНИРУЕМ...", cancel: "ОТМЕНИТЬ БРОНЬ", cancelling: "ОТМЕНЯЕМ...",
 		cancelTitle: "Отменить бронь?", cancelMessage: "Время сразу станет доступно другим гостям.", cancelConfirm: "Отменить",
 	};

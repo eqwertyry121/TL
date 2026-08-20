@@ -169,7 +169,6 @@ h2 {
     var(--page-pad)
     clamp(0.7rem, 2vw, 1rem);
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
-  overflow: hidden;
   background:
     radial-gradient(circle at 18% 0%, rgba(200, 155, 60, 0.13), transparent 32%),
     radial-gradient(circle at 100% 10%, rgba(200, 155, 60, 0.22), transparent 36%),
@@ -332,10 +331,6 @@ h2 {
 	gap: 0.35rem;
 }
 
-.client-more {
-	position: relative;
-}
-
 .client-more summary {
 	display: grid;
 	place-items: center;
@@ -351,12 +346,12 @@ h2 {
 .client-more summary::-webkit-details-marker { display: none; }
 
 .client-more-menu {
-	position: absolute;
-	top: calc(100% + 0.45rem);
-	right: 0;
+	position: fixed;
+	top: 4.35rem;
+	right: max(var(--page-pad), calc((100vw - var(--content-max)) / 2 + var(--page-pad)));
 	z-index: 60;
 	display: grid;
-	min-width: 10rem;
+	width: min(12rem, calc(100vw - 1.5rem));
 	padding: 0.35rem;
 	border-radius: 1rem;
 	background: var(--color-surface);
@@ -368,8 +363,6 @@ h2 {
 	border-radius: 0.7rem;
 	font-weight: 750;
 }
-
-.client-more-menu a:active { background: var(--surface-soft); }
 
 .booking-page {
 	padding-bottom: 7rem;
@@ -408,46 +401,37 @@ h2 {
 	border-radius: var(--radius-md);
 }
 
-.booking-guests-heading {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: 0.75rem;
+.booking-guests label {
+	font-weight: 800;
 }
 
-.booking-guests-heading strong {
-	font-size: 1rem;
-	line-height: 1.2;
-}
-
-.booking-guests-heading span,
 .booking-submit-bar span {
 	color: var(--muted);
 	font-size: 0.78rem;
 	line-height: 1.2;
 }
 
-.booking-guest-options {
-	display: grid;
-	grid-template-columns: repeat(5, minmax(0, 1fr));
-	gap: 0.45rem;
+.booking-guest-select {
+	position: relative;
 }
 
-.booking-guest-options button {
-	display: grid;
-	place-items: center;
-	min-height: 3.15rem;
+.booking-guest-select select {
+	width: 100%;
+	min-height: 3.2rem;
+	padding: 0 3rem 0 1rem;
+	appearance: none;
 	border: 1px solid var(--color-border);
 	border-radius: 0.9rem;
 	background: #fbf6ed;
-	color: var(--color-text);
-	font-size: 1rem;
-	font-weight: 850;
+	font-weight: 800;
 }
 
-.booking-guest-options button.active {
-	background: var(--color-primary);
-	color: #fff;
+.booking-guest-select svg {
+	position: absolute;
+	top: 50%;
+	right: 1rem;
+	pointer-events: none;
+	transform: translateY(-50%);
 }
 
 .booking-days {
@@ -2812,7 +2796,6 @@ body {
   top: auto;
   box-shadow: none;
   backdrop-filter: none;
-  contain: paint;
 }
 
 .page,
