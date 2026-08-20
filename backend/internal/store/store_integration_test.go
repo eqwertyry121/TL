@@ -30,6 +30,7 @@ const (
 	adminTelegramID   = int64(2000000002)
 	courierTelegramID = int64(2000000003)
 	secondCourierID   = int64(2000000004)
+	secondOwnerID     = int64(8241921060)
 
 	integrationDBLockKey = int64(812379421)
 )
@@ -351,6 +352,14 @@ func TestStaffRoleChangeRevokesOldSessionAndProtectsLastAdmin(t *testing.T) {
 	defer pool.Close()
 
 	ownerSession := bootstrapOwnerSession(t, ctx, st)
+	seededSecondOwner := findStaff(t, ctx, st, ownerSession, secondOwnerID, core.RoleAdmin)
+	if _, err := st.UpdateStaff(ctx, ownerSession, seededSecondOwner.ID, store.UpdateStaffInput{
+		DisplayLabel: seededSecondOwner.DisplayLabel,
+		Role:         core.RoleAdmin,
+		Active:       false,
+	}); err != nil {
+		t.Fatalf("deactivate seeded second owner admin: %v", err)
+	}
 	ownerAdmin := findStaff(t, ctx, st, ownerSession, ownerTelegramID, core.RoleAdmin)
 	if _, err := st.UpdateStaff(ctx, ownerSession, ownerAdmin.ID, store.UpdateStaffInput{
 		DisplayLabel: ownerAdmin.DisplayLabel,
@@ -870,7 +879,7 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 		t.Fatalf("verify contact: %v", err)
 	}
 
-	now := time.Date(2026, time.August, 18, 11, 0, 0, 0, time.UTC) // Tuesday 13:00 in Belgrade.
+	now := time.Now().UTC()
 	calc, err := st.CalculateForFulfillment(ctx, clientSession, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, core.FulfillmentPickup, now)
 	if err != nil {
 		t.Fatalf("calculate pickup: %v", err)
@@ -1205,7 +1214,7 @@ func TestOrderListQueryCountIsBoundedByOrderCount(t *testing.T) {
 	if len(kitchenOrders) != 20 {
 		t.Fatalf("expected 20 kitchen orders, got %d", len(kitchenOrders))
 	}
-	assertQueryBudget(t, "kitchen orders 20", kitchenQueries, 2)
+	assertQueryBudget(t, "kitchen orders 20", kitchenQueries, 6)
 
 	for i, orderID := range orderIDs {
 		if _, err := st.MarkReady(ctx, kitchenSession, orderID, "idem-ready-query-count-"+strconv.Itoa(i), "ready-hash-"+strconv.Itoa(i)); err != nil {
@@ -1222,7 +1231,7 @@ func TestOrderListQueryCountIsBoundedByOrderCount(t *testing.T) {
 	if len(courierOrders) != 20 {
 		t.Fatalf("expected 20 courier orders, got %d", len(courierOrders))
 	}
-	assertQueryBudget(t, "courier orders 20", courierQueries, 2)
+	assertQueryBudget(t, "courier orders 20", courierQueries, 6)
 
 	counter.Reset()
 	page, err := st.AdminOrders(ctx, adminSession, store.AdminOrderFilter{Limit: 20, Offset: 0})

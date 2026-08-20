@@ -3953,9 +3953,24 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 		return core.Order{}, err
 	}
 	order.Items = items
-	if err := s.attachAdditionState(ctx, &order); err != nil {
+	var addition core.OrderAddition
+	err = s.pool.QueryRow(ctx, `
+		SELECT id, revision, subtotal_minor, currency, created_at
+		FROM order_additions
+		WHERE order_id=$1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, order.ID).Scan(&addition.ID, &addition.Revision, &addition.SubtotalMinor, &addition.Currency, &addition.CreatedAt)
+	if err == nil {
+		order.LatestAddition = &addition
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return core.Order{}, err
 	}
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return core.Order{}, err
+	}
+	s.attachAdditionState(&order, settings)
 	return order, nil
 }
 
@@ -4025,27 +4040,9 @@ func (s *Store) orderItemQuantities(ctx context.Context, orderID uuid.UUID) (map
 	return quantities, rows.Err()
 }
 
-func (s *Store) attachAdditionState(ctx context.Context, order *core.Order) error {
+func (s *Store) attachAdditionState(order *core.Order, settings core.Settings) {
 	if order == nil || order.ID == uuid.Nil {
-		return nil
-	}
-	var addition core.OrderAddition
-	err := s.pool.QueryRow(ctx, `
-		SELECT id, revision, subtotal_minor, currency, created_at
-		FROM order_additions
-		WHERE order_id=$1
-		ORDER BY created_at DESC
-		LIMIT 1
-	`, order.ID).Scan(&addition.ID, &addition.Revision, &addition.SubtotalMinor, &addition.Currency, &addition.CreatedAt)
-	if err == nil {
-		order.LatestAddition = &addition
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return err
-	}
-
-	settings, err := s.Settings(ctx)
-	if err != nil {
-		return err
+		return
 	}
 	until := order.CreatedAt.UTC().Add(orderAdditionWindow)
 	if order.FulfillmentType == core.FulfillmentPickup && order.PickupAt != nil {
@@ -4057,29 +4054,28 @@ func (s *Store) attachAdditionState(ctx context.Context, order *core.Order) erro
 	}
 	if order.FulfillmentStatus != core.StatusNew {
 		order.AddItemsReason = "status"
-		return nil
+		return
 	}
 	if order.PaymentMethod != core.PaymentCash {
 		order.AddItemsReason = "payment_method"
-		return nil
+		return
 	}
 	if order.LatestAddition != nil {
 		order.AddItemsReason = "already_added"
-		return nil
+		return
 	}
 	order.AddItemsUntil = &until
 	now := time.Now().UTC()
 	if !now.Before(until) {
 		order.AddItemsReason = "time_expired"
-		return nil
+		return
 	}
 	accept := core.CanAcceptOrder(now, settings)
 	if !accept.OK {
 		order.AddItemsReason = accept.Reason
-		return nil
+		return
 	}
 	order.CanAddItems = true
-	return nil
 }
 
 func pickupCookAt(pickupAt *time.Time, settings core.Settings) *time.Time {
@@ -4301,7 +4297,7 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 
 	itemRows, err := s.pool.Query(ctx, `
 		SELECT oi.order_id, oi.menu_item_id, oi.snapshot_title, oi.unit_price_minor, oi.quantity, oi.line_total_minor,
-			oi.addition_id, COALESCE(oa.revision, 0), oa.created_at
+			oi.addition_id, COALESCE(oa.revision, 0), COALESCE(oa.subtotal_minor, 0), COALESCE(oa.currency, ''), oa.created_at
 		FROM order_items oi
 		LEFT JOIN order_additions oa ON oa.id=oi.addition_id
 		WHERE oi.order_id=ANY($1)
@@ -4315,6 +4311,8 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 		var orderID uuid.UUID
 		var item core.OrderItem
 		var additionID uuid.NullUUID
+		var additionSubtotal int
+		var additionCurrency string
 		var additionCreated sql.NullTime
 		if err := itemRows.Scan(
 			&orderID,
@@ -4325,6 +4323,8 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 			&item.LineTotalMinor,
 			&additionID,
 			&item.AdditionRevision,
+			&additionSubtotal,
+			&additionCurrency,
 			&additionCreated,
 		); err != nil {
 			return nil, err
@@ -4339,15 +4339,37 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 		}
 		if index, ok := indexByID[orderID]; ok {
 			orders[index].Items = append(orders[index].Items, item)
+			if additionID.Valid && additionCreated.Valid &&
+				(orders[index].LatestAddition == nil || additionCreated.Time.After(orders[index].LatestAddition.CreatedAt)) {
+				orders[index].LatestAddition = &core.OrderAddition{
+					ID:            additionID.UUID,
+					Revision:      item.AdditionRevision,
+					SubtotalMinor: additionSubtotal,
+					Currency:      additionCurrency,
+					CreatedAt:     additionCreated.Time,
+				}
+			}
 		}
 	}
 	if err := itemRows.Err(); err != nil {
 		return nil, err
 	}
+	needsSettings := false
 	for index := range orders {
-		if err := s.attachAdditionState(ctx, &orders[index]); err != nil {
+		if orders[index].FulfillmentStatus == core.StatusNew && orders[index].PaymentMethod == core.PaymentCash && orders[index].LatestAddition == nil {
+			needsSettings = true
+			break
+		}
+	}
+	var settings core.Settings
+	if needsSettings {
+		settings, err = s.Settings(ctx)
+		if err != nil {
 			return nil, err
 		}
+	}
+	for index := range orders {
+		s.attachAdditionState(&orders[index], settings)
 	}
 	return orders, nil
 }
