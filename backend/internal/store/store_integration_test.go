@@ -346,6 +346,55 @@ func TestScheduleUpdateBumpsRuntimeRevision(t *testing.T) {
 	}
 }
 
+func TestBootstrapOwnerPreservesTelegramProfileAndStaffLabels(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	user, err := st.UpsertTelegramUser(ctx, core.User{
+		TelegramUserID: ownerTelegramID,
+		Username:       "eqwertyry",
+		FirstName:      "Real owner name",
+		PhotoURL:       "https://example.test/avatar.jpg",
+		LanguageCode:   "sr",
+	})
+	if err != nil {
+		t.Fatalf("seed real Telegram profile: %v", err)
+	}
+	if err := st.BootstrapOwner(ctx, ownerTelegramID); err != nil {
+		t.Fatalf("bootstrap owner first time: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE staff SET display_label='Kitchen owner label'
+		WHERE telegram_user_id=$1 AND role='KITCHEN'
+	`, ownerTelegramID); err != nil {
+		t.Fatalf("customize owner staff label: %v", err)
+	}
+	if err := st.BootstrapOwner(ctx, ownerTelegramID); err != nil {
+		t.Fatalf("bootstrap owner second time: %v", err)
+	}
+
+	var username, firstName, photoURL, languageCode, kitchenLabel string
+	if err := pool.QueryRow(ctx, `
+		SELECT username, first_name, photo_url, language_code
+		FROM users WHERE id=$1
+	`, user.ID).Scan(&username, &firstName, &photoURL, &languageCode); err != nil {
+		t.Fatalf("load owner profile: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT display_label FROM staff
+		WHERE telegram_user_id=$1 AND role='KITCHEN'
+	`, ownerTelegramID).Scan(&kitchenLabel); err != nil {
+		t.Fatalf("load owner kitchen label: %v", err)
+	}
+	if username != "eqwertyry" || firstName != "Real owner name" || photoURL != "https://example.test/avatar.jpg" || languageCode != "sr" {
+		t.Fatalf("bootstrap owner overwrote Telegram profile: username=%q first_name=%q photo=%q language=%q", username, firstName, photoURL, languageCode)
+	}
+	if kitchenLabel != "Kitchen owner label" {
+		t.Fatalf("bootstrap owner overwrote staff label: %q", kitchenLabel)
+	}
+}
+
 func TestStaffRoleChangeRevokesOldSessionAndProtectsLastAdmin(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)

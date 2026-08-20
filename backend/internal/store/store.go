@@ -280,13 +280,14 @@ func (s *Store) BootstrapOwner(ctx context.Context, telegramUserID int64) error 
 		return nil
 	}
 	ownerTesterTelegramIDs[telegramUserID] = struct{}{}
-	user, err := s.UpsertTelegramUser(ctx, core.User{
-		TelegramUserID: telegramUserID,
-		Username:       "owner",
-		FirstName:      "Owner",
-		PhotoURL:       "",
-		LanguageCode:   "ru",
-	})
+	var user core.User
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO users (telegram_user_id, username, first_name, photo_url, language_code)
+		VALUES ($1, 'owner', 'Owner', '', 'ru')
+		ON CONFLICT (telegram_user_id)
+		DO UPDATE SET telegram_user_id=EXCLUDED.telegram_user_id
+		RETURNING id, telegram_user_id, username, first_name, photo_url, language_code
+	`, telegramUserID).Scan(&user.ID, &user.TelegramUserID, &user.Username, &user.FirstName, &user.PhotoURL, &user.LanguageCode)
 	if err != nil {
 		return err
 	}
@@ -295,7 +296,7 @@ func (s *Store) BootstrapOwner(ctx context.Context, telegramUserID int64) error 
 			INSERT INTO staff (user_id, telegram_user_id, role, display_label, active, created_by)
 			VALUES ($1, $2, $3, $4, true, $1)
 			ON CONFLICT (telegram_user_id, role)
-			DO UPDATE SET active=true, user_id=EXCLUDED.user_id, display_label=EXCLUDED.display_label, updated_at=now()
+			DO UPDATE SET active=true, user_id=EXCLUDED.user_id, updated_at=now()
 		`, user.ID, telegramUserID, string(role), "Owner "+string(role))
 		if err != nil {
 			return err
