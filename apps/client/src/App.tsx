@@ -19,6 +19,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { createApi } from "./api";
 import { orderStatusText } from "./fixtures";
 import { t } from "./i18n";
@@ -989,6 +990,7 @@ function Shell({
   session?: Session | null;
   onLocale: (locale: Locale) => void;
 }) {
+  const [moreOpen, setMoreOpen] = useState(false);
   const isRoot = route.name === "menu";
   const showLocale = isRoot || isPublicInformationRoute(route);
   const dayOffBlocked = isDayOffRuntime(runtime) && route.name !== "booking" && !isOwnerTelegramId(session?.telegram_user_id);
@@ -1014,15 +1016,9 @@ function Shell({
             </div>
           </div>
           <div className="header-actions">
-            <div className="profile-actions">
+			<div className="profile-actions">
 						<ProfileBadge session={session} />
-						<details className="client-more">
-							<summary aria-label={locale === "ru" ? "Ещё" : locale === "sr" ? "Još" : "More"}><MoreHorizontal size={20} /></summary>
-							<div className="client-more-menu">
-								<a href="#/support">{t(locale, "support")}</a>
-								<a href="#/terms">{locale === "ru" ? "Условия" : locale === "sr" ? "Uslovi" : "Terms"}</a>
-							</div>
-						</details>
+						<button className="client-more-trigger" type="button" aria-label={locale === "ru" ? "Ещё" : locale === "sr" ? "Još" : "More"} aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><MoreHorizontal size={20} /></button>
 					</div>
             {showLocale && (
               <div className="locale">
@@ -1052,6 +1048,15 @@ function Shell({
         </nav>
         {isOwnerTelegramId(session?.telegram_user_id) && <OwnerRoleSwitch activeRole="CLIENT" />}
       </header>
+		{moreOpen && createPortal(
+			<div className="client-popover-layer" onClick={() => setMoreOpen(false)}>
+				<div className="client-more-menu" role="menu" onClick={(event) => event.stopPropagation()}>
+					<a role="menuitem" href="#/support" onClick={() => setMoreOpen(false)}>{t(locale, "support")}</a>
+					<a role="menuitem" href="#/terms" onClick={() => setMoreOpen(false)}>{locale === "ru" ? "Условия" : locale === "sr" ? "Uslovi" : "Terms"}</a>
+				</div>
+			</div>,
+			document.body,
+		)}
       <main className="app-content" aria-hidden={dayOffBlocked ? "true" : undefined}>{children}</main>
       {dayOffBlocked && <DayOffOverlay locale={locale} runtime={runtime} />}
     </div>
@@ -2109,6 +2114,7 @@ function Booking({
 	onCancel(): void;
 }) {
 	const copy = bookingCopy(locale);
+	const [guestSelectOpen, setGuestSelectOpen] = useState(false);
 	if (!session) {
 		return (
 			<div className="page narrow booking-page">
@@ -2146,12 +2152,21 @@ function Booking({
 		<div className="page narrow booking-page">
 			<div className="page-title booking-title"><h1>{copy.title}</h1><p>{copy.lead}</p></div>
 			<section className="booking-guests" aria-label={copy.guestLabel}>
-				<label htmlFor="booking-guests">{copy.guestLabel}</label>
-				<div className="booking-guest-select">
-					<select id="booking-guests" value={guests} disabled={submitting} onChange={(event) => onGuests(Number(event.target.value))}>
-						{[1, 2, 3, 4, 5].map((count) => <option value={count} key={count}>{copy.guests(count)}</option>)}
-					</select>
+				<span className="booking-guest-label">{copy.guestLabel}</span>
+				<div className={guestSelectOpen ? "booking-guest-select is-open" : "booking-guest-select"} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setGuestSelectOpen(false); }}>
+					<button className="booking-guest-trigger" type="button" disabled={submitting} aria-haspopup="listbox" aria-expanded={guestSelectOpen} onClick={() => setGuestSelectOpen((open) => !open)}>
+						<span>{copy.guests(guests)}</span>
 					<ChevronDown size={20} aria-hidden="true" />
+					</button>
+					{guestSelectOpen && (
+						<div className="booking-guest-menu" role="listbox" aria-label={copy.guestLabel}>
+							{[1, 2, 3, 4, 5].map((count) => (
+								<button type="button" role="option" aria-selected={guests === count} className={guests === count ? "active" : ""} key={count} onClick={() => { onGuests(count); setGuestSelectOpen(false); }}>
+									<span>{copy.guests(count)}</span>{guests === count && <Check size={18} />}
+								</button>
+							))}
+						</div>
+					)}
 				</div>
 			</section>
 			{activeDay && (

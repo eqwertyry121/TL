@@ -331,7 +331,7 @@ h2 {
 	gap: 0.35rem;
 }
 
-.client-more summary {
+.client-more-trigger {
 	display: grid;
 	place-items: center;
 	width: 2.25rem;
@@ -339,23 +339,25 @@ h2 {
 	border-radius: 50%;
 	background: rgba(255, 255, 255, 0.14);
 	color: #fff;
-	cursor: pointer;
-	list-style: none;
 }
 
-.client-more summary::-webkit-details-marker { display: none; }
+.client-popover-layer {
+	position: fixed;
+	inset: 0;
+	z-index: 100;
+	background: rgba(38, 26, 23, 0.24);
+}
 
 .client-more-menu {
 	position: fixed;
 	top: 4.35rem;
 	right: max(var(--page-pad), calc((100vw - var(--content-max)) / 2 + var(--page-pad)));
-	z-index: 60;
 	display: grid;
 	width: min(12rem, calc(100vw - 1.5rem));
 	padding: 0.35rem;
 	border-radius: 1rem;
 	background: var(--color-surface);
-	color: var(--color-text);
+	box-shadow: 0 0.9rem 2rem rgba(38, 26, 23, 0.18);
 }
 
 .client-more-menu a {
@@ -401,7 +403,7 @@ h2 {
 	border-radius: var(--radius-md);
 }
 
-.booking-guests label {
+.booking-guest-label {
 	font-weight: 800;
 }
 
@@ -415,23 +417,51 @@ h2 {
 	position: relative;
 }
 
-.booking-guest-select select {
+.booking-guest-trigger {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
 	width: 100%;
 	min-height: 3.2rem;
-	padding: 0 3rem 0 1rem;
-	appearance: none;
+	padding: 0 1rem;
 	border: 1px solid var(--color-border);
 	border-radius: 0.9rem;
 	background: #fbf6ed;
+	color: var(--color-text);
 	font-weight: 800;
 }
 
-.booking-guest-select svg {
+.booking-guest-trigger svg {
+	color: var(--color-primary);
+}
+
+.booking-guest-menu {
 	position: absolute;
-	top: 50%;
-	right: 1rem;
-	pointer-events: none;
-	transform: translateY(-50%);
+	top: calc(100% + 0.35rem);
+	right: 0;
+	left: 0;
+	z-index: 50;
+	display: grid;
+	padding: 0.35rem;
+	border: 1px solid var(--color-border);
+	border-radius: 1rem;
+	background: var(--color-surface);
+	box-shadow: 0 0.9rem 2rem rgba(38, 26, 23, 0.16);
+}
+
+.booking-guest-menu button {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	min-height: 2.8rem;
+	padding: 0 0.75rem;
+	border-radius: 0.7rem;
+	background: transparent;
+	color: var(--color-text);
+}
+
+.booking-guest-menu button.active {
+	background: var(--surface-soft);
 }
 
 .booking-days {
