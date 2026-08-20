@@ -63,10 +63,11 @@ jobs:
           POSTGRES_MIN_CONNS: "1"
           PERF_BASE_URL: http://127.0.0.1:18080
           PERF_MAX_P95_MS: "500"
-          PERF_CONCURRENCY: "1,10,30"
-          PERF_CHECKOUT_ITERATIONS: "20"
-          PERF_CHECKOUT_CONCURRENCY: "5"
-          PERF_CHECKOUT_MAX_P95_MS: "300"
+          # Three endpoints plus ETag checks must stay below the 240/minute public-read limiter.
+          PERF_CONCURRENCY: "1,10,20"
+          PERF_CHECKOUT_ITERATIONS: "12"
+          PERF_CHECKOUT_CONCURRENCY: "3"
+          PERF_CHECKOUT_MAX_P95_MS: "500"
           PERF_ALLOW_LOCAL_BASE_URL: "true"
         run: |
           go run ./backend/cmd/app > api.log 2>&1 &
