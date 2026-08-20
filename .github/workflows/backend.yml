@@ -70,6 +70,8 @@ jobs:
           PERF_CHECKOUT_MAX_P95_MS: "500"
           PERF_ALLOW_LOCAL_BASE_URL: "true"
         run: |
+          mkdir -p "$MEDIA_DIR/menu"
+          cp docs/menu_assets_from_telegram/production_media/*.jpg "$MEDIA_DIR/menu/"
           go run ./backend/cmd/app > api.log 2>&1 &
           api_pid=$!
           run_public_api_checks() {
