@@ -221,8 +221,7 @@ h1 {
   box-shadow: 0 1rem 2.4rem rgba(38, 26, 23, 0.2);
 }
 
-.confirm-dialog h2,
-.confirm-dialog p {
+.confirm-dialog h2 {
   margin: 0;
 }
 

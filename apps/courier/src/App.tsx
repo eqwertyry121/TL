@@ -10,7 +10,6 @@ const api = createStaffApi("COURIER");
 const courierSeenOrdersKey = "tk-courier-seen-orders-v1";
 type ConfirmDialogState = {
   title: string;
-  message: string;
   confirmLabel: string;
   resolve(confirmed: boolean): void;
 };
@@ -104,8 +103,11 @@ export function App() {
   }, [token]);
 
   async function markDelivered(order: Order) {
-    const text = order.payment_method === "cash" ? `Получены наличные ${money(order.total_minor)}?` : "Заказ доставлен?";
-    const confirmed = await askConfirm({ title: `Заказ #${order.public_number}`, message: text, confirmLabel: "Доставлено" });
+    const cash = order.payment_method === "cash" && order.payment_status !== "PAID";
+    const confirmed = await askConfirm({
+      title: `Заказ #${order.public_number} доставлен?`,
+      confirmLabel: cash ? "Доставлено и оплачено" : "Доставлено",
+    });
     if (!confirmed) return;
     markSeen(order.id);
     setBusy(order.id);
@@ -245,7 +247,6 @@ function ConfirmDialog({ dialog, onClose }: { dialog: ConfirmDialogState; onClos
     <div className="dialog-backdrop" role="presentation" onClick={() => onClose(false)}>
       <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={(event) => event.stopPropagation()}>
         <h2 id="confirm-title">{dialog.title}</h2>
-        <p>{dialog.message}</p>
         <div className="dialog-actions">
           <button type="button" onClick={() => onClose(false)}>Отмена</button>
           <button className="primary" type="button" onClick={() => onClose(true)}>{dialog.confirmLabel}</button>

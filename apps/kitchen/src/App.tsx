@@ -16,7 +16,6 @@ let pendingNotificationSound = false;
 let notificationSoundPlayingUntil = 0;
 type ConfirmDialogState = {
   title: string;
-  message: string;
   confirmLabel: string;
   resolve(confirmed: boolean): void;
 };
@@ -161,11 +160,10 @@ export function App() {
 
   async function markReady(order: Order) {
     const pickup = order.fulfillment_type === "pickup";
-    const pickupTime = pickup ? timeHHMM(order.pickup_at || order.created_at) : "";
-    const message = pickup
-      ? `Заказ #${order.public_number} готов к самовывозу в ${pickupTime}? Клиент получит уведомление, курьер — нет.`
-      : `Заказ #${order.public_number} готов и передаётся курьеру?`;
-    const confirmed = await askConfirm({ title: `Заказ #${order.public_number}`, message, confirmLabel: pickup ? "Готов к самовывозу" : "Передать курьеру" });
+    const confirmed = await askConfirm({
+      title: `Заказ #${order.public_number} готов?`,
+      confirmLabel: pickup ? "Готов к самовывозу" : "Передать курьеру",
+    });
     if (!confirmed) return;
     markSeen(order);
     setBusy(order.id);
@@ -187,10 +185,7 @@ export function App() {
   async function markPickupCollected(order: Order) {
     const cash = order.payment_method === "cash" && order.payment_status !== "PAID";
     const confirmed = await askConfirm({
-      title: `Заказ #${order.public_number}`,
-      message: cash
-        ? `Клиент забрал заказ и передал ${money(order.total_minor)} наличными?`
-        : "Клиент забрал заказ?",
+      title: `Заказ #${order.public_number} забран?`,
       confirmLabel: cash ? "Забран и оплачен" : "Забран",
     });
     if (!confirmed) return;
@@ -256,7 +251,6 @@ function ConfirmDialog({ dialog, onClose }: { dialog: ConfirmDialogState; onClos
     <div className="dialog-backdrop" role="presentation" onClick={() => onClose(false)}>
       <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={(event) => event.stopPropagation()}>
         <h2 id="confirm-title">{dialog.title}</h2>
-        <p>{dialog.message}</p>
         <div className="dialog-actions">
           <button type="button" onClick={() => onClose(false)}>Отмена</button>
           <button className="primary" type="button" onClick={() => onClose(true)}>{dialog.confirmLabel}</button>
