@@ -144,6 +144,11 @@ test("frontend deploy and performance CI run root optimization gates", () => {
   const pagesWorkflow = readSource(".github/workflows/pages.yml");
   const performanceWorkflow = readSource(".github/workflows/performance.yml");
 
+  assert.match(
+    pagesWorkflow,
+    /github\.event\.workflow_run\.head_sha == github\.sha/,
+    "a stale backend workflow must not replace the current frontend release",
+  );
   assertWorkflowStepRuns(pagesWorkflow, "Optimization contract checks", "pnpm check");
   assertWorkflowStepRuns(pagesWorkflow, "API deployment diagnostics", "pnpm perf:deployment-diagnostics");
   assertWorkflowStepEnv(pagesWorkflow, "API deployment diagnostics", "PERF_BASE_URL", "https://api.takolako.site");
