@@ -671,8 +671,11 @@ func (w *Worker) cleanupExpired(ctx context.Context) error {
 							FROM orders o
 							WHERE o.client_user_id = u.id
 								AND (
-								o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP')
-									OR o.updated_at >= now() - ($1::int * interval '1 day')
+									o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP')
+									OR (
+										o.fulfillment_status IN ('DELIVERED', 'CANCELLED')
+										AND COALESCE(o.delivered_at, o.cancelled_at, o.created_at) >= now() - ($1::int * interval '1 day')
+									)
 								)
 						)
 					LIMIT 200

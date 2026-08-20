@@ -34,18 +34,18 @@ const (
 	integrationDBLockKey = int64(812379421)
 )
 
-var classicKhinkaliID = uuid.MustParse("22222222-2222-2222-2222-222222222001")
-var khinkaliCategoryID = uuid.MustParse("11111111-1111-1111-1111-111111111001")
+var classicKhinkaliID = uuid.MustParse("44444444-4444-4444-4444-444444444001")
+var khinkaliCategoryID = uuid.MustParse("33333333-3333-3333-3333-333333333001")
 
 var seededMenuItemInputs = []core.CartItemInput{
-	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222001"), Quantity: 5},
-	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222002"), Quantity: 5},
-	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222003"), Quantity: 1},
-	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222004"), Quantity: 1},
-	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222005"), Quantity: 1},
-	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222006"), Quantity: 1},
-	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222007"), Quantity: 1},
-	{ItemID: uuid.MustParse("22222222-2222-2222-2222-222222222008"), Quantity: 1},
+	{ItemID: uuid.MustParse("44444444-4444-4444-4444-444444444001"), Quantity: 1},
+	{ItemID: uuid.MustParse("44444444-4444-4444-4444-444444444002"), Quantity: 1},
+	{ItemID: uuid.MustParse("44444444-4444-4444-4444-444444444003"), Quantity: 1},
+	{ItemID: uuid.MustParse("44444444-4444-4444-4444-444444444004"), Quantity: 1},
+	{ItemID: uuid.MustParse("44444444-4444-4444-4444-444444444005"), Quantity: 1},
+	{ItemID: uuid.MustParse("44444444-4444-4444-4444-444444444006"), Quantity: 1},
+	{ItemID: uuid.MustParse("44444444-4444-4444-4444-444444444007"), Quantity: 1},
+	{ItemID: uuid.MustParse("44444444-4444-4444-4444-444444444008"), Quantity: 1},
 }
 
 type queryCounter struct {
@@ -354,8 +354,8 @@ func TestStaffRoleChangeRevokesOldSessionAndProtectsLastAdmin(t *testing.T) {
 	ownerAdmin := findStaff(t, ctx, st, ownerSession, ownerTelegramID, core.RoleAdmin)
 	if _, err := st.UpdateStaff(ctx, ownerSession, ownerAdmin.ID, store.UpdateStaffInput{
 		DisplayLabel: ownerAdmin.DisplayLabel,
-		Role:         core.RoleKitchen,
-		Active:       true,
+		Role:         core.RoleAdmin,
+		Active:       false,
 	}); !errors.Is(err, core.ErrInvalidInput) {
 		t.Fatalf("expected last admin protection, got %v", err)
 	}
