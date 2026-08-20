@@ -202,7 +202,7 @@ export function App() {
       <header className="header">
         <div>
           <h1>Кухня</h1>
-          <p>{sortedDeliveryOrders.length} доставка · {sortedPickupOrders.length + sortedPickupReadyOrders.length} самовывоз · {lastUpdated ? `обновлено ${secondsAgo(lastUpdated)} сек назад` : "ожидание"}</p>
+          <p>{lastUpdated ? `Обновлено ${secondsAgo(lastUpdated)} сек назад` : "Ожидание заказов"}</p>
         </div>
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>
       </header>
@@ -215,19 +215,19 @@ export function App() {
       </nav>
       <main className="kitchen-board">
         <section className={`order-window delivery-window ${activeWindow === "delivery" ? "mobile-active" : ""}`}>
-          <header><div><span>ДОСТАВКА</span><strong>{sortedDeliveryOrders.length}</strong></div><small>Сначала самые старые</small></header>
+          <div className="desktop-window-title"><h2>Доставка</h2><span>{sortedDeliveryOrders.length}</span></div>
           <div className="window-list">
-            {!sortedDeliveryOrders.length && <div className="empty">Заказов на доставку нет</div>}
+            {!sortedDeliveryOrders.length && <div className="empty">Пока заказов нет</div>}
             {sortedDeliveryOrders.map((order) => <KitchenOrderCard key={order.id} order={order} seenIds={seenIds} busy={busy} onSeen={markSeen} onPrimary={markReady} />)}
           </div>
         </section>
         <section className={`order-window pickup-window ${activeWindow === "pickup" ? "mobile-active" : ""}`}>
-          <header><div><span>САМОВЫВОЗ</span><strong>{sortedPickupOrders.length + sortedPickupReadyOrders.length}</strong></div><small>По времени получения</small></header>
+          <div className="desktop-window-title"><h2>Самовывоз</h2><span>{sortedPickupOrders.length + sortedPickupReadyOrders.length}</span></div>
           <div className="window-list">
             {!!sortedPickupReadyOrders.length && <OrderGroup title="ГОТОВЫ К ВЫДАЧЕ" count={sortedPickupReadyOrders.length} tone="ready">{sortedPickupReadyOrders.map((order) => <KitchenOrderCard key={order.id} order={order} seenIds={seenIds} busy={busy} onSeen={markSeen} onPrimary={markPickupCollected} />)}</OrderGroup>}
             {!!pickupDueOrders.length && <OrderGroup title="ГОТОВИТЬ СЕЙЧАС" count={pickupDueOrders.length} tone="urgent">{pickupDueOrders.map((order) => <KitchenOrderCard key={order.id} order={order} seenIds={seenIds} busy={busy} onSeen={markSeen} onPrimary={markReady} />)}</OrderGroup>}
             {!!pickupLaterOrders.length && <OrderGroup title="ПОЗЖЕ СЕГОДНЯ" count={pickupLaterOrders.length}>{pickupLaterOrders.map((order) => <FuturePickupRow key={order.id} order={order} />)}</OrderGroup>}
-            {!sortedPickupOrders.length && !sortedPickupReadyOrders.length && <div className="empty">Самовывоза сегодня нет</div>}
+            {!sortedPickupOrders.length && !sortedPickupReadyOrders.length && <div className="empty">Пока заказов нет</div>}
           </div>
         </section>
       </main>

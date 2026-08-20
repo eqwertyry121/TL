@@ -296,12 +296,7 @@ h1 {
 .kitchen-board { display:grid; grid-template-columns:minmax(0,1fr); gap:var(--gap); align-items:start; width:100%; margin:0 auto; }
 .order-window { display:none; min-width:0; gap:.7rem; }
 .order-window.mobile-active { display:grid; }
-.order-window > header { display:flex; align-items:end; justify-content:space-between; gap:.7rem; padding:.85rem 1rem; border-radius:var(--radius-md); color:#fff; background:linear-gradient(135deg,var(--color-primary-dark),var(--color-primary)); box-shadow:0 .65rem 1.5rem rgba(67,20,27,.14); }
-.pickup-window > header { background:linear-gradient(135deg,#46512b,var(--color-secondary)); }
-.order-window > header div { display:flex; align-items:center; gap:.55rem; }
-.order-window > header span { font-weight:950; letter-spacing:.04em; }
-.order-window > header strong { display:grid; place-items:center; min-width:2rem; height:2rem; border-radius:999px; background:rgba(255,255,255,.16); }
-.order-window > header small { color:rgba(255,255,255,.76); font-weight:750; }
+.desktop-window-title { display:none; }
 .window-list,.order-group { display:grid; gap:.58rem; }
 .order-group h2 { display:flex; align-items:center; justify-content:space-between; margin:.2rem 0 0; padding:.55rem .7rem; color:var(--muted); font-size:.85rem; font-weight:950; letter-spacing:.06em; }
 .order-group h2 b { display:grid; place-items:center; min-width:1.75rem; height:1.75rem; border-radius:999px; background:rgba(107,31,42,.08); color:var(--color-primary); }
@@ -319,19 +314,9 @@ h1 {
   .kitchen-window-tabs { display:none; }
   .kitchen-board { grid-template-columns:minmax(0,1fr) minmax(0,1fr); max-width:var(--page-max); }
   .order-window { display:grid; }
-  .order-window > header { position:sticky; top:6.2rem; z-index:7; }
-}
-
-.pickup-section {
-  display: grid;
-  gap: clamp(0.5rem, 1.35vw, 0.8rem);
-}
-
-.pickup-section h2 {
-  margin: 0.6rem 0 0.1rem;
-  color: var(--accent);
-  font-size: clamp(1.05rem, 2.8vw, 1.28rem);
-  font-weight: 950;
+  .desktop-window-title { display:flex; align-items:center; justify-content:space-between; padding:.2rem .15rem; }
+  .desktop-window-title h2 { margin:0; font-family:var(--font-display); font-size:1.45rem; }
+  .desktop-window-title span { color:var(--muted); font-weight:850; }
 }
 
 .card {
@@ -1028,6 +1013,14 @@ body::before {
 .popover {
   box-shadow: none;
   backdrop-filter: none;
+}
+
+.window-list > .empty {
+  min-height: 6rem;
+  border: 0;
+  padding: 1.25rem;
+  background: transparent;
+  font-size: 0.95rem;
 }
 
 .card {

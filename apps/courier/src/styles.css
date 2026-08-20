@@ -821,11 +821,13 @@ li {
 .empty {
   display: grid;
   place-items: center;
-  min-height: clamp(11rem, 30dvh, 18rem);
-  padding: clamp(1.5rem, 5vw, 2.5rem);
+  min-height: 6rem;
+  border: 0;
+  padding: 1.25rem;
+  background: transparent;
   color: var(--muted);
   text-align: center;
-  font-size: clamp(1.05rem, 3vw, 1.25rem);
+  font-size: 0.95rem;
 }
 
 .menu {
