@@ -1028,6 +1028,12 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 		t.Fatalf("verify contact: %v", err)
 	}
 
+	if _, err := pool.Exec(ctx, `
+		UPDATE app_settings
+		SET pickup_last_time='23:59'
+	`); err != nil {
+		t.Fatalf("open pickup slots for test: %v", err)
+	}
 	now := time.Now().UTC()
 	calc, err := st.CalculateForFulfillment(ctx, clientSession, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, core.FulfillmentPickup, now)
 	if err != nil {
