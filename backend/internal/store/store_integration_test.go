@@ -721,6 +721,11 @@ func TestReservationsUseSharedCapacityAndOneActiveBookingPerClient(t *testing.T)
 	if err != nil {
 		t.Fatalf("create first reservation: %v", err)
 	}
+	assertReservationNotificationJobs(t, ctx, pool, first.ID, map[string]string{
+		"client":           "reservation_confirmed",
+		"owner:1048084234": "reservation_created",
+		"owner:8241921060": "reservation_created",
+	})
 	replayed, err := st.CreateReservation(ctx, firstClient, store.CreateReservationInput{
 		Date: date, StartHour: 18, Guests: 2, Locale: "ru",
 	}, "reservation-first", now)
@@ -772,6 +777,11 @@ func TestReservationsUseSharedCapacityAndOneActiveBookingPerClient(t *testing.T)
 	if err != nil || cancelled.Status != core.ReservationCancelled {
 		t.Fatalf("cancel own reservation = (%s, %v)", cancelled.Status, err)
 	}
+	assertReservationNotificationJobs(t, ctx, pool, first.ID, map[string]string{
+		"client":           "reservation_confirmed",
+		"owner:1048084234": "reservation_cancelled_by_client",
+		"owner:8241921060": "reservation_cancelled_by_client",
+	})
 	if _, err := st.CreateReservation(ctx, thirdClient, store.CreateReservationInput{
 		Date: date, StartHour: 18, Guests: 2, Locale: "en",
 	}, "reservation-after-cancel", now); err != nil {
@@ -1802,6 +1812,49 @@ func assertNotificationJobs(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	}
 	if len(got) != 0 {
 		t.Fatalf("unexpected notification job recipients: %v", got)
+	}
+}
+
+func assertReservationNotificationJobs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, reservationID uuid.UUID, expected map[string]string) {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+		SELECT recipient_kind, template
+		FROM notification_jobs
+		WHERE reservation_id=$1 AND status='pending'
+		ORDER BY recipient_kind, created_at
+	`, reservationID)
+	if err != nil {
+		t.Fatalf("query reservation notification jobs: %v", err)
+	}
+	defer rows.Close()
+	got := map[string][]string{}
+	for rows.Next() {
+		var recipient, template string
+		if err := rows.Scan(&recipient, &template); err != nil {
+			t.Fatalf("scan reservation notification job: %v", err)
+		}
+		got[recipient] = append(got[recipient], template)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate reservation notification jobs: %v", err)
+	}
+	for recipient, template := range expected {
+		templates := got[recipient]
+		found := false
+		for _, candidate := range templates {
+			if candidate == template {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("reservation notification %s/%s missing; all=%v", recipient, template, got)
+		}
+	}
+	for recipient := range got {
+		if _, ok := expected[recipient]; !ok {
+			t.Fatalf("unexpected reservation notification recipient %s; all=%v", recipient, got)
+		}
 	}
 }
 

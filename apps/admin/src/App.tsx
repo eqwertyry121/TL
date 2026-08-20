@@ -19,7 +19,7 @@ import {
   type MenuItemInput,
   type SettingsInput,
 } from "./api";
-import { AlertTriangle, Archive, ArrowLeft, Ban, BarChart3, CalendarCheck, CalendarDays, ChevronRight, ClipboardList, Copy, Home, Menu as MenuIcon, MessageCircle, MoreHorizontal, Phone, RefreshCw, RotateCcw, Save, Search, Send, Settings as SettingsIcon, Shield, SlidersHorizontal, StickyNote, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Archive, ArrowLeft, Ban, BarChart3, BellRing, CalendarCheck, CalendarDays, ChevronDown, ChevronRight, ClipboardList, Copy, Home, Menu as MenuIcon, MessageCircle, MoreHorizontal, Phone, RefreshCw, RotateCcw, Save, Search, Send, Settings as SettingsIcon, Shield, SlidersHorizontal, StickyNote, Trash2, Upload, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type FormEvent, type ReactNode } from "react";
 
@@ -93,6 +93,8 @@ export function App() {
   const [schedule, setSchedule] = useState<ScheduleDay[]>([]);
   const [orders, setOrders] = useState<OrderSummary[]>([]);
 	const [reservations, setReservations] = useState<Reservation[]>([]);
+	const [reservationAlerts, setReservationAlerts] = useState<Reservation[]>([]);
+	const [reservationFocusDate, setReservationFocusDate] = useState("");
   const [ordersPage, setOrdersPage] = useState<AdminOrdersPageState>({ limit: 20, offset: 0, has_more: false });
   const [ordersInitialView, setOrdersInitialView] = useState<OrdersView>("active");
   const [ordersFilter, setOrdersFilter] = useState<OrderLoadFilter>(() => ordersLoadFilter("active", "", "", 20, 0));
@@ -106,9 +108,11 @@ export function App() {
   const [toast, setToast] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const skipInitialLoadRef = useRef(false);
+	const knownReservationIDsRef = useRef<Set<string> | null>(null);
   const activeItem = navItem(tab);
   const activeOrdersCount = (dashboard?.new_orders || 0) + (dashboard?.out_for_delivery || 0) + (dashboard?.ready_for_pickup || 0);
   const ownerAccess = isOwnerTelegramId(session?.telegram_user_id);
+	const reservationAlert = reservationAlerts[0] || null;
   const authRetry = useMemo(() => createSingleFlightAuthRetry({
     authenticate,
     isAuthError,
@@ -167,7 +171,7 @@ export function App() {
             setOrdersPage(orderPageMeta(entry.value as AdminOrdersResponse));
             break;
 					case "reservations":
-						setReservations((entry.value as { reservations: Reservation[] }).reservations);
+						acceptReservationSnapshot((entry.value as { reservations: Reservation[] }).reservations, ownerAccess);
 						break;
           case "analytics":
             setAnalytics(entry.value as AdminAnalytics);
@@ -198,7 +202,7 @@ export function App() {
       setOrders(response.orders.orders);
       setOrdersPage(orderPageMeta(response.orders));
     }
-		if (response.reservations) setReservations(response.reservations.reservations);
+		if (response.reservations) acceptReservationSnapshot(response.reservations.reservations, false);
     if (response.analytics) setAnalytics(response.analytics);
     if (response.audit) {
       setAudit(response.audit.entries);
@@ -230,6 +234,20 @@ export function App() {
   function showToast(message: string) {
     setToast(message);
   }
+
+	function acceptReservationSnapshot(next: Reservation[], notifyOwner: boolean) {
+		const previous = knownReservationIDsRef.current;
+		if (previous && notifyOwner) {
+			const newReservations = next
+				.filter((reservation) => reservation.status === "CONFIRMED" && !previous.has(reservation.id))
+				.sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
+			if (newReservations.length) {
+				setReservationAlerts((current) => [...current, ...newReservations.filter((reservation) => !current.some((queued) => queued.id === reservation.id))]);
+			}
+		}
+		knownReservationIDsRef.current = new Set(next.map((reservation) => reservation.id));
+		setReservations(next);
+	}
 
   async function loadAdminSections(authToken: string, analyticsRange: AnalyticsRange, targetTab: AdminTab) {
     const sections: Array<readonly [AdminLoadKey, Promise<unknown>]> = [["dashboard", api.dashboard(authToken)]];
@@ -352,15 +370,16 @@ export function App() {
   }, [tab, token]);
 
 	useEffect(() => {
-		if (!token || tab !== "reservations") return undefined;
+		if (!token || (!ownerAccess && tab !== "reservations")) return undefined;
 		return startVisiblePolling(async (signal) => {
 			try {
-				setReservations((await withAuth((authToken) => api.reservations(authToken, signal))).reservations);
+				const next = (await withAuth((authToken) => api.reservations(authToken, signal))).reservations;
+				acceptReservationSnapshot(next, ownerAccess);
 			} catch {
-				if (!signal.aborted) setError("Не удалось обновить брони");
+				if (!signal.aborted && tab === "reservations") setError("Не удалось обновить брони");
 			}
-		}, 10000);
-	}, [tab, token]);
+		}, ownerAccess ? 5000 : 10000);
+	}, [ownerAccess, tab, token]);
 
   async function run<T>(action: (authToken: string) => Promise<T>, options: AdminActionOptions = {}): Promise<T | undefined> {
     setError("");
@@ -491,7 +510,7 @@ export function App() {
       ) : <SectionSkeleton title="Главная" />;
     }
     if (tab === "orders") return <OrdersTab orders={orders} page={ordersPage} initialView={ordersInitialView} onLoad={loadOrders} onLoadOrder={loadOrderDetail} onAction={run} />;
-		if (tab === "reservations") return <ReservationsTab reservations={reservations} onCancel={cancelBooking} />;
+		if (tab === "reservations") return <ReservationsTab reservations={reservations} focusDate={reservationFocusDate} onCancel={cancelBooking} />;
     if (tab === "menu") return <MenuTab menu={menu} onAction={run} />;
     if (tab === "schedule") {
       return schedule.length && dashboard && settings ? (
@@ -535,6 +554,26 @@ export function App() {
             </button>
           </div>
         </header>
+		{ownerAccess && reservationAlert && (
+			<aside className="owner-reservation-alert" role="alert">
+				<button
+					className="owner-reservation-alert-content"
+					onClick={() => {
+						setReservationFocusDate(reservationAlert.date);
+						setReservationAlerts((current) => current.slice(1));
+						openTab("reservations");
+					}}
+					type="button"
+				>
+					<span className="owner-reservation-alert-icon"><BellRing size={20} /></span>
+					<span>
+						<strong>{reservationAlert.table_label} забронирован на {String(reservationAlert.start_hour).padStart(2, "0")}:00</strong>
+						<small>{formatReservationShortDate(reservationAlert.date)} · {guestCountLabel(reservationAlert.guests)}</small>
+					</span>
+				</button>
+				<button className="owner-reservation-alert-close" aria-label="Закрыть уведомление" onClick={() => setReservationAlerts((current) => current.slice(1))} type="button"><X size={18} /></button>
+			</aside>
+		)}
         {error && <div className="error"><AlertTriangle size={18} /> {error}</div>}
         <SectionErrorBoundary resetKey={tab}>
           {renderActiveTab()}
@@ -1146,31 +1185,45 @@ function DishForm({
   );
 }
 
-function ReservationsTab({ reservations, onCancel }: { reservations: Reservation[]; onCancel(reservation: Reservation): void }) {
+function ReservationsTab({ reservations, focusDate, onCancel }: { reservations: Reservation[]; focusDate: string; onCancel(reservation: Reservation): void }) {
   const days = useMemo(() => reservationAdminDays(7), []);
   const [selectedDate, setSelectedDate] = useState(days[0]);
   const selectedReservations = reservations.filter((reservation) => reservation.date === selectedDate);
   const activeCount = selectedReservations.filter((reservation) => reservation.status === "CONFIRMED").length;
 
+	useEffect(() => {
+		if (focusDate && days.includes(focusDate)) setSelectedDate(focusDate);
+	}, [days, focusDate]);
+
   return (
     <div className="admin-stack reservations-admin">
-      <div className="reservation-day-tabs" aria-label="Выберите день">
-        {days.map((date) => {
-          const count = reservations.filter((reservation) => reservation.date === date && reservation.status === "CONFIRMED").length;
-          return (
-            <button
-              aria-pressed={date === selectedDate}
-              className={date === selectedDate ? "reservation-day-tab is-active" : "reservation-day-tab"}
-              key={date}
-              onClick={() => setSelectedDate(date)}
-              type="button"
-            >
-              <strong>{formatReservationWeekday(date)}</strong>
-              <span>{formatReservationShortDate(date)}{count > 0 ? ` · ${count}` : ""}</span>
-            </button>
-          );
-        })}
-      </div>
+		<details className="reservation-day-select">
+			<summary aria-label="Выберите день">
+				<span><small>День</small><strong>{formatReservationAdminDate(selectedDate)}</strong></span>
+				<span className="reservation-day-select-meta">{activeCount > 0 ? activeCount : "Нет броней"}<ChevronDown size={18} /></span>
+			</summary>
+			<div className="reservation-day-options" role="listbox" aria-label="Дни с бронями">
+				{days.map((date) => {
+					const count = reservations.filter((reservation) => reservation.date === date && reservation.status === "CONFIRMED").length;
+					return (
+						<button
+							aria-selected={date === selectedDate}
+							className={date === selectedDate ? "reservation-day-option is-active" : "reservation-day-option"}
+							key={date}
+							onClick={(event) => {
+								setSelectedDate(date);
+								event.currentTarget.closest("details")?.removeAttribute("open");
+							}}
+							role="option"
+							type="button"
+						>
+							<span><strong>{formatReservationWeekday(date)}</strong><small>{formatReservationShortDate(date)}</small></span>
+							<span className={count > 0 ? "reservation-option-count has-bookings" : "reservation-option-count"}>{count}</span>
+						</button>
+					);
+				})}
+			</div>
+		</details>
 
       <section className="panel reservation-day-panel">
         <div className="section-heading reservation-day-heading">
@@ -1213,6 +1266,15 @@ function formatReservationWeekday(date: string): string {
 
 function formatReservationShortDate(date: string): string {
   return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", timeZone: "Europe/Belgrade" }).format(reservationDate(date)).replace(".", "");
+}
+
+function guestCountLabel(count: number): string {
+	const tens = count % 100;
+	const units = count % 10;
+	if (tens >= 11 && tens <= 14) return `${count} гостей`;
+	if (units === 1) return `${count} гость`;
+	if (units >= 2 && units <= 4) return `${count} гостя`;
+	return `${count} гостей`;
 }
 
 function reservationDate(date: string): Date {

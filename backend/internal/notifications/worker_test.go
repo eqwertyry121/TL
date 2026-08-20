@@ -318,6 +318,28 @@ func TestStaffTargetSkipsAdminForOperationalNotifications(t *testing.T) {
 	}
 }
 
+func TestOwnerReservationTargetAllowsOnlyConfiguredOwners(t *testing.T) {
+	worker := &Worker{ownerTelegramIDs: []int64{1048084234, 8241921060}}
+	got, err := worker.ownerReservationTarget("owner:8241921060")
+	if err != nil || got != 8241921060 {
+		t.Fatalf("owner reservation target = (%d, %v)", got, err)
+	}
+	if _, err := worker.ownerReservationTarget("owner:7000000000"); !errors.Is(err, errOperationalStaffUnavailable) {
+		t.Fatalf("unconfigured owner error = %v, want %v", err, errOperationalStaffUnavailable)
+	}
+	if _, err := worker.ownerReservationTarget("owner:not-a-number"); err == nil {
+		t.Fatal("invalid owner recipient was accepted")
+	}
+}
+
+func TestOwnerReservationTextIsConciseAndActionable(t *testing.T) {
+	got := ownerReservationText("reservation_created", "Стол №1", "20.08.2026", 13, 3, "@eqwertyry")
+	want := "Стол №1 забронирован на 13:00\nДата: 20.08.2026\nГостей: 3\nКлиент: @eqwertyry"
+	if got != want {
+		t.Fatalf("owner reservation text = %q, want %q", got, want)
+	}
+}
+
 func TestClientTextUsesLocale(t *testing.T) {
 	if got := clientText(123, "client_order_ready_for_pickup", "en"); !strings.Contains(got, "ready for pickup") {
 		t.Fatalf("English client text = %q", got)

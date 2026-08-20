@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -380,17 +381,17 @@ func (w *Worker) enqueueReservationReminders(ctx context.Context) error {
 
 func (w *Worker) reservationMessage(ctx context.Context, current job) (string, int64, string, error) {
 	var clientChatID int64
-	var publicNumber, startHour, endHour, guests int
+	var startHour, endHour, guests int
 	var date, username, firstName, tableLabel, locale string
 	err := w.pool.QueryRow(ctx, `
-		SELECT u.telegram_user_id, r.public_number, to_char(r.reservation_date, 'DD.MM.YYYY'),
+		SELECT u.telegram_user_id, to_char(r.reservation_date, 'DD.MM.YYYY'),
 			r.start_hour, r.end_hour, r.guests, r.client_username, r.client_first_name, t.label, r.locale
 		FROM reservations r
 		JOIN users u ON u.id=r.client_user_id
 		JOIN restaurant_tables t ON t.id=r.table_id
 		WHERE r.id=$1
 	`, current.reservationID).Scan(
-		&clientChatID, &publicNumber, &date, &startHour, &endHour, &guests,
+		&clientChatID, &date, &startHour, &endHour, &guests,
 		&username, &firstName, &tableLabel, &locale,
 	)
 	if err != nil {
@@ -420,15 +421,21 @@ func (w *Worker) reservationMessage(ctx context.Context, current job) (string, i
 		}
 		return w.clientToken, clientChatID, text, nil
 	}
-	if current.recipientKind != "admin" {
-		return "", 0, "", fmt.Errorf("unknown_reservation_recipient")
-	}
 	if w.staffToken == "" {
 		return "", 0, "", fmt.Errorf("missing_staff_bot_token")
 	}
-	adminChatID, err := w.staffTarget(ctx, "ADMIN")
-	if err != nil {
-		return "", 0, "", err
+	adminChatID := int64(0)
+	if current.recipientKind == "admin" {
+		// Backward compatibility for jobs created before per-owner delivery.
+		adminChatID, err = w.staffTarget(ctx, "ADMIN")
+		if err != nil {
+			return "", 0, "", err
+		}
+	} else {
+		adminChatID, err = w.ownerReservationTarget(current.recipientKind)
+		if err != nil {
+			return "", 0, "", err
+		}
 	}
 	clientLabel := strings.TrimSpace(firstName)
 	if strings.TrimSpace(username) != "" {
@@ -437,12 +444,32 @@ func (w *Worker) reservationMessage(ctx context.Context, current job) (string, i
 	if clientLabel == "" {
 		clientLabel = fmt.Sprintf("Telegram %d", clientChatID)
 	}
-	title := "Новая бронь"
-	if current.template == "reservation_cancelled_by_client" {
-		title = "Бронь отменена клиентом"
-	}
-	text := fmt.Sprintf("%s #%d\n%s\n%s, %02d:00–%02d:00\nГостей: %d\n%s", title, publicNumber, clientLabel, date, startHour, endHour, guests, tableLabel)
+	text := ownerReservationText(current.template, tableLabel, date, startHour, guests, clientLabel)
 	return w.staffToken, adminChatID, text, nil
+}
+
+func ownerReservationText(template, tableLabel, date string, startHour, guests int, clientLabel string) string {
+	if template == "reservation_cancelled_by_client" {
+		return fmt.Sprintf("Бронь отменена клиентом\n%s · %s · %02d:00\nГостей: %d\nКлиент: %s", tableLabel, date, startHour, guests, clientLabel)
+	}
+	return fmt.Sprintf("%s забронирован на %02d:00\nДата: %s\nГостей: %d\nКлиент: %s", tableLabel, startHour, date, guests, clientLabel)
+}
+
+func (w *Worker) ownerReservationTarget(recipientKind string) (int64, error) {
+	const prefix = "owner:"
+	if !strings.HasPrefix(recipientKind, prefix) {
+		return 0, fmt.Errorf("unknown_reservation_recipient")
+	}
+	telegramID, err := strconv.ParseInt(strings.TrimPrefix(recipientKind, prefix), 10, 64)
+	if err != nil || telegramID <= 0 {
+		return 0, fmt.Errorf("invalid_reservation_owner")
+	}
+	for _, allowed := range w.ownerTelegramIDs {
+		if telegramID == allowed {
+			return telegramID, nil
+		}
+	}
+	return 0, errOperationalStaffUnavailable
 }
 
 func localizedReservationText(locale, ru, sr, en string) string {

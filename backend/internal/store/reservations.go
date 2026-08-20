@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -281,12 +283,13 @@ func (s *Store) CreateReservation(ctx context.Context, sess core.Session, input 
 	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO notification_jobs (reservation_id, recipient_kind, template, event_key)
-		VALUES
-			($1, 'client', 'reservation_confirmed', $2),
-			($1, 'admin', 'reservation_created', $2)
+		VALUES ($1, 'client', 'reservation_confirmed', $2)
 		ON CONFLICT (event_key, recipient_kind) DO NOTHING
 	`, reservation.ID, fmt.Sprintf("reservation:%s:created", reservation.ID))
 	if err != nil {
+		return core.Reservation{}, err
+	}
+	if err := insertReservationOwnerNotifications(ctx, tx, reservation.ID, "reservation_created", fmt.Sprintf("reservation:%s:created", reservation.ID)); err != nil {
 		return core.Reservation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -342,17 +345,20 @@ func (s *Store) CancelReservation(ctx context.Context, sess core.Session, id uui
 	if err != nil {
 		return core.Reservation{}, err
 	}
-	recipient := "admin"
 	template := "reservation_cancelled_by_client"
 	if admin {
-		recipient = "client"
 		template = "reservation_cancelled_by_admin"
 	}
-	_, err = tx.Exec(ctx, `
-		INSERT INTO notification_jobs (reservation_id, recipient_kind, template, event_key)
-		VALUES ($1,$2,$3,$4)
-		ON CONFLICT (event_key, recipient_kind) DO NOTHING
-	`, id, recipient, template, fmt.Sprintf("reservation:%s:cancelled:%s", id, role))
+	eventKey := fmt.Sprintf("reservation:%s:cancelled:%s", id, role)
+	if admin {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO notification_jobs (reservation_id, recipient_kind, template, event_key)
+			VALUES ($1,'client',$2,$3)
+			ON CONFLICT (event_key, recipient_kind) DO NOTHING
+		`, id, template, eventKey)
+	} else {
+		err = insertReservationOwnerNotifications(ctx, tx, id, template, eventKey)
+	}
 	if err != nil {
 		return core.Reservation{}, err
 	}
@@ -365,6 +371,25 @@ func (s *Store) CancelReservation(ctx context.Context, sess core.Session, id uui
 		return core.Reservation{}, err
 	}
 	return *after, nil
+}
+
+func insertReservationOwnerNotifications(ctx context.Context, tx pgx.Tx, reservationID uuid.UUID, template, eventKey string) error {
+	ownerIDs := make([]int64, 0, len(ownerTesterTelegramIDs))
+	for telegramID := range ownerTesterTelegramIDs {
+		ownerIDs = append(ownerIDs, telegramID)
+	}
+	sort.Slice(ownerIDs, func(i, j int) bool { return ownerIDs[i] < ownerIDs[j] })
+	for _, telegramID := range ownerIDs {
+		recipient := "owner:" + strconv.FormatInt(telegramID, 10)
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO notification_jobs (reservation_id, recipient_kind, template, event_key)
+			VALUES ($1,$2,$3,$4)
+			ON CONFLICT (event_key, recipient_kind) DO NOTHING
+		`, reservationID, recipient, template, eventKey); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) AdminReservations(ctx context.Context, sess core.Session, now time.Time) ([]core.Reservation, error) {
