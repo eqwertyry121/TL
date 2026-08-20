@@ -396,7 +396,7 @@ h2 {
 
 .booking-guests,
 .booking-active-card,
-.booking-day {
+.booking-days {
 	border: 1px solid var(--color-border);
 	background: var(--color-surface);
 }
@@ -446,34 +446,37 @@ h2 {
 }
 
 .booking-guest-options button.active {
-	border-color: var(--color-primary);
 	background: var(--color-primary);
 	color: #fff;
-	box-shadow: 0 0.35rem 0.9rem rgba(107, 31, 42, 0.18);
 }
 
 .booking-days {
 	display: grid;
-	gap: 0.65rem;
-}
-
-.booking-day {
-	display: grid;
-	gap: 0.7rem;
-	padding: clamp(0.85rem, 2.8vw, 1.1rem);
+	gap: 0.8rem;
+	padding: 0.85rem;
 	border-radius: var(--radius-md);
 }
 
-.booking-day.is-empty {
-	opacity: 0.64;
+.booking-date-list {
+	display: flex;
+	gap: 0.4rem;
+	overflow-x: auto;
 }
 
-.booking-day-heading {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 1rem;
-	text-transform: capitalize;
+.booking-date-list button {
+	flex: 0 0 auto;
+	min-height: 2.45rem;
+	padding: 0 0.75rem;
+	border: 1px solid var(--color-border);
+	border-radius: 999px;
+	background: #fbf6ed;
+	color: var(--muted);
+	font-weight: 800;
+}
+
+.booking-date-list button.active {
+	background: var(--color-primary);
+	color: #fff;
 }
 
 .booking-hours {
@@ -517,26 +520,46 @@ h2 {
 
 .booking-active-card {
 	display: grid;
-	grid-template-columns: auto minmax(0, 1fr);
-	align-items: center;
-	gap: 1rem;
-	padding: clamp(1rem, 4vw, 1.4rem);
+	gap: 0.8rem;
+	padding: clamp(0.85rem, 3vw, 1.1rem);
 	border-radius: var(--radius-lg);
 }
 
-.booking-date-mark {
+.booking-active-copy {
 	display: grid;
-	place-items: center;
-	min-width: 5rem;
-	min-height: 5rem;
-	border-radius: 1.25rem;
-	background: var(--color-primary);
-	color: #fff;
+	gap: 0.75rem;
 }
 
-.booking-date-mark strong { font-size: 1.35rem; }
-.booking-active-copy h2 { text-transform: capitalize; }
-.booking-cancel { margin-top: 0.75rem; }
+.booking-active-copy h2 {
+	font-family: var(--font-body);
+	font-size: clamp(1.2rem, 5vw, 1.55rem);
+	font-weight: 850;
+}
+
+.booking-active-details {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.6rem;
+}
+
+.booking-active-details div {
+	display: grid;
+	gap: 0.25rem;
+	padding: 0.7rem;
+	border-radius: 0.9rem;
+	background: var(--surface-soft);
+}
+
+.booking-active-details span {
+	color: var(--muted);
+	font-size: 0.75rem;
+}
+
+.booking-cancel {
+	min-height: 2.6rem;
+	background: transparent;
+	color: var(--color-primary);
+}
 .booking-empty { padding: 2rem 1rem; text-align: center; color: var(--muted); }
 
 .day-off-booking {
