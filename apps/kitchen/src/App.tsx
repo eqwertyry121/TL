@@ -549,7 +549,7 @@ function playBeepNow(ctx: AudioContext) {
   const now = ctx.currentTime;
   if (now < notificationSoundPlayingUntil) return;
 
-  const soundDuration = 3.65;
+  const soundDuration = 2.9;
   notificationSoundPlayingUntil = now + soundDuration;
 
   const compressor = ctx.createDynamicsCompressor();
@@ -567,19 +567,10 @@ function playBeepNow(ctx: AudioContext) {
   master.connect(compressor);
   compressor.connect(ctx.destination);
 
-  const motif = [
-    [0, 659.25, 0.58],
-    [0.31, 783.99, 0.58],
-    [0.62, 987.77, 0.72],
-    [1.35, 659.25, 0.58],
-    [1.66, 783.99, 0.58],
-    [1.97, 987.77, 0.78],
-  ] as const;
-  motif.forEach(([offset, frequency, duration]) => scheduleChimeVoice(ctx, master, now + offset, frequency, duration, 0.7));
-
-  [659.25, 783.99, 987.77].forEach((frequency, index) => {
-    scheduleChimeVoice(ctx, master, now + 2.72, frequency, 0.9, index === 0 ? 0.55 : 0.38);
-  });
+  scheduleNotificationTone(ctx, master, now, 1046.5, 0.68, 0.72);
+  scheduleNotificationTone(ctx, master, now + 0.17, 783.99, 1.18, 0.88);
+  scheduleNotificationTone(ctx, master, now + 1.32, 1046.5, 0.58, 0.38);
+  scheduleNotificationTone(ctx, master, now + 1.49, 783.99, 1.18, 0.48);
 
   window.setTimeout(() => {
     master.disconnect();
@@ -587,35 +578,25 @@ function playBeepNow(ctx: AudioContext) {
   }, Math.ceil((soundDuration + 0.2) * 1000));
 }
 
-function scheduleChimeVoice(ctx: AudioContext, output: AudioNode, start: number, frequency: number, duration: number, level: number) {
-  const end = start + duration;
-  const body = ctx.createOscillator();
-  const shimmer = ctx.createOscillator();
-  const bodyGain = ctx.createGain();
-  const shimmerGain = ctx.createGain();
+function scheduleNotificationTone(ctx: AudioContext, output: AudioNode, start: number, frequency: number, duration: number, level: number) {
+  const partials = [
+    [frequency, 1, 1],
+    [frequency * 2, 0.11, 0.54],
+  ] as const;
 
-  body.type = "triangle";
-  body.frequency.setValueAtTime(frequency, start);
-  shimmer.type = "sine";
-  shimmer.frequency.setValueAtTime(frequency * 2, start);
-
-  applyChimeEnvelope(bodyGain.gain, start, end, level);
-  applyChimeEnvelope(shimmerGain.gain, start, end, level * 0.16);
-
-  body.connect(bodyGain);
-  shimmer.connect(shimmerGain);
-  bodyGain.connect(output);
-  shimmerGain.connect(output);
-  body.start(start);
-  shimmer.start(start);
-  body.stop(end + 0.03);
-  shimmer.stop(end + 0.03);
-}
-
-function applyChimeEnvelope(gain: AudioParam, start: number, end: number, level: number) {
-  gain.setValueAtTime(0.0001, start);
-  gain.exponentialRampToValueAtTime(level, start + 0.018);
-  gain.exponentialRampToValueAtTime(level * 0.42, start + Math.min(0.16, (end - start) * 0.35));
-  gain.setValueAtTime(level * 0.42, Math.max(start + 0.17, end - 0.22));
-  gain.exponentialRampToValueAtTime(0.0001, end);
+  partials.forEach(([partialFrequency, strength, decay]) => {
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const partialEnd = start + duration * decay;
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(partialFrequency, start);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(level * strength, start + 0.012);
+    gain.gain.exponentialRampToValueAtTime(level * strength * 0.36, start + Math.min(0.16, duration * 0.36));
+    gain.gain.exponentialRampToValueAtTime(0.0001, partialEnd);
+    oscillator.connect(gain);
+    gain.connect(output);
+    oscillator.start(start);
+    oscillator.stop(partialEnd + 0.03);
+  });
 }
