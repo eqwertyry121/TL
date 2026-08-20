@@ -59,17 +59,21 @@ for (const endpoint of endpoints) {
     failed ||= !validation.ok;
   }
   for (const concurrency of concurrencies) {
-    failed ||= !(await runBatch(endpoint, concurrency, "", "fresh")).ok;
+    const fresh = await runBatch(endpoint, concurrency, "", "fresh");
+    failed = !fresh.ok || failed;
     if (etag) {
-      failed ||= !(await runBatch(endpoint, concurrency, etag, "conditional")).ok;
+      const conditional = await runBatch(endpoint, concurrency, etag, "conditional");
+      failed = !conditional.ok || failed;
     }
   }
 }
 if (validateMedia) {
-  failed ||= !(await validateMenuMedia()).ok;
+  const media = await validateMenuMedia();
+  failed = !media.ok || failed;
 }
 if (checkoutIterations > 0) {
-  failed ||= !(await validateCheckoutCalculation()).ok;
+  const checkout = await validateCheckoutCalculation();
+  failed = !checkout.ok || failed;
 }
 
 if (failed) {
