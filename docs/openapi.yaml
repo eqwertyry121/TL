@@ -161,6 +161,13 @@ paths:
       responses:
         "200":
           description: Development-only browser fallback. Production returns 403; cash orders must be verified by native Telegram location through /telegram/client/webhook.
+  /pickup/slots:
+    get:
+      responses:
+        "200":
+          description: Available scheduled pickup slots for the current restaurant day, calculated from server time, lead time and per-slot capacity.
+        "409":
+          description: Pickup is disabled or the restaurant is not accepting orders.
   /orders/calculate:
     post:
       responses:
@@ -209,6 +216,10 @@ paths:
               type: object
               required: [calculation_token, phone, fulfillment_type, payment_method, terms_accepted, terms_version, locale]
               properties:
+                pickup_at:
+                  type: string
+                  format: date-time
+                  description: Required for pickup and forbidden for delivery. Must be one of the currently available slots.
                 terms_accepted:
                   type: boolean
                   const: true
@@ -217,7 +228,7 @@ paths:
                   maxLength: 40
       responses:
         "201":
-          description: Created cash order. Request must include fulfillment_type=delivery|pickup. Delivery cash orders require a verified unused cash_location_challenge_id when cash location is enabled; pickup orders do not notify courier.
+          description: Created cash order. Request must include fulfillment_type=delivery|pickup. Pickup additionally requires pickup_at. All cash orders require a verified unused cash_location_challenge_id when cash location is enabled; pickup orders do not notify courier.
   /orders/{id}:
     get:
       parameters:
@@ -261,7 +272,7 @@ paths:
         - $ref: "#/components/parameters/idempotencyKey"
       responses:
         "200":
-          description: Order moved to OUT_FOR_DELIVERY. Delivery notifies client and courier; pickup notifies only client that the order is ready for pickup.
+          description: Delivery moves to OUT_FOR_DELIVERY and notifies client/courier. Pickup moves to READY_FOR_PICKUP and notifies only the client.
   /kitchen/orders/{id}/picked-up:
     post:
       parameters:
@@ -434,7 +445,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [ACTIVE, NEW, OUT_FOR_DELIVERY, DELIVERED, CANCELLED, HISTORY]
+            enum: [ACTIVE, NEW, OUT_FOR_DELIVERY, READY_FOR_PICKUP, READY, DELIVERED, CANCELLED, HISTORY]
         - name: q
           in: query
           schema:
@@ -482,7 +493,7 @@ paths:
               properties:
                 status:
                   type: string
-                  enum: [ACTIVE, NEW, OUT_FOR_DELIVERY, DELIVERED, CANCELLED, HISTORY]
+                  enum: [ACTIVE, NEW, OUT_FOR_DELIVERY, READY_FOR_PICKUP, READY, DELIVERED, CANCELLED, HISTORY]
                 q:
                   type: string
                   maxLength: 80
@@ -521,7 +532,7 @@ paths:
         - $ref: "#/components/parameters/orderId"
       responses:
         "200":
-          description: Admin returns OUT_FOR_DELIVERY order to NEW
+          description: Admin returns OUT_FOR_DELIVERY or READY_FOR_PICKUP order to NEW
   /admin/orders/{id}/contact:
     put:
       parameters:

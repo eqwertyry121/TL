@@ -28,6 +28,7 @@ type FulfillmentStatus string
 const (
 	StatusNew            FulfillmentStatus = "NEW"
 	StatusOutForDelivery FulfillmentStatus = "OUT_FOR_DELIVERY"
+	StatusReadyForPickup FulfillmentStatus = "READY_FOR_PICKUP"
 	StatusDelivered      FulfillmentStatus = "DELIVERED"
 	StatusCancelled      FulfillmentStatus = "CANCELLED"
 )
@@ -74,6 +75,8 @@ var (
 	ErrCashLocationRequired   = errors.New("cash location verification required")
 	ErrCashLocationOutside    = errors.New("cash location outside delivery radius")
 	ErrCashLocationInaccurate = errors.New("cash location inaccurate")
+	ErrPickupUnavailable      = errors.New("pickup unavailable")
+	ErrPickupSlotUnavailable  = errors.New("pickup slot unavailable")
 	ErrProductionUnsafeValue  = errors.New("unsafe production config")
 )
 
@@ -119,6 +122,16 @@ type Settings struct {
 	CashLocationRadiusMeters      int           `json:"cash_location_radius_meters"`
 	CashLocationTTLSeconds        int           `json:"cash_location_ttl_seconds"`
 	CashLocationMaxAccuracyMeters int           `json:"cash_location_max_accuracy_meters"`
+	PickupEnabled                 bool          `json:"pickup_enabled"`
+	PickupAddress                 string        `json:"pickup_address"`
+	PickupMapURL                  string        `json:"pickup_map_url"`
+	PickupInstructionsRU          string        `json:"pickup_instructions_ru"`
+	PickupInstructionsSR          string        `json:"pickup_instructions_sr"`
+	PickupInstructionsEN          string        `json:"pickup_instructions_en"`
+	PickupMinLeadMinutes          int           `json:"pickup_min_lead_minutes"`
+	PickupSlotMinutes             int           `json:"pickup_slot_minutes"`
+	PickupMaxOrdersPerSlot        int           `json:"pickup_max_orders_per_slot"`
+	PickupLastTime                string        `json:"pickup_last_time"`
 	Version                       int           `json:"version"`
 	Schedule                      []ScheduleDay `json:"schedule,omitempty"`
 }
@@ -138,6 +151,23 @@ type Runtime struct {
 	TermsURL                 string    `json:"terms_url"`
 	CashLocationRequired     bool      `json:"cash_location_required"`
 	CashLocationRadiusMeters int       `json:"cash_location_radius_meters"`
+	PickupEnabled            bool      `json:"pickup_enabled"`
+	PickupAddress            string    `json:"pickup_address"`
+	PickupMapURL             string    `json:"pickup_map_url"`
+	PickupMinLeadMinutes     int       `json:"pickup_min_lead_minutes"`
+	PickupSlotMinutes        int       `json:"pickup_slot_minutes"`
+	PickupLastTime           string    `json:"pickup_last_time"`
+}
+
+type PickupSlot struct {
+	PickupAt time.Time `json:"pickup_at"`
+	Label    string    `json:"label"`
+}
+
+type PickupSlots struct {
+	Timezone string       `json:"timezone"`
+	Date     string       `json:"date"`
+	Slots    []PickupSlot `json:"slots"`
 }
 
 type Category struct {
@@ -303,6 +333,11 @@ type Order struct {
 	Version                    int               `json:"version"`
 	CreatedAt                  time.Time         `json:"created_at"`
 	ReadyAt                    *time.Time        `json:"ready_at,omitempty"`
+	PickupAt                   *time.Time        `json:"pickup_at,omitempty"`
+	PickupOriginalAt           *time.Time        `json:"pickup_original_at,omitempty"`
+	PickupCookAt               *time.Time        `json:"pickup_cook_at,omitempty"`
+	PickupAddress              string            `json:"pickup_address,omitempty"`
+	PickupInstructions         string            `json:"pickup_instructions,omitempty"`
 	DeliveredAt                *time.Time        `json:"delivered_at,omitempty"`
 	CancelledAt                *time.Time        `json:"cancelled_at,omitempty"`
 	CashLocationVerifiedAt     *time.Time        `json:"cash_location_verified_at,omitempty"`
@@ -333,6 +368,7 @@ type OrderSummary struct {
 	Version                    int               `json:"version"`
 	CreatedAt                  time.Time         `json:"created_at"`
 	ReadyAt                    *time.Time        `json:"ready_at,omitempty"`
+	PickupAt                   *time.Time        `json:"pickup_at,omitempty"`
 	DeliveredAt                *time.Time        `json:"delivered_at,omitempty"`
 	CancelledAt                *time.Time        `json:"cancelled_at,omitempty"`
 	CashLocationVerifiedAt     *time.Time        `json:"cash_location_verified_at,omitempty"`

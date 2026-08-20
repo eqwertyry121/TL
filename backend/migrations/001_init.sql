@@ -98,6 +98,16 @@ CREATE TABLE IF NOT EXISTS app_settings (
   cash_enabled boolean NOT NULL DEFAULT true,
   card_enabled boolean NOT NULL DEFAULT false,
   crypto_enabled boolean NOT NULL DEFAULT false,
+  pickup_enabled boolean NOT NULL DEFAULT true,
+  pickup_address text NOT NULL DEFAULT 'Tako Lako, Novi Sad',
+  pickup_map_url text NOT NULL DEFAULT 'https://maps.google.com/?q=45.241970,19.808807',
+  pickup_instructions_ru text NOT NULL DEFAULT 'Приходите к выбранному времени и назовите номер заказа.',
+  pickup_instructions_sr text NOT NULL DEFAULT 'Dođite u izabrano vreme i recite broj porudžbine.',
+  pickup_instructions_en text NOT NULL DEFAULT 'Come at the selected time and tell us your order number.',
+  pickup_min_lead_minutes integer NOT NULL DEFAULT 40 CHECK (pickup_min_lead_minutes BETWEEN 15 AND 180),
+  pickup_slot_minutes integer NOT NULL DEFAULT 15 CHECK (pickup_slot_minutes IN (5, 10, 15, 20, 30, 60)),
+  pickup_max_orders_per_slot integer NOT NULL DEFAULT 3 CHECK (pickup_max_orders_per_slot BETWEEN 1 AND 20),
+  pickup_last_time time NOT NULL DEFAULT '22:00',
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -108,6 +118,7 @@ CREATE TABLE IF NOT EXISTS calculation_tokens (
   user_id uuid NOT NULL REFERENCES users(id),
   items_json jsonb NOT NULL,
   fulfillment_type text NOT NULL DEFAULT 'delivery' CHECK (fulfillment_type IN ('delivery', 'pickup')),
+  pickup_at timestamptz,
   subtotal_minor integer NOT NULL CHECK (subtotal_minor >= 0),
   delivery_fee_minor integer NOT NULL CHECK (delivery_fee_minor >= 0),
   total_minor integer NOT NULL CHECK (total_minor >= 0),
@@ -122,7 +133,7 @@ CREATE TABLE IF NOT EXISTS orders (
   public_number integer NOT NULL UNIQUE DEFAULT nextval('order_public_number_seq'),
   client_user_id uuid NOT NULL REFERENCES users(id),
   fulfillment_type text NOT NULL DEFAULT 'delivery' CHECK (fulfillment_type IN ('delivery', 'pickup')),
-  fulfillment_status text NOT NULL CHECK (fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED')),
+  fulfillment_status text NOT NULL CHECK (fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP', 'DELIVERED', 'CANCELLED')),
   payment_method text NOT NULL CHECK (payment_method IN ('cash', 'card', 'crypto')),
   payment_status text NOT NULL CHECK (payment_status IN ('CASH_PENDING', 'PAID', 'FAILED', 'REFUNDED')),
   subtotal_minor integer NOT NULL CHECK (subtotal_minor >= 0),
@@ -139,6 +150,11 @@ CREATE TABLE IF NOT EXISTS orders (
   ready_at timestamptz,
   delivered_at timestamptz,
   cancelled_at timestamptz,
+  pickup_at timestamptz,
+  pickup_original_at timestamptz,
+  pickup_cook_at timestamptz,
+  pickup_address_snapshot text NOT NULL DEFAULT '',
+  pickup_instructions_snapshot text NOT NULL DEFAULT '',
   updated_at timestamptz NOT NULL DEFAULT now(),
   CHECK (fulfillment_type <> 'pickup' OR delivery_fee_minor = 0)
 );

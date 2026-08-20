@@ -870,7 +870,7 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 		t.Fatalf("verify contact: %v", err)
 	}
 
-	now := time.Now().UTC()
+	now := time.Date(2026, time.August, 18, 11, 0, 0, 0, time.UTC) // Tuesday 13:00 in Belgrade.
 	calc, err := st.CalculateForFulfillment(ctx, clientSession, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, core.FulfillmentPickup, now)
 	if err != nil {
 		t.Fatalf("calculate pickup: %v", err)
@@ -878,25 +878,35 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	if calc.FulfillmentType != core.FulfillmentPickup || calc.DeliveryFeeMinor != 0 || calc.TotalMinor != calc.SubtotalMinor {
 		t.Fatalf("pickup calculation should be zero-delivery pickup, got %+v", calc)
 	}
-	if _, err := st.CreateCashLocationChallenge(ctx, clientSession, store.CreateCashLocationChallengeInput{
+	challenge, err := st.CreateCashLocationChallenge(ctx, clientSession, store.CreateCashLocationChallengeInput{
 		CalculationToken: calc.Token,
-	}, now, true); !errors.Is(err, core.ErrCalculationExpired) {
-		t.Fatalf("pickup calculation must not create cash-location challenge, got %v", err)
+	}, now, true)
+	if err != nil {
+		t.Fatalf("pickup cash order must support location challenge: %v", err)
+	}
+	slots, err := st.PickupSlots(ctx, clientSession, now)
+	if err != nil || len(slots.Slots) == 0 {
+		t.Fatalf("pickup slots: %+v, %v", slots, err)
 	}
 
 	order, err := st.CreateCashOrder(ctx, clientSession, store.CreateOrderInput{
-		CalculationToken: calc.Token,
-		Phone:            phone,
-		FulfillmentType:  core.FulfillmentPickup,
-		PaymentMethod:    core.PaymentCash,
-		TermsAccepted:    true,
-		Locale:           "ru",
+		CalculationToken:        calc.Token,
+		CashLocationChallengeID: challenge.ID.String(),
+		Phone:                   phone,
+		FulfillmentType:         core.FulfillmentPickup,
+		PickupAt:                &slots.Slots[0].PickupAt,
+		PaymentMethod:           core.PaymentCash,
+		TermsAccepted:           true,
+		Locale:                  "ru",
 	}, "idem-pickup-order", "request-hash-pickup-order", now)
 	if err != nil {
 		t.Fatalf("create pickup cash order: %v", err)
 	}
-	if order.FulfillmentType != core.FulfillmentPickup || order.Address != "Самовывоз" {
+	if order.FulfillmentType != core.FulfillmentPickup || order.PickupAt == nil || order.PickupCookAt == nil || order.PickupAddress == "" {
 		t.Fatalf("pickup order snapshot mismatch: %+v", order)
+	}
+	if want := order.PickupAt.Add(-40 * time.Minute); !order.PickupCookAt.Equal(want) {
+		t.Fatalf("pickup cook time = %s, want %s", order.PickupCookAt, want)
 	}
 	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{"kitchen": 1})
 
@@ -904,7 +914,7 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mark pickup ready: %v", err)
 	}
-	if ready.FulfillmentStatus != core.StatusOutForDelivery || ready.FulfillmentType != core.FulfillmentPickup {
+	if ready.FulfillmentStatus != core.StatusReadyForPickup || ready.FulfillmentType != core.FulfillmentPickup {
 		t.Fatalf("pickup ready order mismatch: %+v", ready)
 	}
 	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{
@@ -933,7 +943,7 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("kitchen orders: %v", err)
 	}
-	if len(kitchenOrders) != 1 || kitchenOrders[0].ID != order.ID || kitchenOrders[0].FulfillmentStatus != core.StatusOutForDelivery {
+	if len(kitchenOrders) != 1 || kitchenOrders[0].ID != order.ID || kitchenOrders[0].FulfillmentStatus != core.StatusReadyForPickup {
 		t.Fatalf("pickup ready order should stay visible for kitchen handoff, got %+v", kitchenOrders)
 	}
 	delivered, err := st.MarkPickupCollected(ctx, kitchenSession, order.ID, "idem-pickup-collected", "request-hash-pickup-collected", ready.Version)

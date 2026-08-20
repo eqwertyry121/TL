@@ -60,6 +60,7 @@ function realApi(baseURL: string): Api {
     runtime: (signal) => get(`${baseURL}/api/v1/runtime`, undefined, signal),
     menu: (locale) => get(`${baseURL}/api/v1/menu?locale=${locale}`),
     calculate: (token, items, fulfillmentType) => post(`${baseURL}/api/v1/orders/calculate`, { items, fulfillment_type: fulfillmentType }, token),
+    pickupSlots: (token) => get(`${baseURL}/api/v1/pickup/slots`, token),
     calculateAddition: (token, orderId, items) => post(`${baseURL}/api/v1/orders/${orderId}/addition/calculate`, { items }, token),
     contact: (token) => get(`${baseURL}/api/v1/contact`, token),
     createCashLocationChallenge: (token, input) => post(`${baseURL}/api/v1/cash-location/challenges`, input, token),
@@ -140,6 +141,21 @@ function demoApi(): Api {
       saveDemoCalculation(calculation);
       return calculation;
     },
+    async pickupSlots() {
+      const settings = loadDemoSettings();
+      if (!settings.pickup_enabled) throw apiError("PICKUP_UNAVAILABLE");
+      if (!demoAcceptingState(settings).ok) {
+        return { timezone: settings.timezone, date: "", slots: [] };
+      }
+      const interval = settings.pickup_slot_minutes || 15;
+      const start = new Date(Date.now() + (settings.pickup_min_lead_minutes || 40) * 60 * 1000);
+      start.setMinutes(Math.ceil(start.getMinutes() / interval) * interval, 0, 0);
+      const slots = Array.from({ length: 12 }, (_, index) => {
+        const value = new Date(start.getTime() + index * interval * 60 * 1000);
+        return { pickup_at: value.toISOString(), label: value.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) };
+      });
+      return { timezone: settings.timezone, date: start.toISOString().slice(0, 10), slots };
+    },
     async calculateAddition(_token, orderId, items) {
       const order = loadDemoOrders().find((entry) => entry.id === orderId);
       if (!order || order.fulfillment_status !== "NEW" || order.payment_method !== "cash" || order.latest_addition) {
@@ -210,7 +226,7 @@ function demoApi(): Api {
       if (!input.phone.trim() || (input.fulfillment_type !== "pickup" && !input.address.trim())) {
         throw apiError("INVALID_INPUT");
       }
-      if (input.payment_method === "cash" && input.fulfillment_type !== "pickup" && !input.cash_location_challenge_id) {
+      if (input.payment_method === "cash" && !input.cash_location_challenge_id) {
         throw apiError("CASH_LOCATION_REQUIRED");
       }
       const orders = loadDemoOrders();
@@ -242,6 +258,7 @@ function demoApi(): Api {
         locale: input.locale,
         version: 1,
         created_at: new Date().toISOString(),
+        pickup_at: input.fulfillment_type === "pickup" ? input.pickup_at : undefined,
         can_add_items: true,
         add_items_until: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
         items: decoded.items.map((item) => ({
@@ -343,6 +360,7 @@ function unconfiguredApi(): Api {
     runtime: fail,
     menu: fail,
     calculate: fail,
+    pickupSlots: fail,
     calculateAddition: fail,
     contact: fail,
     createCashLocationChallenge: fail,
@@ -436,6 +454,12 @@ function loadDemoRuntime(): Runtime {
     ],
     cash_location_required: settings.cash_location_required,
     cash_location_radius_meters: settings.cash_location_radius_meters,
+    pickup_enabled: settings.pickup_enabled,
+    pickup_address: settings.pickup_address,
+    pickup_map_url: settings.pickup_map_url,
+    pickup_min_lead_minutes: settings.pickup_min_lead_minutes,
+    pickup_slot_minutes: settings.pickup_slot_minutes,
+    pickup_last_time: settings.pickup_last_time,
   };
 }
 
@@ -449,6 +473,16 @@ function loadDemoSettings(): Settings {
     cash_location_radius_meters: settings.cash_location_radius_meters || 12000,
     cash_location_ttl_seconds: settings.cash_location_ttl_seconds || 180,
     cash_location_max_accuracy_meters: settings.cash_location_max_accuracy_meters || 200,
+    pickup_enabled: settings.pickup_enabled ?? true,
+    pickup_address: settings.pickup_address || "Tako Lako, Novi Sad",
+    pickup_map_url: settings.pickup_map_url || "https://maps.google.com/?q=45.241970,19.808807",
+    pickup_instructions_ru: settings.pickup_instructions_ru || "Приходите к выбранному времени и назовите номер заказа.",
+    pickup_instructions_sr: settings.pickup_instructions_sr || "Dođite u izabrano vreme i recite broj porudžbine.",
+    pickup_instructions_en: settings.pickup_instructions_en || "Come at the selected time and tell us your order number.",
+    pickup_min_lead_minutes: settings.pickup_min_lead_minutes || 40,
+    pickup_slot_minutes: settings.pickup_slot_minutes || 15,
+    pickup_max_orders_per_slot: settings.pickup_max_orders_per_slot || 3,
+    pickup_last_time: settings.pickup_last_time || "22:00",
   };
   if (!localStorage.getItem(demoCryptoTestMigrationKey)) {
     const next = { ...normalized, crypto_enabled: true };
@@ -543,6 +577,16 @@ function seedDemoSettings(): Settings {
     cash_location_radius_meters: 12000,
     cash_location_ttl_seconds: 180,
     cash_location_max_accuracy_meters: 200,
+    pickup_enabled: true,
+    pickup_address: "Tako Lako, Novi Sad",
+    pickup_map_url: "https://maps.google.com/?q=45.241970,19.808807",
+    pickup_instructions_ru: "Приходите к выбранному времени и назовите номер заказа.",
+    pickup_instructions_sr: "Dođite u izabrano vreme i recite broj porudžbine.",
+    pickup_instructions_en: "Come at the selected time and tell us your order number.",
+    pickup_min_lead_minutes: 40,
+    pickup_slot_minutes: 15,
+    pickup_max_orders_per_slot: 3,
+    pickup_last_time: "22:00",
     version: 1,
     schedule: defaultSchedule(),
   };

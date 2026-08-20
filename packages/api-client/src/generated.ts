@@ -1,5 +1,5 @@
 export type Role = "CLIENT" | "KITCHEN" | "COURIER" | "ADMIN";
-export type FulfillmentStatus = "NEW" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED";
+export type FulfillmentStatus = "NEW" | "OUT_FOR_DELIVERY" | "READY_FOR_PICKUP" | "DELIVERED" | "CANCELLED";
 export type FulfillmentType = "delivery" | "pickup";
 export type PaymentMethod = "cash" | "card" | "crypto";
 export type PaymentStatus = "CASH_PENDING" | "PAID" | "FAILED" | "REFUNDED";
@@ -25,6 +25,12 @@ export interface Runtime {
   terms_url: string;
   cash_location_required: boolean;
   cash_location_radius_meters: number;
+  pickup_enabled: boolean;
+  pickup_address: string;
+  pickup_map_url: string;
+  pickup_min_lead_minutes: number;
+  pickup_slot_minutes: number;
+  pickup_last_time: string;
 }
 
 export interface ScheduleDay {
@@ -157,6 +163,7 @@ export interface OrderSummary {
   version: number;
   created_at: string;
   ready_at?: string;
+  pickup_at?: string;
   delivered_at?: string;
   cancelled_at?: string;
   cash_location_verified_at?: string;
@@ -179,6 +186,10 @@ export interface Order extends OrderSummary {
   phone?: string;
   address?: string;
   customer_comment: string;
+  pickup_original_at?: string;
+  pickup_cook_at?: string;
+  pickup_address?: string;
+  pickup_instructions?: string;
   items: OrderItem[];
   events?: OrderEvent[];
 }
@@ -224,6 +235,16 @@ export interface Settings {
   cash_location_radius_meters: number;
   cash_location_ttl_seconds: number;
   cash_location_max_accuracy_meters: number;
+  pickup_enabled: boolean;
+  pickup_address: string;
+  pickup_map_url: string;
+  pickup_instructions_ru: string;
+  pickup_instructions_sr: string;
+  pickup_instructions_en: string;
+  pickup_min_lead_minutes: number;
+  pickup_slot_minutes: number;
+  pickup_max_orders_per_slot: number;
+  pickup_last_time: string;
   version: number;
   schedule?: ScheduleDay[];
 }

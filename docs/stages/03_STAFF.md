@@ -4,7 +4,9 @@
 
 Реализовать максимально простой рабочий процесс сотрудников:
 
-`NEW → одна кнопка Kitchen → OUT_FOR_DELIVERY → одна кнопка Courier → DELIVERED`.
+Доставка: `NEW → одна кнопка Kitchen → OUT_FOR_DELIVERY → одна кнопка Courier → DELIVERED`.
+
+Самовывоз: `NEW → одна кнопка Kitchen → READY_FOR_PICKUP → ВЫДАНО → DELIVERED`.
 
 ## Критерии входа
 
@@ -68,18 +70,22 @@ Ordering: сначала самый старый. Никаких колонок 
 
 ## 4. Kitchen action
 
+Kitchen показывает два окна: `ДОСТАВКА` и `САМОВЫВОЗ`. Самовывоз сортируется по
+`pickup_at` и делится на `ГОТОВИТЬ СЕЙЧАС`, `ПОЗЖЕ` и `ГОТОВЫ К ВЫДАЧЕ`.
+Courier pickup-заказы не получает. Детали: [PICKUP_SPEC.md](../PICKUP_SPEC.md).
+
 После `ЗАКАЗ ГОТОВ`:
 
-1. Короткий confirm: `Заказ #N готов и передаётся курьеру?`.
+1. Короткий confirm: для доставки `Заказ #N готов и передаётся курьеру?`, для
+   самовывоза `Заказ #N готов к выдаче в HH:MM?`.
 2. Button progress/disabled.
 3. `POST /kitchen/orders/{id}/ready` с idempotency и version.
-4. Success:
-   - card исчезает;
-   - backend status `OUT_FOR_DELIVERY`;
-   - courier notification queued;
-   - client notification queued.
-5. Conflict означает, что order уже изменён ADMIN/другим устройством; refresh.
-6. Timeout → проверить order state с тем же key, не создавать второй action.
+4. Success доставки: card исчезает, backend status `OUT_FOR_DELIVERY`,
+   уведомления queued клиенту и курьеру.
+5. Success самовывоза: backend status `READY_FOR_PICKUP`, уведомление queued
+   только клиенту, card остаётся в `ГОТОВЫ К ВЫДАЧЕ` до кнопки `ВЫДАНО`.
+6. Conflict означает, что order уже изменён ADMIN/другим устройством; refresh.
+7. Timeout → проверить order state с тем же key, не создавать второй action.
 
 Kitchen не нажимает «Принять» и не ставит `PREPARING`.
 

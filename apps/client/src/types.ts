@@ -90,6 +90,14 @@ export interface CheckoutDraft {
   floor: string;
   apartment: string;
   comment: string;
+  fulfillmentType: FulfillmentType;
+  pickupAt: string;
+}
+
+export interface PickupSlots {
+  timezone: string;
+  date: string;
+  slots: Array<{ pickup_at: string; label: string }>;
 }
 
 export interface Api {
@@ -99,6 +107,7 @@ export interface Api {
   runtime(signal?: AbortSignal): Promise<Runtime>;
   menu(locale: Locale): Promise<{ categories: Category[] }>;
   calculate(token: string, items: Array<{ item_id: string; quantity: number }>, fulfillmentType: FulfillmentType): Promise<Calculation>;
+  pickupSlots(token: string): Promise<PickupSlots>;
   calculateAddition(token: string, orderId: string, items: Array<{ item_id: string; quantity: number }>): Promise<Calculation>;
   contact(token: string): Promise<VerifiedContact>;
   createCashLocationChallenge(token: string, input: { calculation_token: string; send_prompt?: boolean }): Promise<CashLocationChallenge>;
@@ -132,6 +141,7 @@ export interface CreateOrderInput {
   address: string;
   comment: string;
   fulfillment_type: FulfillmentType;
+  pickup_at?: string;
   payment_method: Extract<PaymentMethod, "cash" | "crypto">;
   terms_accepted: boolean;
   terms_version: string;

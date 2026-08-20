@@ -14,6 +14,12 @@ export const demoRuntime: Runtime = {
   terms_url: "",
   cash_location_required: true,
   cash_location_radius_meters: 12000,
+  pickup_enabled: true,
+  pickup_address: "Tako Lako, Novi Sad",
+  pickup_map_url: "https://maps.google.com/?q=45.241970,19.808807",
+  pickup_min_lead_minutes: 40,
+  pickup_slot_minutes: 15,
+  pickup_last_time: "22:00",
 };
 
 const media = (slug: string) => `/media/menu/${slug}.jpg`;
@@ -116,6 +122,8 @@ export function orderStatusText(order: OrderSummary): string {
       return "Заказ принят, готовится";
     case "OUT_FOR_DELIVERY":
       return "Заказ в доставке";
+    case "READY_FOR_PICKUP":
+      return "Заказ готов к самовывозу";
     case "DELIVERED":
       return "Заказ доставлен";
     case "CANCELLED":

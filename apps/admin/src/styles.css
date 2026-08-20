@@ -886,6 +886,7 @@ p {
 }
 
 .status-out_for_delivery.fulfillment-pickup,
+.status-ready_for_pickup,
 .status-delivered.fulfillment-pickup {
   background: rgba(94, 107, 58, 0.14);
   color: #4d5d2e;
@@ -2212,6 +2213,12 @@ p {
     border-radius: 1.1rem 1.1rem 0 0;
     border-width: 1px 0 0;
     padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 30rem) {
+  .restaurant-status {
+    display: none;
   }
 }
 

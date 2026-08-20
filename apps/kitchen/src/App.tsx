@@ -4,7 +4,7 @@ import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
 import { clientLabel, createStaffApi, isAuthError, kitchenTimeText, money, openTelegramLink, paymentText, problemLink, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
 import { AlertTriangle, Check, MoreVertical, RefreshCw, WifiOff } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 const api = createStaffApi("KITCHEN");
 const kitchenSeenOrdersKey = "tk-kitchen-seen-orders-v2";
@@ -26,20 +26,33 @@ export function App() {
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
+  const [activeWindow, setActiveWindow] = useState<"delivery" | "pickup">("delivery");
+  const [clock, setClock] = useState(() => Date.now());
   const seenIdsRef = useRef(loadSeenOrderIds(kitchenSeenOrdersKey));
   const notifiedIds = useRef(new Set<string>());
+  const dueAlertedIds = useRef(new Set<string>());
   const [seenIds, setSeenIds] = useState<Set<string>>(() => new Set(seenIdsRef.current));
   const authRetry = useMemo(() => createSingleFlightAuthRetry({
     authenticate,
     isAuthError,
   }), []);
 
-  const newOrders = useMemo(() => orders.filter((order) => order.fulfillment_status === "NEW"), [orders]);
+  const deliveryOrders = useMemo(() => orders.filter((order) => order.fulfillment_type !== "pickup" && order.fulfillment_status === "NEW"), [orders]);
+  const pickupOrders = useMemo(() => orders.filter((order) => order.fulfillment_type === "pickup" && order.fulfillment_status === "NEW"), [orders]);
   const pickupReadyOrders = useMemo(() => orders.filter(isPickupReady), [orders]);
-  const sortedNewOrders = useMemo(() => [...newOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [newOrders]);
+  const sortedDeliveryOrders = useMemo(() => [...deliveryOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [deliveryOrders]);
+  const sortedPickupOrders = useMemo(() => [...pickupOrders].sort((a, b) => pickupTimestamp(a) - pickupTimestamp(b)), [pickupOrders]);
+  const pickupDueOrders = useMemo(() => sortedPickupOrders.filter((order) => pickupCookTimestamp(order) <= clock), [sortedPickupOrders, clock]);
+  const pickupLaterOrders = useMemo(() => sortedPickupOrders.filter((order) => pickupCookTimestamp(order) > clock), [sortedPickupOrders, clock]);
   const sortedPickupReadyOrders = useMemo(() => [...pickupReadyOrders].sort((a, b) => new Date(a.ready_at || a.created_at).getTime() - new Date(b.ready_at || b.created_at).getTime()), [pickupReadyOrders]);
 
   useEffect(() => installPerformanceBeacon("kitchen", () => "orders"), []);
+  useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 15000); return () => window.clearInterval(timer); }, []);
+  useEffect(() => {
+    const dueNow = pickupDueOrders.filter((order) => !dueAlertedIds.current.has(order.id));
+    pickupDueOrders.forEach((order) => dueAlertedIds.current.add(order.id));
+    if (dueNow.length) playBeep();
+  }, [pickupDueOrders]);
 
   function markSeen(order: Order) {
     const key = seenKey(order);
@@ -84,6 +97,8 @@ export function App() {
       const response = await withAuth((currentToken) => api.listKitchenOrders(currentToken, signal), authToken);
       const incoming = response.orders.filter((order) => !seenIdsRef.current.has(seenKey(order)) && !notifiedIds.current.has(seenKey(order)));
       response.orders.forEach((order) => notifiedIds.current.add(seenKey(order)));
+      incoming.filter((order) => order.fulfillment_type === "pickup" && order.fulfillment_status === "NEW" && pickupCookTimestamp(order) <= Date.now())
+        .forEach((order) => dueAlertedIds.current.add(order.id));
       if (incoming.length) playBeep();
       setOrders(response.orders);
       setLastUpdated(new Date());
@@ -142,8 +157,9 @@ export function App() {
 
   async function markReady(order: Order) {
     const pickup = order.fulfillment_type === "pickup";
+    const pickupTime = pickup ? timeHHMM(order.pickup_at || order.created_at) : "";
     const message = pickup
-      ? `Заказ #${order.public_number} готов к самовывозу? Клиент получит уведомление, курьер — нет.`
+      ? `Заказ #${order.public_number} готов к самовывозу в ${pickupTime}? Клиент получит уведомление, курьер — нет.`
       : `Заказ #${order.public_number} готов и передаётся курьеру?`;
     const confirmed = await askConfirm({ title: `Заказ #${order.public_number}`, message, confirmLabel: pickup ? "Готов к самовывозу" : "Передать курьеру" });
     if (!confirmed) return;
@@ -186,44 +202,46 @@ export function App() {
       <header className="header">
         <div>
           <h1>Кухня</h1>
-          <p>{sortedNewOrders.length} новых · {sortedPickupReadyOrders.length} самовывоз · {lastUpdated ? `обновлено ${secondsAgo(lastUpdated)} сек назад` : "ожидание"}</p>
+          <p>{sortedDeliveryOrders.length} доставка · {sortedPickupOrders.length + sortedPickupReadyOrders.length} самовывоз · {lastUpdated ? `обновлено ${secondsAgo(lastUpdated)} сек назад` : "ожидание"}</p>
         </div>
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>
       </header>
       {offline && <div className="status bad"><WifiOff size={18} /><span>Нет связи с сервером</span></div>}
       {actionError && <div className="status bad"><AlertTriangle size={18} /><span>{actionError}</span></div>}
       {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="KITCHEN" />}
-      <main className="list">
-        {sortedNewOrders.length === 0 && sortedPickupReadyOrders.length === 0 ? <div className="empty">Новых заказов и самовывоза нет</div> : null}
-        {sortedNewOrders.map((order) => (
-          <KitchenOrderCard
-            key={order.id}
-            order={order}
-            seenIds={seenIds}
-            busy={busy}
-            onSeen={markSeen}
-            onPrimary={markReady}
-          />
-        ))}
-        {sortedPickupReadyOrders.length > 0 && (
-          <section className="pickup-section" aria-label="Самовывоз готов к выдаче">
-            <h2>Самовывоз · готово</h2>
-            {sortedPickupReadyOrders.map((order) => (
-              <KitchenOrderCard
-                key={order.id}
-                order={order}
-                seenIds={seenIds}
-                busy={busy}
-                onSeen={markSeen}
-                onPrimary={markPickupCollected}
-              />
-            ))}
-          </section>
-        )}
+      <nav className="kitchen-window-tabs" aria-label="Тип заказов">
+        <button className={activeWindow === "delivery" ? "active" : ""} onClick={() => setActiveWindow("delivery")}>ДОСТАВКА <b>{sortedDeliveryOrders.length}</b></button>
+        <button className={activeWindow === "pickup" ? "active" : ""} onClick={() => setActiveWindow("pickup")}>САМОВЫВОЗ <b>{sortedPickupOrders.length + sortedPickupReadyOrders.length}</b></button>
+      </nav>
+      <main className="kitchen-board">
+        <section className={`order-window delivery-window ${activeWindow === "delivery" ? "mobile-active" : ""}`}>
+          <header><div><span>ДОСТАВКА</span><strong>{sortedDeliveryOrders.length}</strong></div><small>Сначала самые старые</small></header>
+          <div className="window-list">
+            {!sortedDeliveryOrders.length && <div className="empty">Заказов на доставку нет</div>}
+            {sortedDeliveryOrders.map((order) => <KitchenOrderCard key={order.id} order={order} seenIds={seenIds} busy={busy} onSeen={markSeen} onPrimary={markReady} />)}
+          </div>
+        </section>
+        <section className={`order-window pickup-window ${activeWindow === "pickup" ? "mobile-active" : ""}`}>
+          <header><div><span>САМОВЫВОЗ</span><strong>{sortedPickupOrders.length + sortedPickupReadyOrders.length}</strong></div><small>По времени получения</small></header>
+          <div className="window-list">
+            {!!sortedPickupReadyOrders.length && <OrderGroup title="ГОТОВЫ К ВЫДАЧЕ" count={sortedPickupReadyOrders.length} tone="ready">{sortedPickupReadyOrders.map((order) => <KitchenOrderCard key={order.id} order={order} seenIds={seenIds} busy={busy} onSeen={markSeen} onPrimary={markPickupCollected} />)}</OrderGroup>}
+            {!!pickupDueOrders.length && <OrderGroup title="ГОТОВИТЬ СЕЙЧАС" count={pickupDueOrders.length} tone="urgent">{pickupDueOrders.map((order) => <KitchenOrderCard key={order.id} order={order} seenIds={seenIds} busy={busy} onSeen={markSeen} onPrimary={markReady} />)}</OrderGroup>}
+            {!!pickupLaterOrders.length && <OrderGroup title="ПОЗЖЕ СЕГОДНЯ" count={pickupLaterOrders.length}>{pickupLaterOrders.map((order) => <FuturePickupRow key={order.id} order={order} />)}</OrderGroup>}
+            {!sortedPickupOrders.length && !sortedPickupReadyOrders.length && <div className="empty">Самовывоза сегодня нет</div>}
+          </div>
+        </section>
       </main>
       {confirmDialog && <ConfirmDialog dialog={confirmDialog} onClose={closeConfirm} />}
     </div>
   );
+}
+
+function OrderGroup({ title, count, tone = "", children }: { title: string; count: number; tone?: string; children: ReactNode }) {
+  return <section className={`order-group ${tone}`}><h2>{title} <b>{count}</b></h2>{children}</section>;
+}
+
+function FuturePickupRow({ order }: { order: Order }) {
+  return <article className="future-pickup"><time>{timeHHMM(order.pickup_at || order.created_at)}</time><div><strong>#{order.public_number} · {clientLabel(order)}</strong><span>{order.items.map((item) => `${item.quantity}× ${item.snapshot_title}`).join(" · ")}</span></div></article>;
 }
 
 function ConfirmDialog({ dialog, onClose }: { dialog: ConfirmDialogState; onClose(confirmed: boolean): void }) {
@@ -259,13 +277,13 @@ function KitchenOrderCard({
   const pickup = order.fulfillment_type === "pickup";
   const pickupReady = isPickupReady(order);
   return (
-    <article className={`order-row${unread ? " is-new" : ""}${order.latest_addition ? " has-addition" : ""}${pickup ? " is-pickup" : ""}`} onClick={() => onSeen(order)}>
+    <article className={`order-row${unread ? " is-new" : ""}${order.latest_addition ? " has-addition" : ""}${pickup ? ` is-pickup ${pickupUrgencyClass(order)}` : ""}`} onClick={() => onSeen(order)}>
       <OrderAvatar order={order} unread={unread} />
       <div className="order-main">
         <div className="order-top">
           <div className="order-title">
             <strong>Заказ #{order.public_number}</strong>
-            <span>{kitchenTimeText(order)}</span>
+            <span>{pickup ? pickupTimingText(order) : kitchenTimeText(order)}</span>
           </div>
           <div className="order-side">
             <span className={unread ? "new-badge" : "read-badge"}>{unread ? "Новый" : "Прочитано"}</span>
@@ -306,7 +324,25 @@ function KitchenOrderCard({
 }
 
 function isPickupReady(order: Order): boolean {
-  return order.fulfillment_type === "pickup" && order.fulfillment_status === "OUT_FOR_DELIVERY";
+  return order.fulfillment_type === "pickup" && order.fulfillment_status === "READY_FOR_PICKUP";
+}
+
+function pickupTimestamp(order: Order): number { return new Date(order.pickup_at || order.created_at).getTime(); }
+function pickupCookTimestamp(order: Order): number { return new Date(order.pickup_cook_at || order.pickup_at || order.created_at).getTime(); }
+
+function pickupTimingText(order: Order): string {
+  if (isPickupReady(order)) return `Готов · заберут в ${timeHHMM(order.pickup_at || order.created_at)}`;
+  const minutes = Math.ceil((pickupTimestamp(order) - Date.now()) / 60000);
+  if (minutes <= 0) return `ЗАБЕРУТ СЕЙЧАС · ${timeHHMM(order.pickup_at || order.created_at)}`;
+  return `Заберут в ${timeHHMM(order.pickup_at || order.created_at)} · через ${minutes} мин`;
+}
+
+function pickupUrgencyClass(order: Order): string {
+  if (isPickupReady(order)) return "pickup-ready";
+  const minutes = (pickupTimestamp(order) - Date.now()) / 60000;
+  if (minutes <= 15) return "pickup-now";
+  if (minutes <= 30) return "pickup-soon";
+  return "";
 }
 
 function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {

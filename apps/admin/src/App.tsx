@@ -1326,7 +1326,7 @@ function OrderRow({ order, selected, onSelect }: { order: OrderSummary; selected
           <span>{createdText(order.created_at)}</span>
         </span>
         <span className="order-row-client">{orderClientLabel(order)}</span>
-        <span className="order-row-items">{fulfillmentText(order)} · {adminPaymentText(order)}</span>
+        <span className="order-row-items">{fulfillmentText(order)}{order.fulfillment_type === "pickup" && order.pickup_at ? ` ${pickupDateTime(order.pickup_at)}` : ""} · {adminPaymentText(order)}</span>
       </span>
       <span className="order-row-side">
         <StatusBadge order={order} />
@@ -1392,7 +1392,7 @@ function OrderDetailPanel({
   }
 
   const canCancel = order.fulfillment_status !== "CANCELLED" && order.fulfillment_status !== "DELIVERED";
-  const canReturn = order.fulfillment_status === "OUT_FOR_DELIVERY";
+  const canReturn = order.fulfillment_status === "OUT_FOR_DELIVERY" || order.fulfillment_status === "READY_FOR_PICKUP";
   const deliveryOrder = order.fulfillment_type !== "pickup";
 
   return (
@@ -1444,7 +1444,13 @@ function OrderDetailPanel({
           <span>Получение</span>
           <strong>{fulfillmentText(order)}</strong>
         </div>
-        {order.payment_method === "cash" && deliveryOrder && (
+        {!deliveryOrder && order.pickup_at && (
+          <div className="detail-row">
+            <span>Заберут</span>
+            <strong>{pickupDateTime(order.pickup_at)}</strong>
+          </div>
+        )}
+        {order.payment_method === "cash" && (
           <div className="detail-row">
             <span>Гео</span>
             <strong>{order.cash_location_verified_at ? `проверено${typeof order.cash_location_distance_meters === "number" ? ` · ${formatMeters(order.cash_location_distance_meters)}` : ""}` : "не проверено"}</strong>
@@ -1455,9 +1461,10 @@ function OrderDetailPanel({
       <div className="detail-section">
         <h3>{deliveryOrder ? "Адрес доставки" : "Самовывоз"}</h3>
         <div className="address-card">
-          <span>{order.address || "не указан"}</span>
+          <span>{deliveryOrder ? order.address || "не указан" : order.pickup_address || "адрес не указан"}</span>
           {deliveryOrder && order.address && <button type="button" onClick={() => void copyAddress()}><Copy size={16} /> {copied ? "Скопировано" : "Копировать"}</button>}
         </div>
+        {!deliveryOrder && order.pickup_instructions && <p className="muted">{order.pickup_instructions}</p>}
       </div>
 
       {order.customer_comment && <div className="warn"><AlertTriangle size={16} /> {order.customer_comment}</div>}
@@ -1686,6 +1693,30 @@ function SettingsTab({ settings, demoMode, onSave }: { settings: Settings; demoM
         <label className="check"><input type="checkbox" checked={form.cash_location_required} onChange={(event) => setForm({ ...form, cash_location_required: event.target.checked })} /> Проверять геопозицию</label>
       </div>
 
+      <div className="panel settings-card pickup-settings-card">
+        <div className="settings-card-head">
+          <h2>Самовывоз</h2>
+          <p>Клиент выбирает свободное время. Кухня видит заказ заранее и готовит его к выбранному часу.</p>
+        </div>
+        <label className="check"><input type="checkbox" checked={form.pickup_enabled} onChange={(event) => setForm({ ...form, pickup_enabled: event.target.checked })} /> Принимать заказы на самовывоз</label>
+        <div className="form-grid three">
+          <NumberInput label="Готовить за, мин" value={form.pickup_min_lead_minutes} onChange={(pickup_min_lead_minutes) => setForm({ ...form, pickup_min_lead_minutes })} />
+          <NumberInput label="Шаг времени, мин" value={form.pickup_slot_minutes} onChange={(pickup_slot_minutes) => setForm({ ...form, pickup_slot_minutes })} />
+          <NumberInput label="Заказов на время" value={form.pickup_max_orders_per_slot} onChange={(pickup_max_orders_per_slot) => setForm({ ...form, pickup_max_orders_per_slot })} />
+        </div>
+        <label><span>Последний самовывоз</span><input type="time" value={form.pickup_last_time} onChange={(event) => setForm({ ...form, pickup_last_time: event.target.value })} /></label>
+        <Text label="Адрес самовывоза" value={form.pickup_address} onChange={(pickup_address) => setForm({ ...form, pickup_address })} />
+        <Text label="Ссылка на карту" value={form.pickup_map_url} onChange={(pickup_map_url) => setForm({ ...form, pickup_map_url })} />
+        <details className="pickup-copy-settings">
+          <summary>Инструкция для клиента</summary>
+          <div className="stack compact-stack">
+            <Textarea label="Русский" value={form.pickup_instructions_ru} onChange={(pickup_instructions_ru) => setForm({ ...form, pickup_instructions_ru })} />
+            <Textarea label="Сербский" value={form.pickup_instructions_sr} onChange={(pickup_instructions_sr) => setForm({ ...form, pickup_instructions_sr })} />
+            <Textarea label="Английский" value={form.pickup_instructions_en} onChange={(pickup_instructions_en) => setForm({ ...form, pickup_instructions_en })} />
+          </div>
+        </details>
+      </div>
+
       <div className="panel settings-card">
         <h2>Способы оплаты</h2>
         <label className="check disabled-check"><input type="checkbox" checked={false} disabled /> Карта — этап 5</label>
@@ -1824,7 +1855,7 @@ function StatusPills({ visible, archived }: { visible: boolean; archived: boolea
 function adminOrderStatusText(order: Order | OrderSummary): string {
   if (order.fulfillment_type === "pickup") {
     if (order.fulfillment_status === "NEW") return "Новый · самовывоз";
-    if (order.fulfillment_status === "OUT_FOR_DELIVERY") return "Готов к самовывозу";
+    if (order.fulfillment_status === "READY_FOR_PICKUP") return "Готов к самовывозу";
     if (order.fulfillment_status === "DELIVERED") return "Выдан";
   }
   return statusText(order.fulfillment_status);
@@ -1832,6 +1863,16 @@ function adminOrderStatusText(order: Order | OrderSummary): string {
 
 function fulfillmentText(order: Order | OrderSummary): string {
   return order.fulfillment_type === "pickup" ? "Самовывоз" : "Доставка";
+}
+
+function pickupDateTime(value: string): string {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Belgrade",
+  }).format(new Date(value));
 }
 
 function StatusBadge({ order }: { order: Order | OrderSummary }) {
@@ -2017,7 +2058,7 @@ function ordersLoadFilter(view: OrdersView, query: string, date: string, limit: 
 function orderViewStatus(view: OrdersView): string {
   if (view === "active") return "ACTIVE";
   if (view === "new") return "NEW";
-  if (view === "ready") return "OUT_FOR_DELIVERY";
+  if (view === "ready") return "READY";
   return "HISTORY";
 }
 
@@ -2025,15 +2066,15 @@ function fallbackOrderCounts(orders: OrderSummary[]): AdminOrderCounts {
   return {
     active: orders.filter((order) => orderMatchesView(order, "active")).length,
     new: orders.filter((order) => order.fulfillment_status === "NEW").length,
-    ready: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").length,
+    ready: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY" || order.fulfillment_status === "READY_FOR_PICKUP").length,
     history: orders.filter((order) => orderMatchesView(order, "history")).length,
   };
 }
 
 function orderMatchesView(order: OrderSummary, view: OrdersView): boolean {
-  if (view === "active") return order.fulfillment_status === "NEW" || order.fulfillment_status === "OUT_FOR_DELIVERY";
+  if (view === "active") return order.fulfillment_status === "NEW" || order.fulfillment_status === "OUT_FOR_DELIVERY" || order.fulfillment_status === "READY_FOR_PICKUP";
   if (view === "new") return order.fulfillment_status === "NEW";
-  if (view === "ready") return order.fulfillment_status === "OUT_FOR_DELIVERY";
+  if (view === "ready") return order.fulfillment_status === "OUT_FOR_DELIVERY" || order.fulfillment_status === "READY_FOR_PICKUP";
   return order.fulfillment_status === "DELIVERED" || order.fulfillment_status === "CANCELLED";
 }
 
@@ -2107,7 +2148,7 @@ function orderEventStatusText(from: string, to: string): string {
 }
 
 function isOrderStatus(value: string): boolean {
-  return value === "NEW" || value === "OUT_FOR_DELIVERY" || value === "DELIVERED" || value === "CANCELLED";
+  return value === "NEW" || value === "OUT_FOR_DELIVERY" || value === "READY_FOR_PICKUP" || value === "DELIVERED" || value === "CANCELLED";
 }
 
 function OrderClientLink({ order }: { order: Order }) {

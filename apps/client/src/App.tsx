@@ -51,7 +51,7 @@ import {
   requestTelegramContact,
   syncBackButton,
 } from "./telegram";
-import type { Api, AppData, Calculation, CashLocationChallenge, CartLine, CartState, CheckoutDraft, Locale, Route, Session, VerifiedContact } from "./types";
+import type { Api, AppData, Calculation, CashLocationChallenge, CartLine, CartState, CheckoutDraft, Locale, PickupSlots, Route, Session, VerifiedContact } from "./types";
 
 const api = createApi();
 const clientBotMiniAppURL = "https://t.me/TakoLako_main_bot?startapp";
@@ -102,7 +102,8 @@ function ClientMiniApp() {
   const [additionCalculation, setAdditionCalculation] = useState<Calculation | null>(null);
   const [verifiedContact, setVerifiedContact] = useState<VerifiedContact | null>(null);
   const [cashLocation, setCashLocation] = useState<CashLocationChallenge | null>(null);
-  const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType>("delivery");
+  const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType>(() => draft.fulfillmentType || "delivery");
+  const [pickupSlots, setPickupSlots] = useState<PickupSlots | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<Extract<PaymentMethod, "cash" | "crypto">>("cash");
   const [contactLoading, setContactLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -122,7 +123,7 @@ function ClientMiniApp() {
   const availableCartLines = useMemo(() => cartLines.filter((line) => itemLookup.has(line.itemId)), [cartLines, itemLookup]);
   const availableAdditionLines = useMemo(() => additionLines.filter((line) => itemLookup.has(line.itemId)), [additionLines, itemLookup]);
   const checkoutCartKey = useMemo(() => checkoutCartSignature(availableCartLines), [availableCartLines]);
-  const checkoutSignature = useMemo(() => checkoutCartKey ? `${fulfillmentType}:${checkoutCartKey}` : "", [checkoutCartKey, fulfillmentType]);
+  const checkoutSignature = useMemo(() => checkoutCartKey ? `${fulfillmentType}:${draft.pickupAt}:${checkoutCartKey}` : "", [checkoutCartKey, draft.pickupAt, fulfillmentType]);
   const additionSignature = useMemo(() => checkoutCartSignature(availableAdditionLines), [availableAdditionLines]);
   const cartQuantity = availableCartLines.reduce((sum, line) => sum + line.quantity, 0);
   const additionQuantity = availableAdditionLines.reduce((sum, line) => sum + line.quantity, 0);
@@ -225,6 +226,19 @@ function ClientMiniApp() {
   useEffect(() => {
     if (!paymentMethods.includes(paymentMethod)) setPaymentMethod(paymentMethods[0] || "cash");
   }, [paymentMethod, paymentMethods]);
+
+  useEffect(() => {
+    if (!token || route.name !== "checkout" || fulfillmentType !== "pickup") return;
+    let alive = true;
+    withAuth((authToken) => api.pickupSlots(authToken), token)
+      .then((slots) => {
+        if (!alive) return;
+        setPickupSlots(slots);
+        if (draft.pickupAt && !slots.slots.some((slot) => slot.pickup_at === draft.pickupAt)) updateDraft({ pickupAt: "" });
+      })
+      .catch((err) => alive && setError(errorText(err, locale)));
+    return () => { alive = false; };
+  }, [token, route.name, fulfillmentType, locale, withAuth]);
 
   useEffect(() => {
     if (!token || !checkoutSignature || restoredCheckoutSignature === checkoutSignature) return;
@@ -405,6 +419,7 @@ function ClientMiniApp() {
 
   function updateFulfillmentType(next: FulfillmentType) {
     setFulfillmentType(next);
+    updateDraft({ fulfillmentType: next, pickupAt: next === "pickup" ? draft.pickupAt : "" });
     setCalculation(null);
     setCashLocation(null);
     clearCheckoutProgress();
@@ -474,7 +489,6 @@ function ClientMiniApp() {
 
   async function confirmCashLocation() {
     if (!token || locationLoading) return;
-    if (fulfillmentType === "pickup") return;
     setLocationLoading(true);
     setError("");
     try {
@@ -512,12 +526,16 @@ function ClientMiniApp() {
       setError(deliverySelected ? checkoutCopy(locale).phoneAndAddressRequired : checkoutCopy(locale).phoneRequired);
       return;
     }
+    if (!deliverySelected && !draft.pickupAt) {
+      setError(checkoutCopy(locale).pickupTimeRequired);
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
       const calc = calculation || (await calculate());
       if (!calc) throw new Error("EMPTY_CART");
-      if (paymentMethod === "cash" && deliverySelected && cashLocationRequired && cashLocation?.status !== "VERIFIED") {
+      if (paymentMethod === "cash" && cashLocationRequired && cashLocation?.status !== "VERIFIED") {
         setError(checkoutCopy(locale).cashLocationRequired);
         return;
       }
@@ -542,8 +560,9 @@ function ClientMiniApp() {
           address: deliverySelected ? buildCheckoutAddress(draft, locale) : "",
           comment: draft.comment.trim(),
           fulfillment_type: fulfillmentType,
+          pickup_at: deliverySelected ? undefined : draft.pickupAt,
           payment_method: paymentMethod,
-          cash_location_challenge_id: paymentMethod === "cash" && deliverySelected ? cashLocation?.id : undefined,
+          cash_location_challenge_id: paymentMethod === "cash" ? cashLocation?.id : undefined,
           terms_accepted: termsAccepted,
           terms_version: termsVersion,
           locale,
@@ -561,6 +580,15 @@ function ClientMiniApp() {
       replaceRoute({ name: "order", id: order.id });
     } catch (err) {
       setError(errorText(err, locale));
+      const code = typeof err === "object" && err && "code" in err ? String((err as { code: unknown }).code) : "";
+      if (!deliverySelected && (code === "PICKUP_SLOT_UNAVAILABLE" || code === "PICKUP_UNAVAILABLE")) {
+        updateDraft({ pickupAt: "" });
+        try {
+          setPickupSlots(await withAuth((authToken) => api.pickupSlots(authToken), token));
+        } catch {
+          setPickupSlots({ timezone: "Europe/Belgrade", date: "", slots: [] });
+        }
+      }
     } finally {
       setSubmitting(false);
     }
@@ -674,6 +702,10 @@ function ClientMiniApp() {
         checkoutOpen={checkoutOpen}
         locale={locale}
         fulfillmentType={fulfillmentType}
+        pickupSlots={pickupSlots}
+        pickupAddress={data.runtime?.pickup_address || "Tako Lako, Novi Sad"}
+        pickupMapUrl={data.runtime?.pickup_map_url || ""}
+        pickupEnabled={data.runtime?.pickup_enabled !== false}
         paymentMethod={paymentMethod}
         paymentMethods={paymentMethods}
         verifiedContact={verifiedContact}
@@ -1250,6 +1282,10 @@ function Checkout({
   checkoutOpen,
   locale,
   fulfillmentType,
+  pickupSlots,
+  pickupAddress,
+  pickupMapUrl,
+  pickupEnabled,
   paymentMethod,
   paymentMethods,
   verifiedContact,
@@ -1278,6 +1314,10 @@ function Checkout({
   checkoutOpen: boolean;
   locale: Locale;
   fulfillmentType: FulfillmentType;
+  pickupSlots: PickupSlots | null;
+  pickupAddress: string;
+  pickupMapUrl: string;
+  pickupEnabled: boolean;
   paymentMethod: Extract<PaymentMethod, "cash" | "crypto">;
   paymentMethods: Array<Extract<PaymentMethod, "cash" | "crypto">>;
   verifiedContact: VerifiedContact | null;
@@ -1303,7 +1343,7 @@ function Checkout({
   }, [fulfillmentType, lines.length]);
   if (!lines.length) return <div className="state">{t(locale, "emptyCart")}</div>;
   const deliverySelected = fulfillmentType === "delivery";
-  const locationRequired = deliverySelected && paymentMethod === "cash" && cashLocationRequired;
+  const locationRequired = paymentMethod === "cash" && cashLocationRequired;
   const locationVerified = !locationRequired || cashLocation?.status === "VERIFIED";
   const contactVerified = Boolean(verifiedContact?.verified);
   const termsHref = termsUrl.trim() || routeToHash({ name: "terms" });
@@ -1320,7 +1360,7 @@ function Checkout({
               <strong>{copy.deliveryTitle}</strong>
               <small>{copy.deliveryDescription}</small>
             </button>
-            <button type="button" className={!deliverySelected ? "active" : ""} onClick={() => onFulfillmentType("pickup")}>
+            <button type="button" className={!deliverySelected ? "active" : ""} disabled={!pickupEnabled} onClick={() => onFulfillmentType("pickup")}>
               <strong>{copy.pickupTitle}</strong>
               <small>{copy.pickupDescription}</small>
             </button>
@@ -1354,6 +1394,41 @@ function Checkout({
               </label>
             </div>
           </>
+        )}
+        {!deliverySelected && (
+          <section className="pickup-checkout" aria-label={copy.pickupTitle}>
+            <div className="pickup-place">
+              <MapPin size={22} />
+              <div>
+                <strong>{copy.pickupPlaceTitle}</strong>
+                <p>{pickupAddress}</p>
+              </div>
+              {pickupMapUrl && <a href={pickupMapUrl} target="_blank" rel="noreferrer">{copy.openMap}</a>}
+            </div>
+            <div className="pickup-time-picker">
+              <strong>{copy.pickupTimeTitle}</strong>
+              <p>{copy.pickupTimeHint}</p>
+              {!pickupEnabled ? (
+                <div className="notice error">{copy.pickupDisabled}</div>
+              ) : pickupSlots?.slots.length ? (
+                <div className="pickup-slots">
+                  {pickupSlots.slots.map((slot, index) => (
+                    <button
+                      type="button"
+                      key={slot.pickup_at}
+                      className={draft.pickupAt === slot.pickup_at ? "active" : ""}
+                      onClick={() => onDraft({ pickupAt: slot.pickup_at })}
+                    >
+                      {index === 0 && <small>{copy.nearest}</small>}
+                      <strong>{slot.label}</strong>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="pickup-slots-loading">{pickupSlots ? copy.noPickupSlots : copy.loadingPickupSlots}</div>
+              )}
+            </div>
+          </section>
         )}
         <label>
           <span>{t(locale, "comment")}</span>
@@ -1401,7 +1476,7 @@ function Checkout({
               <MapPin size={18} />
               <div>
                 <strong>{cashLocationTitle(cashLocation, locale)}</strong>
-                <p>{cashLocationText(cashLocation, cashLocationRadiusMeters, locale)}</p>
+                <p>{cashLocationText(cashLocation, cashLocationRadiusMeters, locale, fulfillmentType)}</p>
               </div>
             </div>
             <button className="primary full" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
@@ -1420,8 +1495,8 @@ function Checkout({
           </a>
         </span>
       </label>
-      <button className="primary full" disabled={!checkoutOpen || submitting || !contactVerified || !locationVerified || !termsAccepted} onClick={onSubmit}>
-        {submitting ? "..." : `${paymentMethod === "crypto" ? copy.placeCryptoTestOrder : t(locale, "placeOrder")} · ${money(calculation?.total_minor || total)}`}
+      <button className="primary full" disabled={!checkoutOpen || submitting || !contactVerified || !locationVerified || !termsAccepted || (!deliverySelected && (!pickupEnabled || !draft.pickupAt))} onClick={onSubmit}>
+        {submitting ? "..." : `${!deliverySelected && draft.pickupAt ? `${copy.placePickupOrder} ${formatPickupTime(draft.pickupAt)} ` : paymentMethod === "crypto" ? copy.placeCryptoTestOrder : t(locale, "placeOrder")}· ${money(calculation?.total_minor || total)}`}
       </button>
     </div>
   );
@@ -1435,7 +1510,17 @@ function checkoutCopy(locale: Locale) {
       deliveryDescription: "привезём курьером",
       pickupTitle: "Самовывоз",
       pickupDescription: "забрать в ресторане",
-      pickupSelected: "Самовывоз выбран: адрес и геолокация не нужны, курьер не получает этот заказ.",
+      pickupSelected: "Приготовим заказ к выбранному времени. Курьер этот заказ не получает.",
+      pickupPlaceTitle: "Самовывоз из Tako Lako",
+      openMap: "Карта",
+      pickupTimeTitle: "Когда вы заберёте заказ?",
+      pickupTimeHint: "Выберите точное время — приготовим блюда непосредственно перед вашим приходом.",
+      pickupDisabled: "Самовывоз временно недоступен",
+      nearest: "Ближайшее",
+      noPickupSlots: "Сегодня свободных времён больше нет",
+      loadingPickupSlots: "Загружаем свободное время…",
+      pickupTimeRequired: "Выберите время самовывоза",
+      placePickupOrder: "ОФОРМИТЬ НА",
       paymentTitle: "Способ оплаты",
       cryptoNotice: "Тестовый режим: реальная крипта не списывается. Заказ создаётся как оплаченный, чтобы проверить flow кухни, курьера и админки.",
       requiredSteps: "Обязательные шаги",
@@ -1484,7 +1569,17 @@ function checkoutCopy(locale: Locale) {
       deliveryDescription: "kurir donosi porudžbinu",
       pickupTitle: "Lično preuzimanje",
       pickupDescription: "preuzimanje u restoranu",
-      pickupSelected: "Izabrano je lično preuzimanje: adresa i geolokacija nisu potrebni, kurir ne dobija ovu porudžbinu.",
+      pickupSelected: "Porudžbinu pripremamo za izabrano vreme. Kurir ne dobija ovu porudžbinu.",
+      pickupPlaceTitle: "Preuzimanje u Tako Lako",
+      openMap: "Mapa",
+      pickupTimeTitle: "Kada preuzimate porudžbinu?",
+      pickupTimeHint: "Izaberite tačno vreme — jela pripremamo neposredno pre dolaska.",
+      pickupDisabled: "Lično preuzimanje trenutno nije dostupno",
+      nearest: "Najranije",
+      noPickupSlots: "Danas više nema slobodnih termina",
+      loadingPickupSlots: "Učitavamo slobodne termine…",
+      pickupTimeRequired: "Izaberite vreme preuzimanja",
+      placePickupOrder: "NARUČI ZA",
       paymentTitle: "Način plaćanja",
       cryptoNotice: "Test režim: prava kripto uplata se ne naplaćuje. Porudžbina se kreira kao plaćena radi provere toka kuhinje, kurira i admina.",
       requiredSteps: "Obavezni koraci",
@@ -1533,7 +1628,17 @@ function checkoutCopy(locale: Locale) {
       deliveryDescription: "courier delivery",
       pickupTitle: "Pickup",
       pickupDescription: "collect at the restaurant",
-      pickupSelected: "Pickup selected: address and geolocation are not needed, and the courier will not receive this order.",
+      pickupSelected: "We prepare the order for your selected time. The courier will not receive it.",
+      pickupPlaceTitle: "Pickup from Tako Lako",
+      openMap: "Map",
+      pickupTimeTitle: "When will you collect the order?",
+      pickupTimeHint: "Choose an exact time — we prepare the food shortly before you arrive.",
+      pickupDisabled: "Pickup is temporarily unavailable",
+      nearest: "Earliest",
+      noPickupSlots: "There are no pickup times left today",
+      loadingPickupSlots: "Loading available times…",
+      pickupTimeRequired: "Choose a pickup time",
+      placePickupOrder: "ORDER FOR",
       paymentTitle: "Payment method",
       cryptoNotice: "Test mode: no real crypto is charged. The order is created as paid to test the kitchen, courier and admin flow.",
       requiredSteps: "Required steps",
@@ -1637,7 +1742,7 @@ function cashLocationTitle(challenge: CashLocationChallenge | null, locale: Loca
   }
 }
 
-function cashLocationText(challenge: CashLocationChallenge | null, radiusMeters: number, locale: Locale): string {
+function cashLocationText(challenge: CashLocationChallenge | null, radiusMeters: number, locale: Locale, fulfillmentType: FulfillmentType): string {
   const copy = checkoutCopy(locale);
   if (challenge?.status === "VERIFIED") {
     const distance = typeof challenge.distance_meters === "number" ? copy.locationDistance(formatDistance(challenge.distance_meters)) : "";
@@ -1648,6 +1753,11 @@ function cashLocationText(challenge: CashLocationChallenge | null, radiusMeters:
   if (challenge?.rejection_reason === "OUTSIDE_CASH_AREA") return copy.locationOutsideText(formatDistance(radiusMeters));
   if (challenge?.rejection_reason === "LOCATION_INACCURATE" || challenge?.rejection_reason === "LOCATION_ACCURACY_MISSING") return copy.locationInaccurateText;
   if (challenge?.rejection_reason === "LOCATION_NOT_CONFIGURED") return copy.locationNotConfiguredText;
+  if (fulfillmentType === "pickup") {
+    if (locale === "sr") return "Za plaćanje gotovinom Telegram potvrđuje da se nalazite u Novom Sadu. Tačne koordinate se ne čuvaju.";
+    if (locale === "en") return "For cash payment, Telegram confirms that you are in Novi Sad. Exact coordinates are not stored.";
+    return "Для оплаты наличными Telegram подтвердит, что вы находитесь в Нови Саде. Точные координаты не сохраняются.";
+  }
   return copy.locationDefaultText;
 }
 
@@ -1684,7 +1794,7 @@ function additionBlockedText(order: Order): string {
     case "already_added":
       return "Дозаказ уже был добавлен";
     case "time_expired":
-      return "Прошло больше 5 минут";
+      return order.fulfillment_type === "pickup" ? "Кухня уже готовит заказ к выбранному времени" : "Прошло больше 5 минут";
     case "manual_day_off":
       return "Приём заказов закрыт";
     case "schedule_closed":
@@ -1735,6 +1845,8 @@ function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; 
       <Totals subtotal={order.subtotal_minor} total={order.total_minor} locale={locale} />
       <div className="panel-list">
         <div className="split"><span>Получение</span><strong>{fulfillmentText(order)}</strong></div>
+        {order.fulfillment_type === "pickup" && <div className="split"><span>Забрать</span><strong>{formatPickupTime(order.pickup_at)}</strong></div>}
+        {order.fulfillment_type === "pickup" && order.pickup_address && <div className="split"><span>Адрес</span><strong>{order.pickup_address}</strong></div>}
         <div className="split"><span>{t(locale, "phone")}</span><strong>{maskPhone(order.phone)}</strong></div>
         <div className="split"><span>Оплата</span><strong>{paymentStatusLabel(order)}</strong></div>
       </div>
@@ -1876,10 +1988,15 @@ function fulfillmentText(order: OrderSummary): string {
   return order.fulfillment_type === "pickup" ? "Самовывоз" : "Доставка";
 }
 
+function formatPickupTime(value?: string): string {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Belgrade" }).format(new Date(value));
+}
+
 function localizedStatus(order: OrderSummary, locale: Locale): string {
   if (order.fulfillment_type === "pickup") {
-    if (order.fulfillment_status === "NEW") return locale === "ru" ? "Заказ принят · самовывоз" : t(locale, "accepted");
-    if (order.fulfillment_status === "OUT_FOR_DELIVERY") return locale === "ru" ? "Готов к самовывозу" : "Ready for pickup";
+    if (order.fulfillment_status === "NEW") return locale === "ru" ? `Принят · забрать в ${formatPickupTime(order.pickup_at)}` : t(locale, "accepted");
+    if (order.fulfillment_status === "READY_FOR_PICKUP") return locale === "ru" ? `Готов · ждём к ${formatPickupTime(order.pickup_at)}` : "Ready for pickup";
     if (order.fulfillment_status === "DELIVERED") return locale === "ru" ? "Заказ выдан" : t(locale, "delivered");
   }
   if (locale === "ru") return orderStatusText(order);
@@ -2073,8 +2190,10 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       AUTH_INVALID: "Telegram авторизация не прошла",
       CONTACT_NOT_VERIFIED: "Для cash нужен телефон, подтверждённый через Telegram",
       CASH_LOCATION_REQUIRED: "Для оплаты наличными подтвердите местоположение",
-      CASH_LOCATION_OUTSIDE: "Вы вне зоны доставки для оплаты наличными",
+      CASH_LOCATION_OUTSIDE: "Вы слишком далеко от Нови Сада для оплаты наличными",
       CASH_LOCATION_INACCURATE: "Геолокация неточная. Повторите проверку у окна или на улице.",
+      PICKUP_UNAVAILABLE: "Самовывоз сейчас недоступен",
+      PICKUP_SLOT_UNAVAILABLE: "Это время уже недоступно. Выберите другой слот.",
       INVALID_INPUT: "Поделитесь телефоном через Telegram и заполните адрес",
       RATE_LIMITED: "Слишком много запросов. Подождите минуту и попробуйте ещё раз.",
       INTERNAL: "Сервер недоступен. Попробуйте ещё раз",
@@ -2093,8 +2212,10 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       AUTH_INVALID: "Telegram autorizacija nije prošla",
       CONTACT_NOT_VERIFIED: "Za gotovinu je potreban telefon potvrđen preko Telegrama",
       CASH_LOCATION_REQUIRED: "Za plaćanje gotovinom potvrdite lokaciju",
-      CASH_LOCATION_OUTSIDE: "Van ste zone za plaćanje gotovinom",
+      CASH_LOCATION_OUTSIDE: "Predaleko ste od Novog Sada za plaćanje gotovinom",
       CASH_LOCATION_INACCURATE: "Geolokacija nije dovoljno precizna. Ponovite proveru pored prozora ili napolju.",
+      PICKUP_UNAVAILABLE: "Lično preuzimanje trenutno nije dostupno",
+      PICKUP_SLOT_UNAVAILABLE: "Ovaj termin više nije dostupan. Izaberite drugi.",
       INVALID_INPUT: "Podelite telefon preko Telegrama i unesite adresu",
       RATE_LIMITED: "Previše zahteva. Sačekajte minut i pokušajte ponovo.",
       INTERNAL: "Server nije dostupan. Pokušajte ponovo.",
@@ -2113,8 +2234,10 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       AUTH_INVALID: "Telegram authorization failed",
       CONTACT_NOT_VERIFIED: "Cash payment requires a phone confirmed through Telegram",
       CASH_LOCATION_REQUIRED: "Confirm your location for cash payment",
-      CASH_LOCATION_OUTSIDE: "You are outside the cash payment delivery area",
+      CASH_LOCATION_OUTSIDE: "You are too far from Novi Sad for cash payment",
       CASH_LOCATION_INACCURATE: "Geolocation is not accurate enough. Repeat the check near a window or outside.",
+      PICKUP_UNAVAILABLE: "Pickup is currently unavailable",
+      PICKUP_SLOT_UNAVAILABLE: "This pickup time is no longer available. Choose another slot.",
       INVALID_INPUT: "Share your phone through Telegram and enter the address",
       RATE_LIMITED: "Too many requests. Wait a minute and try again.",
       INTERNAL: "Server is unavailable. Try again.",

@@ -63,6 +63,7 @@ type CreateOrderInput struct {
 	Address                 string               `json:"address"`
 	Comment                 string               `json:"comment"`
 	FulfillmentType         core.FulfillmentType `json:"fulfillment_type"`
+	PickupAt                *time.Time           `json:"pickup_at"`
 	PaymentMethod           core.PaymentMethod   `json:"payment_method"`
 	TermsAccepted           bool                 `json:"terms_accepted"`
 	TermsVersion            string               `json:"terms_version"`
@@ -119,6 +120,16 @@ type UpdateSettingsInput struct {
 	CashLocationRadiusMeters      int     `json:"cash_location_radius_meters"`
 	CashLocationTTLSeconds        int     `json:"cash_location_ttl_seconds"`
 	CashLocationMaxAccuracyMeters int     `json:"cash_location_max_accuracy_meters"`
+	PickupEnabled                 bool    `json:"pickup_enabled"`
+	PickupAddress                 string  `json:"pickup_address"`
+	PickupMapURL                  string  `json:"pickup_map_url"`
+	PickupInstructionsRU          string  `json:"pickup_instructions_ru"`
+	PickupInstructionsSR          string  `json:"pickup_instructions_sr"`
+	PickupInstructionsEN          string  `json:"pickup_instructions_en"`
+	PickupMinLeadMinutes          int     `json:"pickup_min_lead_minutes"`
+	PickupSlotMinutes             int     `json:"pickup_slot_minutes"`
+	PickupMaxOrdersPerSlot        int     `json:"pickup_max_orders_per_slot"`
+	PickupLastTime                string  `json:"pickup_last_time"`
 	Version                       int     `json:"version"`
 }
 
@@ -410,7 +421,10 @@ func (s *Store) Settings(ctx context.Context) (core.Settings, error) {
 			support_text, support_phone, terms_url, max_item_quantity, max_comment_length,
 			cash_enabled, card_enabled, crypto_enabled, cash_location_required, restaurant_latitude,
 			restaurant_longitude, cash_location_radius_meters, cash_location_ttl_seconds,
-			cash_location_max_accuracy_meters, version
+			cash_location_max_accuracy_meters, pickup_enabled, pickup_address, pickup_map_url,
+			pickup_instructions_ru, pickup_instructions_sr, pickup_instructions_en,
+			pickup_min_lead_minutes, pickup_slot_minutes, pickup_max_orders_per_slot,
+			to_char(pickup_last_time, 'HH24:MI'), version
 		FROM app_settings WHERE id=true
 	`).Scan(
 		&settings.Timezone,
@@ -432,6 +446,16 @@ func (s *Store) Settings(ctx context.Context) (core.Settings, error) {
 		&settings.CashLocationRadiusMeters,
 		&settings.CashLocationTTLSeconds,
 		&settings.CashLocationMaxAccuracyMeters,
+		&settings.PickupEnabled,
+		&settings.PickupAddress,
+		&settings.PickupMapURL,
+		&settings.PickupInstructionsRU,
+		&settings.PickupInstructionsSR,
+		&settings.PickupInstructionsEN,
+		&settings.PickupMinLeadMinutes,
+		&settings.PickupSlotMinutes,
+		&settings.PickupMaxOrdersPerSlot,
+		&settings.PickupLastTime,
 		&settings.Version,
 	)
 	if err != nil {
@@ -467,6 +491,93 @@ func (s *Store) Schedule(ctx context.Context) ([]core.ScheduleDay, error) {
 		return core.DefaultSchedule(), nil
 	}
 	return days, nil
+}
+
+func (s *Store) PickupSlots(ctx context.Context, sess core.Session, now time.Time) (core.PickupSlots, error) {
+	if sess.ActiveRole != core.RoleClient {
+		return core.PickupSlots{}, core.ErrForbidden
+	}
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return core.PickupSlots{}, err
+	}
+	if !settings.PickupEnabled {
+		return core.PickupSlots{}, core.ErrPickupUnavailable
+	}
+	accept := core.CanAcceptOrder(now, settings)
+	if !accept.OK {
+		return core.PickupSlots{Timezone: settings.Timezone, Slots: []core.PickupSlot{}}, nil
+	}
+	loc, err := time.LoadLocation(settings.Timezone)
+	if err != nil {
+		return core.PickupSlots{}, err
+	}
+	localNow := now.In(loc)
+	lastHour, lastMinute, ok := parseClock(settings.PickupLastTime)
+	if !ok {
+		return core.PickupSlots{}, core.ErrInvalidInput
+	}
+	last := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), lastHour, lastMinute, 0, 0, loc)
+	interval := time.Duration(settings.PickupSlotMinutes) * time.Minute
+	earliest := localNow.Add(time.Duration(settings.PickupMinLeadMinutes) * time.Minute)
+	first := earliest.Truncate(interval)
+	if first.Before(earliest) {
+		first = first.Add(interval)
+	}
+	counts := map[time.Time]int{}
+	rows, err := s.pool.Query(ctx, `
+		SELECT pickup_at, COUNT(*)::int
+		FROM orders
+		WHERE fulfillment_type='pickup' AND fulfillment_status IN ('NEW', 'READY_FOR_PICKUP')
+			AND pickup_at >= $1 AND pickup_at <= $2
+		GROUP BY pickup_at
+	`, first.UTC(), last.UTC())
+	if err != nil {
+		return core.PickupSlots{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var at time.Time
+		var count int
+		if err := rows.Scan(&at, &count); err != nil {
+			return core.PickupSlots{}, err
+		}
+		counts[at.UTC()] = count
+	}
+	if err := rows.Err(); err != nil {
+		return core.PickupSlots{}, err
+	}
+	result := core.PickupSlots{Timezone: settings.Timezone, Date: localNow.Format("2006-01-02"), Slots: []core.PickupSlot{}}
+	for slot := first; !slot.After(last); slot = slot.Add(interval) {
+		if counts[slot.UTC()] >= settings.PickupMaxOrdersPerSlot {
+			continue
+		}
+		result.Slots = append(result.Slots, core.PickupSlot{PickupAt: slot.UTC(), Label: slot.Format("15:04")})
+	}
+	return result, nil
+}
+
+func parseClock(value string) (int, int, bool) {
+	parts := strings.Split(strings.TrimSpace(value), ":")
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	hour, errHour := strconv.Atoi(parts[0])
+	minute, errMinute := strconv.Atoi(parts[1])
+	if errHour != nil || errMinute != nil || hour < 0 || hour > 23 || minute < 0 || minute > 59 {
+		return 0, 0, false
+	}
+	return hour, minute, true
+}
+
+func validClock(value string) bool { _, _, ok := parseClock(value); return ok }
+
+func validPickupSlotMinutes(value int) bool {
+	switch value {
+	case 5, 10, 15, 20, 30, 60:
+		return true
+	}
+	return false
 }
 
 func (s *Store) SetManualDayOff(ctx context.Context, sess core.Session, enabled bool) (core.Settings, error) {
@@ -515,6 +626,18 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 	if input.CashLocationMaxAccuracyMeters == 0 {
 		input.CashLocationMaxAccuracyMeters = 200
 	}
+	if input.PickupMinLeadMinutes == 0 {
+		input.PickupMinLeadMinutes = 40
+	}
+	if input.PickupSlotMinutes == 0 {
+		input.PickupSlotMinutes = 15
+	}
+	if input.PickupMaxOrdersPerSlot == 0 {
+		input.PickupMaxOrdersPerSlot = 3
+	}
+	if strings.TrimSpace(input.PickupLastTime) == "" {
+		input.PickupLastTime = "22:00"
+	}
 	if input.FlatDeliveryFeeMinor < 0 || input.MaxItemQuantity <= 0 || input.MaxItemQuantity > maxItemQuantityHardLimit ||
 		input.MaxCommentLength <= 0 || input.MaxCommentLength > maxCustomerCommentLength || !input.CashEnabled {
 		return core.Settings{}, core.ErrInvalidInput
@@ -536,6 +659,16 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 	if input.CardEnabled || input.CryptoEnabled {
 		return core.Settings{}, core.ErrInvalidInput
 	}
+	if input.PickupMinLeadMinutes < 15 || input.PickupMinLeadMinutes > 180 ||
+		!validPickupSlotMinutes(input.PickupSlotMinutes) || input.PickupMaxOrdersPerSlot < 1 || input.PickupMaxOrdersPerSlot > 20 ||
+		!validClock(input.PickupLastTime) || !optionalText(input.PickupAddress, maxAddressLength) ||
+		!validOptionalURL(input.PickupMapURL) || !optionalText(input.PickupInstructionsRU, maxSupportTextLength) ||
+		!optionalText(input.PickupInstructionsSR, maxSupportTextLength) || !optionalText(input.PickupInstructionsEN, maxSupportTextLength) {
+		return core.Settings{}, core.ErrInvalidInput
+	}
+	if input.PickupEnabled && strings.TrimSpace(input.PickupAddress) == "" {
+		return core.Settings{}, core.ErrInvalidInput
+	}
 	before, err := s.Settings(ctx)
 	if err != nil {
 		return core.Settings{}, err
@@ -551,12 +684,18 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 			max_item_quantity=$5, max_comment_length=$6, cash_enabled=$7, card_enabled=false,
 			crypto_enabled=false, cash_location_required=$8, restaurant_latitude=$9, restaurant_longitude=$10,
 			cash_location_radius_meters=$11, cash_location_ttl_seconds=$12,
-			cash_location_max_accuracy_meters=$13, version=version+1, updated_at=now()
-		WHERE id=true AND version=$14
+			cash_location_max_accuracy_meters=$13, pickup_enabled=$14, pickup_address=$15,
+			pickup_map_url=$16, pickup_instructions_ru=$17, pickup_instructions_sr=$18,
+			pickup_instructions_en=$19, pickup_min_lead_minutes=$20, pickup_slot_minutes=$21,
+			pickup_max_orders_per_slot=$22, pickup_last_time=$23::time, version=version+1, updated_at=now()
+		WHERE id=true AND version=$24
 	`, input.FlatDeliveryFeeMinor, safe(input.SupportText), safe(input.SupportPhone), safe(input.TermsURL),
 		input.MaxItemQuantity, input.MaxCommentLength, input.CashEnabled, input.CashLocationRequired,
 		input.RestaurantLatitude, input.RestaurantLongitude, input.CashLocationRadiusMeters,
-		input.CashLocationTTLSeconds, input.CashLocationMaxAccuracyMeters, input.Version)
+		input.CashLocationTTLSeconds, input.CashLocationMaxAccuracyMeters, input.PickupEnabled,
+		safe(input.PickupAddress), safe(input.PickupMapURL), safe(input.PickupInstructionsRU),
+		safe(input.PickupInstructionsSR), safe(input.PickupInstructionsEN), input.PickupMinLeadMinutes,
+		input.PickupSlotMinutes, input.PickupMaxOrdersPerSlot, input.PickupLastTime, input.Version)
 	if err != nil {
 		return core.Settings{}, err
 	}
@@ -579,6 +718,16 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 	afterAudit.CashLocationRadiusMeters = input.CashLocationRadiusMeters
 	afterAudit.CashLocationTTLSeconds = input.CashLocationTTLSeconds
 	afterAudit.CashLocationMaxAccuracyMeters = input.CashLocationMaxAccuracyMeters
+	afterAudit.PickupEnabled = input.PickupEnabled
+	afterAudit.PickupAddress = safe(input.PickupAddress)
+	afterAudit.PickupMapURL = safe(input.PickupMapURL)
+	afterAudit.PickupInstructionsRU = safe(input.PickupInstructionsRU)
+	afterAudit.PickupInstructionsSR = safe(input.PickupInstructionsSR)
+	afterAudit.PickupInstructionsEN = safe(input.PickupInstructionsEN)
+	afterAudit.PickupMinLeadMinutes = input.PickupMinLeadMinutes
+	afterAudit.PickupSlotMinutes = input.PickupSlotMinutes
+	afterAudit.PickupMaxOrdersPerSlot = input.PickupMaxOrdersPerSlot
+	afterAudit.PickupLastTime = input.PickupLastTime
 	afterAudit.Version = before.Version + 1
 	if err := s.insertAuditTx(ctx, tx, sess, "settings.update", "app_settings", nil, "", safeSettingsAudit(before), safeSettingsAudit(afterAudit)); err != nil {
 		return core.Settings{}, err
@@ -1398,15 +1547,17 @@ func (s *Store) CalculateAddition(ctx context.Context, sess core.Session, orderI
 	}
 
 	var status core.FulfillmentStatus
+	var fulfillmentType core.FulfillmentType
 	var paymentMethod core.PaymentMethod
 	var createdAt time.Time
+	var pickupAt, pickupCookAt sql.NullTime
 	var orderSubtotal, orderDelivery, orderTotal int
 	var orderCurrency string
 	err = s.pool.QueryRow(ctx, `
-		SELECT fulfillment_status, payment_method, created_at, subtotal_minor, delivery_fee_minor, total_minor, currency
+		SELECT fulfillment_status, fulfillment_type, payment_method, created_at, pickup_at, pickup_cook_at, subtotal_minor, delivery_fee_minor, total_minor, currency
 		FROM orders
 		WHERE id=$1 AND client_user_id=$2
-	`, orderID, sess.UserID).Scan(&status, &paymentMethod, &createdAt, &orderSubtotal, &orderDelivery, &orderTotal, &orderCurrency)
+	`, orderID, sess.UserID).Scan(&status, &fulfillmentType, &paymentMethod, &createdAt, &pickupAt, &pickupCookAt, &orderSubtotal, &orderDelivery, &orderTotal, &orderCurrency)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.Calculation{}, core.ErrForbidden
 	}
@@ -1416,7 +1567,7 @@ func (s *Store) CalculateAddition(ctx context.Context, sess core.Session, orderI
 	if status != core.StatusNew || paymentMethod != core.PaymentCash {
 		return core.Calculation{}, core.ErrOrderStatusConflict
 	}
-	if !now.UTC().Before(createdAt.UTC().Add(orderAdditionWindow)) {
+	if !now.UTC().Before(additionCutoff(createdAt, pickupAt, pickupCookAt, fulfillmentType, settings)) {
 		return core.Calculation{}, core.ErrOrderStatusConflict
 	}
 	var alreadyAdded bool
@@ -1831,7 +1982,7 @@ func (s *Store) CreateCashLocationChallenge(ctx context.Context, sess core.Sessi
 	if err := s.pool.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM calculation_tokens
-			WHERE token_hash=$1 AND user_id=$2 AND purpose='order' AND fulfillment_type='delivery' AND used_at IS NULL AND expires_at > now()
+			WHERE token_hash=$1 AND user_id=$2 AND purpose='order' AND used_at IS NULL AND expires_at > now()
 		)
 	`, tokenHash, sess.UserID).Scan(&exists); err != nil {
 		return core.CashLocationChallenge{}, err
@@ -2108,8 +2259,11 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	address := safe(input.Address)
 	comment := safe(input.Comment)
 	if fulfillmentType == core.FulfillmentPickup {
+		if !settings.PickupEnabled || input.PickupAt == nil {
+			return core.Order{}, core.ErrPickupSlotUnavailable
+		}
 		address = pickupAddressSnapshot
-	} else if !requiredText(address, maxAddressLength) {
+	} else if input.PickupAt != nil || !requiredText(address, maxAddressLength) {
 		return core.Order{}, core.ErrInvalidInput
 	}
 	if len([]rune(comment)) > settings.MaxCommentLength || !optionalText(comment, maxCustomerCommentLength) {
@@ -2135,7 +2289,7 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM orders
-			WHERE client_user_id=$1 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY')
+			WHERE client_user_id=$1 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP')
 		)
 	`, sess.UserID).Scan(&hasActiveOrder); err != nil {
 		return core.Order{}, err
@@ -2173,6 +2327,16 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if err != nil {
 		return core.Order{}, err
 	}
+	var pickupAt *time.Time
+	var pickupCookAtValue *time.Time
+	if fulfillmentType == core.FulfillmentPickup {
+		validated, err := s.validatePickupSlotTx(ctx, tx, *input.PickupAt, settings, now)
+		if err != nil {
+			return core.Order{}, err
+		}
+		pickupAt = &validated
+		pickupCookAtValue = pickupCookAt(pickupAt, settings)
+	}
 	phone, err := s.verifiedPhoneForCashOrder(ctx, tx, sess.UserID, input.Phone)
 	if err != nil {
 		return core.Order{}, err
@@ -2180,11 +2344,9 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	var cashLocationChallengeID *uuid.UUID
 	var cashLocationVerifiedAt *time.Time
 	var cashLocationDistance *int
-	if fulfillmentType == core.FulfillmentDelivery {
-		cashLocationChallengeID, cashLocationVerifiedAt, cashLocationDistance, err = s.useCashLocationChallengeTx(ctx, tx, sess, input.CashLocationChallengeID, tokenHash, settings, now)
-		if err != nil {
-			return core.Order{}, err
-		}
+	cashLocationChallengeID, cashLocationVerifiedAt, cashLocationDistance, err = s.useCashLocationChallengeTx(ctx, tx, sess, input.CashLocationChallengeID, tokenHash, settings, now)
+	if err != nil {
+		return core.Order{}, err
 	}
 	phoneCipher, err := s.box.Encrypt(phone)
 	if err != nil {
@@ -2202,12 +2364,14 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		INSERT INTO orders (
 			client_user_id, fulfillment_type, fulfillment_status, payment_method, payment_status, subtotal_minor, delivery_fee_minor,
 			total_minor, currency, phone_ciphertext, phone_hash, address_ciphertext, customer_comment, locale,
-			terms_version, terms_accepted_at, cash_location_challenge_id, cash_location_verified_at, cash_location_distance_meters
+			terms_version, terms_accepted_at, cash_location_challenge_id, cash_location_verified_at, cash_location_distance_meters,
+			pickup_at, pickup_original_at, pickup_cook_at, pickup_address_snapshot, pickup_instructions_snapshot
 		)
-		VALUES ($1, $2, 'NEW', 'cash', 'CASH_PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15)
+		VALUES ($1, $2, 'NEW', 'cash', 'CASH_PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15, $16, $16, $17, $18, $19)
 		RETURNING id, public_number, created_at
 	`, sess.UserID, string(fulfillmentType), subtotal, delivery, total, currency, phoneCipher, phoneHash, addressCipher, comment, localeOrDefault(input.Locale),
-		termsVersion, uuidSQL(cashLocationChallengeID), timeSQL(cashLocationVerifiedAt), intSQL(cashLocationDistance)).
+		termsVersion, uuidSQL(cashLocationChallengeID), timeSQL(cashLocationVerifiedAt), intSQL(cashLocationDistance),
+		timeSQL(pickupAt), timeSQL(pickupCookAtValue), pickupAddressForOrder(fulfillmentType, settings), pickupInstructionsForLocale(fulfillmentType, settings, input.Locale)).
 		Scan(&orderID, &publicNumber, &createdAt)
 	if err != nil {
 		if isUniqueViolation(err, "idx_orders_one_active_per_client") {
@@ -2267,6 +2431,11 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		Locale:                     localeOrDefault(input.Locale),
 		Version:                    1,
 		CreatedAt:                  createdAt,
+		PickupAt:                   pickupAt,
+		PickupOriginalAt:           pickupAt,
+		PickupCookAt:               pickupCookAtValue,
+		PickupAddress:              pickupAddressForOrder(fulfillmentType, settings),
+		PickupInstructions:         pickupInstructionsForLocale(fulfillmentType, settings, input.Locale),
 		CashLocationVerifiedAt:     cashLocationVerifiedAt,
 		CashLocationDistanceMeters: cashLocationDistance,
 	}
@@ -2280,6 +2449,67 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		})
 	}
 	return order, nil
+}
+
+func (s *Store) validatePickupSlotTx(ctx context.Context, tx pgx.Tx, requested time.Time, settings core.Settings, now time.Time) (time.Time, error) {
+	if !settings.PickupEnabled {
+		return time.Time{}, core.ErrPickupUnavailable
+	}
+	loc, err := time.LoadLocation(settings.Timezone)
+	if err != nil {
+		return time.Time{}, err
+	}
+	localNow, localRequested := now.In(loc), requested.In(loc)
+	if localRequested.Year() != localNow.Year() || localRequested.YearDay() != localNow.YearDay() || localRequested.Second() != 0 || localRequested.Nanosecond() != 0 {
+		return time.Time{}, core.ErrPickupSlotUnavailable
+	}
+	if localRequested.Before(localNow.Add(time.Duration(settings.PickupMinLeadMinutes)*time.Minute)) || localRequested.Minute()%settings.PickupSlotMinutes != 0 {
+		return time.Time{}, core.ErrPickupSlotUnavailable
+	}
+	lastHour, lastMinute, ok := parseClock(settings.PickupLastTime)
+	if !ok {
+		return time.Time{}, core.ErrInvalidInput
+	}
+	last := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), lastHour, lastMinute, 0, 0, loc)
+	if localRequested.After(last) {
+		return time.Time{}, core.ErrPickupSlotUnavailable
+	}
+	lockKey := localRequested.Format(time.RFC3339)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, lockKey); err != nil {
+		return time.Time{}, err
+	}
+	var count int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*)::int FROM orders
+		WHERE fulfillment_type='pickup' AND pickup_at=$1 AND fulfillment_status IN ('NEW', 'READY_FOR_PICKUP')
+	`, localRequested.UTC()).Scan(&count); err != nil {
+		return time.Time{}, err
+	}
+	if count >= settings.PickupMaxOrdersPerSlot {
+		return time.Time{}, core.ErrPickupSlotUnavailable
+	}
+	return localRequested.UTC(), nil
+}
+
+func pickupAddressForOrder(kind core.FulfillmentType, settings core.Settings) string {
+	if kind == core.FulfillmentPickup {
+		return settings.PickupAddress
+	}
+	return ""
+}
+
+func pickupInstructionsForLocale(kind core.FulfillmentType, settings core.Settings, locale string) string {
+	if kind != core.FulfillmentPickup {
+		return ""
+	}
+	switch localeOrDefault(locale) {
+	case "sr":
+		return settings.PickupInstructionsSR
+	case "en":
+		return settings.PickupInstructionsEN
+	default:
+		return settings.PickupInstructionsRU
+	}
 }
 
 func copyOrderItemsTx(ctx context.Context, tx pgx.Tx, orderID uuid.UUID, items []core.CalculatedItem) error {
@@ -2327,10 +2557,10 @@ func (s *Store) KitchenOrders(ctx context.Context, sess core.Session) ([]core.Or
 		FROM orders o
 		JOIN users u ON u.id=o.client_user_id
 		WHERE o.fulfillment_status='NEW'
-			OR (o.fulfillment_status='OUT_FOR_DELIVERY' AND o.fulfillment_type='pickup')
+			OR (o.fulfillment_status='READY_FOR_PICKUP' AND o.fulfillment_type='pickup')
 		ORDER BY
-			CASE WHEN o.fulfillment_status='NEW' THEN 0 ELSE 1 END,
-			o.updated_at ASC
+			CASE WHEN o.fulfillment_status='READY_FOR_PICKUP' THEN 0 ELSE 1 END,
+			CASE WHEN o.fulfillment_type='pickup' THEN o.pickup_at ELSE o.created_at END ASC
 		LIMIT 50
 	`)
 	if err != nil {
@@ -2383,7 +2613,7 @@ func (s *Store) ClientOrders(ctx context.Context, sess core.Session, filter Clie
 			COALESCE(u.photo_url, ''),
 			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
-			o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.locale, o.version, o.created_at, o.pickup_at, o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
 		FROM orders o
 		JOIN users u ON u.id=o.client_user_id
@@ -2415,13 +2645,13 @@ func (s *Store) ClientBootstrapOrders(ctx context.Context, sess core.Session) ([
 			COALESCE(u.photo_url, ''),
 			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
-			o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.locale, o.version, o.created_at, o.pickup_at, o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
 		FROM orders o
 		JOIN users u ON u.id=o.client_user_id
 		WHERE o.client_user_id=$1
 		ORDER BY
-			CASE WHEN o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY') THEN 0 ELSE 1 END,
+			CASE WHEN o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP') THEN 0 ELSE 1 END,
 			o.created_at DESC
 		LIMIT 1
 	`, sess.UserID)
@@ -2471,7 +2701,7 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 	var counts AdminOrderCounts
 	countsQuery := fmt.Sprintf(`
 		SELECT
-			COUNT(*) FILTER (WHERE o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY'))::int,
+			COUNT(*) FILTER (WHERE o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP'))::int,
 			COUNT(*) FILTER (WHERE o.fulfillment_status='NEW')::int,
 			COUNT(*) FILTER (WHERE o.fulfillment_status='OUT_FOR_DELIVERY')::int,
 			COUNT(*) FILTER (WHERE o.fulfillment_status IN ('DELIVERED', 'CANCELLED'))::int
@@ -2498,7 +2728,7 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 			COALESCE(u.photo_url, ''),
 			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
-			o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.locale, o.version, o.created_at, o.pickup_at, o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
 		FROM orders o
 		JOIN users u ON u.id=o.client_user_id
@@ -2575,11 +2805,11 @@ func adminOrderStatusPredicate(status string, nextPlaceholder int) (string, []an
 	normalized := strings.ToUpper(strings.TrimSpace(status))
 	switch normalized {
 	case "ACTIVE":
-		return "o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY')", nil, nil
+		return "o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP')", nil, nil
 	case "HISTORY":
 		return "o.fulfillment_status IN ('DELIVERED', 'CANCELLED')", nil, nil
 	case "READY":
-		return "o.fulfillment_status='OUT_FOR_DELIVERY'", nil, nil
+		return "o.fulfillment_status IN ('OUT_FOR_DELIVERY', 'READY_FOR_PICKUP')", nil, nil
 	default:
 		if !validFulfillmentStatus(normalized) {
 			return "", nil, core.ErrInvalidInput
@@ -2618,7 +2848,7 @@ func (s *Store) CancelOrder(ctx context.Context, sess core.Session, orderID uuid
 		WITH target AS (
 			SELECT id, fulfillment_status
 			FROM orders
-			WHERE id=$1 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY')
+			WHERE id=$1 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP')
 			FOR UPDATE
 		), updated AS (
 			UPDATE orders o
@@ -2665,24 +2895,26 @@ func (s *Store) ReturnOrderToNew(ctx context.Context, sess core.Session, orderID
 		return core.Order{}, err
 	}
 	defer rollback(ctx, tx)
-	tag, err := tx.Exec(ctx, `
+	var from core.FulfillmentStatus
+	err = tx.QueryRow(ctx, `
 		UPDATE orders
 		SET fulfillment_status='NEW', ready_at=NULL, updated_at=now(), version=version+1
-		WHERE id=$1 AND fulfillment_status='OUT_FOR_DELIVERY'
-	`, orderID)
+		WHERE id=$1 AND fulfillment_status IN ('OUT_FOR_DELIVERY', 'READY_FOR_PICKUP')
+		RETURNING CASE WHEN fulfillment_type='pickup' THEN 'READY_FOR_PICKUP' ELSE 'OUT_FOR_DELIVERY' END
+	`, orderID).Scan(&from)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return core.Order{}, core.ErrOrderStatusConflict
+	}
 	if err != nil {
 		return core.Order{}, err
 	}
-	if tag.RowsAffected() == 0 {
-		return core.Order{}, core.ErrOrderStatusConflict
-	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO order_events (order_id, from_status, to_status, action, actor_user_id, actor_role, reason)
-		VALUES ($1, 'OUT_FOR_DELIVERY', 'NEW', 'admin_return_to_new', $2, $3, $4)
-	`, orderID, sess.UserID, string(sess.ActiveRole), reason); err != nil {
+		VALUES ($1, $2, 'NEW', 'admin_return_to_new', $3, $4, $5)
+	`, orderID, string(from), sess.UserID, string(sess.ActiveRole), reason); err != nil {
 		return core.Order{}, err
 	}
-	if err := s.insertAuditTx(ctx, tx, sess, "order.return_to_new", "order", &orderID, reason, map[string]any{"status": "OUT_FOR_DELIVERY"}, map[string]any{"status": "NEW"}); err != nil {
+	if err := s.insertAuditTx(ctx, tx, sess, "order.return_to_new", "order", &orderID, reason, map[string]any{"status": from}, map[string]any{"status": "NEW"}); err != nil {
 		return core.Order{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -2716,7 +2948,7 @@ func (s *Store) UpdateOrderContact(ctx context.Context, sess core.Session, order
 	defer rollback(ctx, tx)
 	tag, err := tx.Exec(ctx, `
 		UPDATE orders SET phone_ciphertext=$1, phone_hash=$2, address_ciphertext=$3, updated_at=now(), version=version+1
-		WHERE id=$4 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY')
+		WHERE id=$4 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP')
 	`, phoneCipher, s.phoneHash(phone), addressCipher, orderID)
 	if err != nil {
 		return core.Order{}, err
@@ -3018,6 +3250,12 @@ func (s *Store) AdminDashboard(ctx context.Context, sess core.Session, now time.
 		SupportText:              settings.SupportText,
 		CashLocationRequired:     settings.CashLocationRequired,
 		CashLocationRadiusMeters: settings.CashLocationRadiusMeters,
+		PickupEnabled:            settings.PickupEnabled,
+		PickupAddress:            settings.PickupAddress,
+		PickupMapURL:             settings.PickupMapURL,
+		PickupMinLeadMinutes:     settings.PickupMinLeadMinutes,
+		PickupSlotMinutes:        settings.PickupSlotMinutes,
+		PickupLastTime:           settings.PickupLastTime,
 	}
 	loc, err := time.LoadLocation(settings.Timezone)
 	if err != nil {
@@ -3033,7 +3271,7 @@ func (s *Store) AdminDashboard(ctx context.Context, sess core.Session, now time.
 		SELECT
 			COUNT(*) FILTER (WHERE fulfillment_status='NEW')::int,
 			COUNT(*) FILTER (WHERE fulfillment_status='OUT_FOR_DELIVERY' AND fulfillment_type='delivery')::int,
-			COUNT(*) FILTER (WHERE fulfillment_status='OUT_FOR_DELIVERY' AND fulfillment_type='pickup')::int,
+			COUNT(*) FILTER (WHERE fulfillment_status='READY_FOR_PICKUP' AND fulfillment_type='pickup')::int,
 			COUNT(*) FILTER (WHERE created_at >= $1 AND created_at < $2)::int,
 			COALESCE(SUM(total_minor) FILTER (
 				WHERE created_at >= $1 AND created_at < $2
@@ -3290,17 +3528,19 @@ func (s *Store) AddOrderItems(ctx context.Context, sess core.Session, orderID uu
 	}
 
 	var status core.FulfillmentStatus
+	var fulfillmentType core.FulfillmentType
 	var paymentMethod core.PaymentMethod
 	var orderVersion int
 	var createdAt time.Time
+	var pickupAt, pickupCookAt sql.NullTime
 	var orderSubtotal, orderTotal int
 	var orderCurrency string
 	err = tx.QueryRow(ctx, `
-		SELECT fulfillment_status, payment_method, version, created_at, subtotal_minor, total_minor, currency
+		SELECT fulfillment_status, fulfillment_type, payment_method, version, created_at, pickup_at, pickup_cook_at, subtotal_minor, total_minor, currency
 		FROM orders
 		WHERE id=$1 AND client_user_id=$2
 		FOR UPDATE
-	`, orderID, sess.UserID).Scan(&status, &paymentMethod, &orderVersion, &createdAt, &orderSubtotal, &orderTotal, &orderCurrency)
+	`, orderID, sess.UserID).Scan(&status, &fulfillmentType, &paymentMethod, &orderVersion, &createdAt, &pickupAt, &pickupCookAt, &orderSubtotal, &orderTotal, &orderCurrency)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.Order{}, core.ErrForbidden
 	}
@@ -3310,7 +3550,7 @@ func (s *Store) AddOrderItems(ctx context.Context, sess core.Session, orderID uu
 	if status != core.StatusNew || paymentMethod != core.PaymentCash || orderVersion != input.ExpectedVersion {
 		return core.Order{}, core.ErrOrderStatusConflict
 	}
-	if !now.UTC().Before(createdAt.UTC().Add(orderAdditionWindow)) {
+	if !now.UTC().Before(additionCutoff(createdAt, pickupAt, pickupCookAt, fulfillmentType, settings)) {
 		return core.Order{}, core.ErrOrderStatusConflict
 	}
 	var alreadyAdded bool
@@ -3462,7 +3702,7 @@ func (s *Store) MarkPickupCollected(ctx context.Context, sess core.Session, orde
 		SET fulfillment_status='DELIVERED', payment_status='PAID', delivered_at=now(), updated_at=now(), version=version+1
 		WHERE id=$1
 			AND fulfillment_type='pickup'
-			AND fulfillment_status='OUT_FOR_DELIVERY'
+		AND fulfillment_status='READY_FOR_PICKUP'
 			AND ($2::int <= 0 OR version=$2)
 		RETURNING id
 	`, orderID, expectedVersionNumber).Scan(&updatedID)
@@ -3474,7 +3714,7 @@ func (s *Store) MarkPickupCollected(ctx context.Context, sess core.Session, orde
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO order_events (order_id, from_status, to_status, action, actor_user_id, actor_role)
-		VALUES ($1, 'OUT_FOR_DELIVERY', 'DELIVERED', 'mark_pickup_collected', $2, $3)
+		VALUES ($1, 'READY_FOR_PICKUP', 'DELIVERED', 'mark_pickup_collected', $2, $3)
 	`, orderID, sess.UserID, string(sess.ActiveRole)); err != nil {
 		return core.Order{}, err
 	}
@@ -3570,16 +3810,19 @@ func (s *Store) transition(ctx context.Context, sess core.Session, orderID uuid.
 	var action string
 	var orderVersion int
 	var fulfillmentType core.FulfillmentType
+	var actualTo core.FulfillmentStatus
 	if to == core.StatusOutForDelivery {
 		action = "mark_ready"
 		err = tx.QueryRow(ctx, `
 			UPDATE orders
-			SET fulfillment_status='OUT_FOR_DELIVERY', ready_at=now(), updated_at=now(), version=version+1
+			SET fulfillment_status=CASE WHEN fulfillment_type='pickup' THEN 'READY_FOR_PICKUP' ELSE 'OUT_FOR_DELIVERY' END,
+				ready_at=now(), updated_at=now(), version=version+1
 			WHERE id=$1 AND fulfillment_status='NEW' AND ($2::int <= 0 OR version=$2)
-			RETURNING id, 'NEW', version, fulfillment_type
-		`, orderID, expectedVersion).Scan(&updatedID, &previous, &orderVersion, &fulfillmentType)
+			RETURNING id, 'NEW', version, fulfillment_type, fulfillment_status
+		`, orderID, expectedVersion).Scan(&updatedID, &previous, &orderVersion, &fulfillmentType, &actualTo)
 	} else {
 		action = "mark_delivered"
+		actualTo = core.StatusDelivered
 		err = tx.QueryRow(ctx, `
 			UPDATE orders
 			SET fulfillment_status='DELIVERED', payment_status='PAID', delivered_at=now(), updated_at=now(), version=version+1
@@ -3596,7 +3839,7 @@ func (s *Store) transition(ctx context.Context, sess core.Session, orderID uuid.
 	_, err = tx.Exec(ctx, `
 		INSERT INTO order_events (order_id, from_status, to_status, action, actor_user_id, actor_role)
 		VALUES ($1, $2, $3, $4, $5, $6)
-	`, orderID, string(from), string(to), action, sess.UserID, string(sess.ActiveRole))
+	`, orderID, string(from), string(actualTo), action, sess.UserID, string(sess.ActiveRole))
 	if err != nil {
 		return core.Order{}, err
 	}
@@ -3688,6 +3931,22 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 	if locationDistance.Valid {
 		value := int(locationDistance.Int32)
 		order.CashLocationDistanceMeters = &value
+	}
+	var pickupAt, pickupOriginalAt, pickupCookAtValue sql.NullTime
+	if err := s.pool.QueryRow(ctx, `
+		SELECT pickup_at, pickup_original_at, pickup_cook_at, pickup_address_snapshot, pickup_instructions_snapshot
+		FROM orders WHERE id=$1
+	`, orderID).Scan(&pickupAt, &pickupOriginalAt, &pickupCookAtValue, &order.PickupAddress, &order.PickupInstructions); err != nil {
+		return core.Order{}, err
+	}
+	if pickupAt.Valid {
+		order.PickupAt = &pickupAt.Time
+	}
+	if pickupOriginalAt.Valid {
+		order.PickupOriginalAt = &pickupOriginalAt.Time
+	}
+	if pickupCookAtValue.Valid {
+		order.PickupCookAt = &pickupCookAtValue.Time
 	}
 	items, err := s.orderItems(ctx, order.ID)
 	if err != nil {
@@ -3784,7 +4043,18 @@ func (s *Store) attachAdditionState(ctx context.Context, order *core.Order) erro
 		return err
 	}
 
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return err
+	}
 	until := order.CreatedAt.UTC().Add(orderAdditionWindow)
+	if order.FulfillmentType == core.FulfillmentPickup && order.PickupAt != nil {
+		until = order.PickupAt.UTC().Add(-time.Duration(settings.PickupMinLeadMinutes) * time.Minute)
+		if order.PickupCookAt != nil {
+			until = order.PickupCookAt.UTC()
+		}
+		order.PickupCookAt = &until
+	}
 	if order.FulfillmentStatus != core.StatusNew {
 		order.AddItemsReason = "status"
 		return nil
@@ -3803,10 +4073,6 @@ func (s *Store) attachAdditionState(ctx context.Context, order *core.Order) erro
 		order.AddItemsReason = "time_expired"
 		return nil
 	}
-	settings, err := s.Settings(ctx)
-	if err != nil {
-		return err
-	}
 	accept := core.CanAcceptOrder(now, settings)
 	if !accept.OK {
 		order.AddItemsReason = accept.Reason
@@ -3814,6 +4080,24 @@ func (s *Store) attachAdditionState(ctx context.Context, order *core.Order) erro
 	}
 	order.CanAddItems = true
 	return nil
+}
+
+func pickupCookAt(pickupAt *time.Time, settings core.Settings) *time.Time {
+	if pickupAt == nil {
+		return nil
+	}
+	value := pickupAt.UTC().Add(-time.Duration(settings.PickupMinLeadMinutes) * time.Minute)
+	return &value
+}
+
+func additionCutoff(createdAt time.Time, pickupAt, pickupCookAt sql.NullTime, fulfillmentType core.FulfillmentType, settings core.Settings) time.Time {
+	if fulfillmentType == core.FulfillmentPickup && pickupAt.Valid {
+		if pickupCookAt.Valid {
+			return pickupCookAt.Time.UTC()
+		}
+		return pickupAt.Time.UTC().Add(-time.Duration(settings.PickupMinLeadMinutes) * time.Minute)
+	}
+	return createdAt.UTC().Add(orderAdditionWindow)
 }
 
 func (s *Store) OrderEvents(ctx context.Context, orderID uuid.UUID) ([]core.OrderEvent, error) {
@@ -3860,7 +4144,7 @@ func scanOrderSummaries(rows pgx.Rows) ([]core.OrderSummary, error) {
 	summaries := []core.OrderSummary{}
 	for rows.Next() {
 		var summary core.OrderSummary
-		var ready, delivered, cancelled sql.NullTime
+		var pickup, ready, delivered, cancelled sql.NullTime
 		var locationVerified sql.NullTime
 		var locationDistance sql.NullInt32
 		if err := rows.Scan(
@@ -3868,13 +4152,16 @@ func scanOrderSummaries(rows pgx.Rows) ([]core.OrderSummary, error) {
 			&summary.FulfillmentType, &summary.FulfillmentStatus, &summary.PaymentMethod, &summary.PaymentStatus,
 			&summary.SubtotalMinor, &summary.DeliveryFeeMinor, &summary.TotalMinor, &summary.Currency,
 			&summary.Locale, &summary.Version, &summary.CreatedAt,
-			&ready, &delivered, &cancelled,
+			&pickup, &ready, &delivered, &cancelled,
 			&locationVerified, &locationDistance,
 		); err != nil {
 			return nil, err
 		}
 		if ready.Valid {
 			summary.ReadyAt = &ready.Time
+		}
+		if pickup.Valid {
+			summary.PickupAt = &pickup.Time
 		}
 		if delivered.Valid {
 			summary.DeliveredAt = &delivered.Time
@@ -3978,6 +4265,39 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 	if len(ids) == 0 {
 		return []core.Order{}, nil
 	}
+	pickupRows, err := s.pool.Query(ctx, `
+		SELECT id, pickup_at, pickup_original_at, pickup_cook_at, pickup_address_snapshot, pickup_instructions_snapshot
+		FROM orders WHERE id=ANY($1)
+	`, ids)
+	if err != nil {
+		return nil, err
+	}
+	for pickupRows.Next() {
+		var id uuid.UUID
+		var pickupAt, pickupOriginalAt, pickupCookAtValue sql.NullTime
+		var address, instructions string
+		if err := pickupRows.Scan(&id, &pickupAt, &pickupOriginalAt, &pickupCookAtValue, &address, &instructions); err != nil {
+			pickupRows.Close()
+			return nil, err
+		}
+		order := &orders[indexByID[id]]
+		if pickupAt.Valid {
+			order.PickupAt = &pickupAt.Time
+		}
+		if pickupOriginalAt.Valid {
+			order.PickupOriginalAt = &pickupOriginalAt.Time
+		}
+		if pickupCookAtValue.Valid {
+			order.PickupCookAt = &pickupCookAtValue.Time
+		}
+		order.PickupAddress = address
+		order.PickupInstructions = instructions
+	}
+	if err := pickupRows.Err(); err != nil {
+		pickupRows.Close()
+		return nil, err
+	}
+	pickupRows.Close()
 
 	itemRows, err := s.pool.Query(ctx, `
 		SELECT oi.order_id, oi.menu_item_id, oi.snapshot_title, oi.unit_price_minor, oi.quantity, oi.line_total_minor,
@@ -4286,6 +4606,13 @@ func safeSettingsAudit(settings core.Settings) map[string]any {
 		"cash_location_radius_meters":       settings.CashLocationRadiusMeters,
 		"cash_location_ttl_seconds":         settings.CashLocationTTLSeconds,
 		"cash_location_max_accuracy_meters": settings.CashLocationMaxAccuracyMeters,
+		"pickup_enabled":                    settings.PickupEnabled,
+		"pickup_address":                    settings.PickupAddress,
+		"pickup_map_url":                    settings.PickupMapURL,
+		"pickup_min_lead_minutes":           settings.PickupMinLeadMinutes,
+		"pickup_slot_minutes":               settings.PickupSlotMinutes,
+		"pickup_max_orders_per_slot":        settings.PickupMaxOrdersPerSlot,
+		"pickup_last_time":                  settings.PickupLastTime,
 		"version":                           settings.Version,
 	}
 }

@@ -121,6 +121,16 @@ export interface SettingsInput {
   cash_location_radius_meters: number;
   cash_location_ttl_seconds: number;
   cash_location_max_accuracy_meters: number;
+  pickup_enabled: boolean;
+  pickup_address: string;
+  pickup_map_url: string;
+  pickup_instructions_ru: string;
+  pickup_instructions_sr: string;
+  pickup_instructions_en: string;
+  pickup_min_lead_minutes: number;
+  pickup_slot_minutes: number;
+  pickup_max_orders_per_slot: number;
+  pickup_last_time: string;
   version: number;
 }
 
@@ -193,6 +203,8 @@ export function statusText(status: Order["fulfillment_status"]): string {
       return "Новый";
     case "OUT_FOR_DELIVERY":
       return "В доставке";
+    case "READY_FOR_PICKUP":
+      return "Готов к выдаче";
     case "DELIVERED":
       return "Доставлен";
     case "CANCELLED":
@@ -336,7 +348,7 @@ function demoApi(): AdminApi {
       runtime: runtimeFromSettings(settings),
       new_orders: orders.filter((order) => order.fulfillment_status === "NEW").length,
       out_for_delivery: orders.filter((order) => order.fulfillment_type !== "pickup" && order.fulfillment_status === "OUT_FOR_DELIVERY").length,
-      ready_for_pickup: orders.filter((order) => order.fulfillment_type === "pickup" && order.fulfillment_status === "OUT_FOR_DELIVERY").length,
+      ready_for_pickup: orders.filter((order) => order.fulfillment_type === "pickup" && order.fulfillment_status === "READY_FOR_PICKUP").length,
       orders_today: orders.filter((order) => isToday(order.created_at)).length,
       revenue_today_minor: orders
         .filter((order) => isToday(order.created_at) && order.fulfillment_status === "DELIVERED" && order.payment_status === "PAID")
@@ -1189,6 +1201,16 @@ function seedSettings(): Settings {
     cash_location_radius_meters: 12000,
     cash_location_ttl_seconds: 180,
     cash_location_max_accuracy_meters: 200,
+    pickup_enabled: true,
+    pickup_address: "Tako Lako, Novi Sad",
+    pickup_map_url: "https://maps.google.com/?q=45.241970,19.808807",
+    pickup_instructions_ru: "Приходите к выбранному времени и назовите номер заказа.",
+    pickup_instructions_sr: "Dođite u izabrano vreme i recite broj porudžbine.",
+    pickup_instructions_en: "Come at the selected time and tell us your order number.",
+    pickup_min_lead_minutes: 40,
+    pickup_slot_minutes: 15,
+    pickup_max_orders_per_slot: 3,
+    pickup_last_time: "22:00",
     version: 1,
     schedule: defaultSchedule(),
   };
@@ -1234,6 +1256,12 @@ function runtimeFromSettings(settings: Settings) {
     terms_url: settings.terms_url,
     cash_location_required: settings.cash_location_required,
     cash_location_radius_meters: settings.cash_location_radius_meters,
+    pickup_enabled: settings.pickup_enabled,
+    pickup_address: settings.pickup_address,
+    pickup_map_url: settings.pickup_map_url,
+    pickup_min_lead_minutes: settings.pickup_min_lead_minutes,
+    pickup_slot_minutes: settings.pickup_slot_minutes,
+    pickup_last_time: settings.pickup_last_time,
   };
 }
 
@@ -1447,6 +1475,16 @@ function loadSettings(): Settings {
     cash_location_radius_meters: settings.cash_location_radius_meters || 12000,
     cash_location_ttl_seconds: settings.cash_location_ttl_seconds || 180,
     cash_location_max_accuracy_meters: settings.cash_location_max_accuracy_meters || 200,
+    pickup_enabled: settings.pickup_enabled ?? true,
+    pickup_address: settings.pickup_address || "Tako Lako, Novi Sad",
+    pickup_map_url: settings.pickup_map_url || "https://maps.google.com/?q=45.241970,19.808807",
+    pickup_instructions_ru: settings.pickup_instructions_ru || "Приходите к выбранному времени и назовите номер заказа.",
+    pickup_instructions_sr: settings.pickup_instructions_sr || "Dođite u izabrano vreme i recite broj porudžbine.",
+    pickup_instructions_en: settings.pickup_instructions_en || "Come at the selected time and tell us your order number.",
+    pickup_min_lead_minutes: settings.pickup_min_lead_minutes || 40,
+    pickup_slot_minutes: settings.pickup_slot_minutes || 15,
+    pickup_max_orders_per_slot: settings.pickup_max_orders_per_slot || 3,
+    pickup_last_time: settings.pickup_last_time || "22:00",
   };
   if (
     normalized.flat_delivery_fee_minor !== settings.flat_delivery_fee_minor ||
@@ -1472,11 +1510,11 @@ function filterDemoOrders(orders: Order[], filter: { status?: string; q?: string
   let next = orders;
   const status = (filter.status || "").trim().toUpperCase();
   if (status === "ACTIVE") {
-    next = next.filter((order) => order.fulfillment_status === "NEW" || order.fulfillment_status === "OUT_FOR_DELIVERY");
+    next = next.filter((order) => order.fulfillment_status === "NEW" || order.fulfillment_status === "OUT_FOR_DELIVERY" || order.fulfillment_status === "READY_FOR_PICKUP");
   } else if (status === "HISTORY") {
     next = next.filter((order) => order.fulfillment_status === "DELIVERED" || order.fulfillment_status === "CANCELLED");
   } else if (status === "READY") {
-    next = next.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY");
+    next = next.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY" || order.fulfillment_status === "READY_FOR_PICKUP");
   } else if (status) {
     next = next.filter((order) => order.fulfillment_status === status);
   }
@@ -1495,9 +1533,9 @@ function filterDemoOrders(orders: Order[], filter: { status?: string; q?: string
 
 function demoOrderCounts(orders: OrderSummary[]): AdminOrderCounts {
   return {
-    active: orders.filter((order) => order.fulfillment_status === "NEW" || order.fulfillment_status === "OUT_FOR_DELIVERY").length,
+    active: orders.filter((order) => order.fulfillment_status === "NEW" || order.fulfillment_status === "OUT_FOR_DELIVERY" || order.fulfillment_status === "READY_FOR_PICKUP").length,
     new: orders.filter((order) => order.fulfillment_status === "NEW").length,
-    ready: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY").length,
+    ready: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY" || order.fulfillment_status === "READY_FOR_PICKUP").length,
     history: orders.filter((order) => order.fulfillment_status === "DELIVERED" || order.fulfillment_status === "CANCELLED").length,
   };
 }

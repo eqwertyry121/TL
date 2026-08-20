@@ -57,7 +57,7 @@ export function orderAge(order: Order): string {
 }
 
 export function kitchenTimeText(order: Order): string {
-  if (orderFulfillmentType(order) === "pickup" && order.fulfillment_status === "OUT_FOR_DELIVERY") {
+  if (orderFulfillmentType(order) === "pickup" && order.fulfillment_status === "READY_FOR_PICKUP") {
     return `Готов ${elapsedSince(order.ready_at || order.created_at)}`;
   }
   return `Создан ${elapsedSince(order.created_at)}`;
@@ -207,10 +207,11 @@ function demoApi(role: StaffRole): StaffApi {
       return { ok: true };
     },
     async markReady(_token, id) {
-      return transitionDemoOrder(id, "NEW", "OUT_FOR_DELIVERY");
+      const order = loadDemoOrders().find((entry) => entry.id === id);
+      return transitionDemoOrder(id, "NEW", orderFulfillmentType(order!) === "pickup" ? "READY_FOR_PICKUP" : "OUT_FOR_DELIVERY");
     },
     async markPickupCollected(_token, id) {
-      return transitionDemoOrder(id, "OUT_FOR_DELIVERY", "DELIVERED", "pickup");
+      return transitionDemoOrder(id, "READY_FOR_PICKUP", "DELIVERED", "pickup");
     },
     async markDelivered(_token, id) {
       return transitionDemoOrder(id, "OUT_FOR_DELIVERY", "DELIVERED", "delivery");
@@ -328,7 +329,7 @@ function saveDemoOrders(orders: DemoOrder[]): void {
 }
 
 function isKitchenOrder(order: Order): boolean {
-  return order.fulfillment_status === "NEW" || (orderFulfillmentType(order) === "pickup" && order.fulfillment_status === "OUT_FOR_DELIVERY");
+  return order.fulfillment_status === "NEW" || (orderFulfillmentType(order) === "pickup" && order.fulfillment_status === "READY_FOR_PICKUP");
 }
 
 function isCourierOrder(order: Order): boolean {
@@ -348,7 +349,7 @@ function transitionDemoOrder(id: string, from: Order["fulfillment_status"], to: 
     fulfillment_status: to,
     payment_status: to === "DELIVERED" && order.payment_method === "cash" ? "PAID" : order.payment_status,
     version: order.version + 1,
-    ready_at: to === "OUT_FOR_DELIVERY" ? now : order.ready_at,
+    ready_at: to === "OUT_FOR_DELIVERY" || to === "READY_FOR_PICKUP" ? now : order.ready_at,
     delivered_at: to === "DELIVERED" ? now : order.delivered_at,
   };
   orders[index] = next;

@@ -209,6 +209,11 @@ Actions:
 
 ## 8. Settings
 
+ADMIN также управляет самовывозом: включение, адрес, ссылка на карту, время
+подготовки, шаг слотов, лимит заказов на слот, последнее время и короткие
+инструкции RU/SR/EN. Изменения не переписывают snapshots уже созданных заказов.
+Полный контракт: [PICKUP_SPEC.md](../PICKUP_SPEC.md).
+
 - flat delivery fee;
 - max dish quantity;
 - max comment/address lengths;

@@ -77,6 +77,8 @@ test("client storage helpers survive unavailable browser storage", () => {
       floor: "",
       apartment: "",
       comment: "",
+      fulfillmentType: "delivery",
+      pickupAt: "",
     });
     assert.doesNotThrow(() => saveCheckoutDraft({
       phone: "",
@@ -86,6 +88,8 @@ test("client storage helpers survive unavailable browser storage", () => {
       floor: "",
       apartment: "",
       comment: "",
+      fulfillmentType: "delivery",
+      pickupAt: "",
     }));
     assert.doesNotThrow(() => saveCheckoutProgress("", null, null));
     assert.equal(loadLocale("ru"), "ru");

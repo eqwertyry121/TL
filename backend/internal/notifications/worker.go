@@ -309,7 +309,14 @@ func (w *Worker) buildMessage(ctx context.Context, current job) (string, int64, 
 		if err != nil {
 			return "", 0, "", err
 		}
-		return w.clientToken, chatID, clientText(number, current.template, locale), nil
+		message := clientText(number, current.template, locale)
+		if current.template == "client_order_ready_for_pickup" {
+			message, err = w.pickupReadyText(ctx, current.orderID, number, locale)
+			if err != nil {
+				return "", 0, "", err
+			}
+		}
+		return w.clientToken, chatID, message, nil
 	case "courier":
 		if w.staffToken == "" {
 			return "", 0, "", fmt.Errorf("missing_staff_bot_token")
@@ -391,12 +398,13 @@ func (w *Worker) staffTarget(ctx context.Context, role string) (int64, error) {
 
 func (w *Worker) kitchenText(ctx context.Context, orderID uuid.UUID, template string) (string, error) {
 	var publicNumber, total int
-	var paymentMethod, comment, fulfillmentType string
+	var paymentMethod, comment, fulfillmentType, pickupTime string
 	err := w.pool.QueryRow(ctx, `
-		SELECT public_number, total_minor, payment_method, customer_comment, fulfillment_type
+		SELECT public_number, total_minor, payment_method, customer_comment, fulfillment_type,
+			COALESCE(to_char(pickup_at AT TIME ZONE 'Europe/Belgrade', 'HH24:MI'), '')
 		FROM orders
 		WHERE id=$1
-	`, orderID).Scan(&publicNumber, &total, &paymentMethod, &comment, &fulfillmentType)
+	`, orderID).Scan(&publicNumber, &total, &paymentMethod, &comment, &fulfillmentType, &pickupTime)
 	if err != nil {
 		return "", err
 	}
@@ -409,6 +417,9 @@ func (w *Worker) kitchenText(ctx context.Context, orderID uuid.UUID, template st
 		"Тип: " + fulfillmentText(fulfillmentType),
 		fmt.Sprintf("Оплата: %s", paymentText(paymentMethod, total)),
 	}
+	if fulfillmentType == "pickup" && pickupTime != "" {
+		lines = append(lines, "Заберут в: "+pickupTime)
+	}
 	items, err := w.orderItems(ctx, orderID)
 	if err != nil {
 		return "", err
@@ -418,6 +429,26 @@ func (w *Worker) kitchenText(ctx context.Context, orderID uuid.UUID, template st
 		lines = append(lines, "Комментарий: "+strings.TrimSpace(comment))
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+func (w *Worker) pickupReadyText(ctx context.Context, orderID uuid.UUID, publicNumber int, locale string) (string, error) {
+	var pickupTime, address string
+	err := w.pool.QueryRow(ctx, `
+		SELECT COALESCE(to_char(pickup_at AT TIME ZONE 'Europe/Belgrade', 'HH24:MI'), ''),
+			pickup_address_snapshot
+		FROM orders WHERE id=$1 AND fulfillment_type='pickup'
+	`, orderID).Scan(&pickupTime, &address)
+	if err != nil {
+		return "", err
+	}
+	switch normalizeLocale(locale) {
+	case "sr":
+		return fmt.Sprintf("Porudžbina #%d je spremna za preuzimanje u %s. Adresa: %s", publicNumber, pickupTime, address), nil
+	case "en":
+		return fmt.Sprintf("Order #%d is ready for pickup at %s. Address: %s", publicNumber, pickupTime, address), nil
+	default:
+		return fmt.Sprintf("Заказ #%d готов к самовывозу на %s. Адрес: %s", publicNumber, pickupTime, address), nil
+	}
 }
 
 func (w *Worker) courierText(ctx context.Context, orderID uuid.UUID) (string, error) {
@@ -640,7 +671,7 @@ func (w *Worker) cleanupExpired(ctx context.Context) error {
 							FROM orders o
 							WHERE o.client_user_id = u.id
 								AND (
-									o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY')
+								o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP')
 									OR o.updated_at >= now() - ($1::int * interval '1 day')
 								)
 						)

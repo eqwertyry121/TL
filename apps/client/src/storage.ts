@@ -68,6 +68,8 @@ const emptyCheckoutDraft = (): CheckoutDraft => ({
   floor: "",
   apartment: "",
   comment: "",
+  fulfillmentType: "delivery",
+  pickupAt: "",
 });
 
 export function loadCart(): CartState {
