@@ -1038,8 +1038,17 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("open pickup slots for test: %v", err)
 	}
-	// Keep the acceptance scenario inside restaurant hours regardless of when CI runs.
-	now := time.Date(2026, time.August, 18, 10, 0, 0, 0, time.UTC)
+	// Use the next open day at noon: the token stays valid against PostgreSQL's
+	// real clock and the test never depends on the wall-clock hour of the CI run.
+	belgrade, err := time.LoadLocation("Europe/Belgrade")
+	if err != nil {
+		t.Fatalf("load Belgrade timezone: %v", err)
+	}
+	targetDay := time.Now().In(belgrade).AddDate(0, 0, 1)
+	if targetDay.Weekday() == time.Monday {
+		targetDay = targetDay.AddDate(0, 0, 1)
+	}
+	now := time.Date(targetDay.Year(), targetDay.Month(), targetDay.Day(), 12, 0, 0, 0, belgrade).UTC()
 	calc, err := st.CalculateForFulfillment(ctx, clientSession, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, core.FulfillmentPickup, now)
 	if err != nil {
 		t.Fatalf("calculate pickup: %v", err)
