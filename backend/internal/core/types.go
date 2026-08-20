@@ -58,26 +58,28 @@ const (
 )
 
 var (
-	ErrForbidden              = errors.New("forbidden")
-	ErrInvalidRole            = errors.New("invalid role")
-	ErrInvalidInput           = errors.New("invalid input")
-	ErrRestaurantClosed       = errors.New("restaurant closed")
-	ErrManualDayOff           = errors.New("manual day off")
-	ErrItemUnavailable        = errors.New("item unavailable")
-	ErrInvalidQuantity        = errors.New("invalid quantity")
-	ErrOrderStatusConflict    = errors.New("order status conflict")
-	ErrActiveOrderExists      = errors.New("active order exists")
-	ErrIdempotencyConflict    = errors.New("idempotency conflict")
-	ErrCalculationExpired     = errors.New("calculation expired")
-	ErrPaymentNotConfirmed    = errors.New("payment not confirmed")
-	ErrTermsRequired          = errors.New("terms acceptance required")
-	ErrContactNotVerified     = errors.New("contact not verified")
-	ErrCashLocationRequired   = errors.New("cash location verification required")
-	ErrCashLocationOutside    = errors.New("cash location outside delivery radius")
-	ErrCashLocationInaccurate = errors.New("cash location inaccurate")
-	ErrPickupUnavailable      = errors.New("pickup unavailable")
-	ErrPickupSlotUnavailable  = errors.New("pickup slot unavailable")
-	ErrProductionUnsafeValue  = errors.New("unsafe production config")
+	ErrForbidden               = errors.New("forbidden")
+	ErrInvalidRole             = errors.New("invalid role")
+	ErrInvalidInput            = errors.New("invalid input")
+	ErrRestaurantClosed        = errors.New("restaurant closed")
+	ErrManualDayOff            = errors.New("manual day off")
+	ErrItemUnavailable         = errors.New("item unavailable")
+	ErrInvalidQuantity         = errors.New("invalid quantity")
+	ErrOrderStatusConflict     = errors.New("order status conflict")
+	ErrActiveOrderExists       = errors.New("active order exists")
+	ErrIdempotencyConflict     = errors.New("idempotency conflict")
+	ErrCalculationExpired      = errors.New("calculation expired")
+	ErrPaymentNotConfirmed     = errors.New("payment not confirmed")
+	ErrTermsRequired           = errors.New("terms acceptance required")
+	ErrContactNotVerified      = errors.New("contact not verified")
+	ErrCashLocationRequired    = errors.New("cash location verification required")
+	ErrCashLocationOutside     = errors.New("cash location outside delivery radius")
+	ErrCashLocationInaccurate  = errors.New("cash location inaccurate")
+	ErrPickupUnavailable       = errors.New("pickup unavailable")
+	ErrPickupSlotUnavailable   = errors.New("pickup slot unavailable")
+	ErrReservationUnavailable  = errors.New("reservation unavailable")
+	ErrActiveReservationExists = errors.New("active reservation exists")
+	ErrProductionUnsafeValue   = errors.New("unsafe production config")
 )
 
 type User struct {
@@ -168,6 +170,43 @@ type PickupSlots struct {
 	Timezone string       `json:"timezone"`
 	Date     string       `json:"date"`
 	Slots    []PickupSlot `json:"slots"`
+}
+
+type ReservationStatus string
+
+const (
+	ReservationConfirmed ReservationStatus = "CONFIRMED"
+	ReservationCancelled ReservationStatus = "CANCELLED"
+)
+
+type Reservation struct {
+	ID              uuid.UUID         `json:"id"`
+	PublicNumber    int               `json:"public_number"`
+	ClientUserID    uuid.UUID         `json:"client_user_id,omitempty"`
+	ClientUsername  string            `json:"client_username,omitempty"`
+	ClientFirstName string            `json:"client_first_name,omitempty"`
+	TableID         uuid.UUID         `json:"table_id,omitempty"`
+	TableLabel      string            `json:"table_label"`
+	Date            string            `json:"date"`
+	StartHour       int               `json:"start_hour"`
+	EndHour         int               `json:"end_hour"`
+	Guests          int               `json:"guests"`
+	Status          ReservationStatus `json:"status"`
+	Locale          string            `json:"locale"`
+	Version         int               `json:"version"`
+	CreatedAt       time.Time         `json:"created_at"`
+	CancelledAt     *time.Time        `json:"cancelled_at,omitempty"`
+}
+
+type ReservationAvailabilityDay struct {
+	Date  string `json:"date"`
+	Hours []int  `json:"hours"`
+}
+
+type ReservationAvailability struct {
+	Timezone string                       `json:"timezone"`
+	Guests   int                          `json:"guests"`
+	Days     []ReservationAvailabilityDay `json:"days"`
 }
 
 type Category struct {

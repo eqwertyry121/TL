@@ -8,6 +8,7 @@ import type {
   AuditLogResponse,
   Order,
   OrderSummary,
+	Reservation,
   Role,
   ScheduleDay,
   Settings,
@@ -23,7 +24,7 @@ const demoCryptoTestMigrationKey = "tk-demo-crypto-test-enabled-v1";
 const getCache = new Map<string, { etag: string; payload: unknown }>();
 const getCacheLimit = 64;
 
-export type AdminTab = "home" | "menu" | "orders" | "schedule" | "analytics" | "settings" | "audit";
+export type AdminTab = "home" | "menu" | "orders" | "reservations" | "schedule" | "analytics" | "settings" | "audit";
 export type StaffRole = Exclude<Role, "CLIENT">;
 export type AnalyticsRange = "today" | "7d" | "month";
 
@@ -74,6 +75,7 @@ export interface AdminBootstrapResponse {
   orders?: AdminOrdersResponse;
   analytics?: AdminAnalytics;
   audit?: AuditLogResponse;
+	reservations?: { reservations: Reservation[] };
 }
 
 export interface CategoryInput {
@@ -164,6 +166,8 @@ export interface AdminApi {
   updateSchedule(token: string, schedule: ScheduleDay[]): Promise<{ schedule: ScheduleDay[] }>;
   orders(token: string, filter?: { status?: string; q?: string; date?: string; limit?: number; offset?: number }, signal?: AbortSignal): Promise<AdminOrdersResponse>;
   order(token: string, id: string): Promise<Order>;
+	reservations(token: string, signal?: AbortSignal): Promise<{ reservations: Reservation[] }>;
+	cancelReservation(token: string, id: string): Promise<Reservation>;
   cancelOrder(token: string, id: string, reason: string): Promise<Order>;
   returnOrderToNew(token: string, id: string, reason: string): Promise<Order>;
   updateOrderContact(token: string, id: string, input: { phone: string; address: string; reason: string }): Promise<Order>;
@@ -252,6 +256,9 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
       case "orders":
         response.orders = await adminOrders(options);
         break;
+			case "reservations":
+				response.reservations = await get(`${baseURL}/api/v1/admin/reservations`, token);
+				break;
       case "schedule":
         [response.schedule, response.settings] = await Promise.all([
           get(`${baseURL}/api/v1/admin/schedule`, token),
@@ -312,6 +319,8 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
     updateSchedule: (token, schedule) => put(`${baseURL}/api/v1/admin/schedule`, { schedule }, token),
     orders: (token, filter = {}, signal) => fetchAdminOrders(baseURL, token, filter, signal),
     order: (token, id) => get(`${baseURL}/api/v1/admin/orders/${id}`, token),
+		reservations: (token, signal) => get(`${baseURL}/api/v1/admin/reservations`, token, signal),
+		cancelReservation: (token, id) => post(`${baseURL}/api/v1/admin/reservations/${id}/cancel`, {}, token),
     cancelOrder: (token, id, reason) => post(`${baseURL}/api/v1/admin/orders/${id}/cancel`, { reason }, token),
     returnOrderToNew: (token, id, reason) => post(`${baseURL}/api/v1/admin/orders/${id}/return-to-new`, { reason }, token),
     updateOrderContact: (token, id, input) => put(`${baseURL}/api/v1/admin/orders/${id}/contact`, input, token),
@@ -378,6 +387,8 @@ function demoApi(): AdminApi {
         const offset = options.offset || 0;
         const limit = options.limit || 20;
         response.orders = { orders: orders.slice(offset, offset + limit), limit, offset, has_more: orders.length > offset + limit, counts: demoOrderCounts(countBase) };
+			} else if (tab === "reservations") {
+				response.reservations = { reservations: [] };
       } else if (tab === "schedule") {
         response.settings = loadSettings();
         response.schedule = { schedule: response.settings.schedule || defaultSchedule() };
@@ -576,6 +587,12 @@ function demoApi(): AdminApi {
         ],
       };
     },
+		async reservations() {
+			return { reservations: [] };
+		},
+		async cancelReservation() {
+			throw apiError("INVALID_INPUT");
+		},
     async cancelOrder(_token, id, reason) {
       return mutateOrder(id, reason, (order) => ({ ...order, fulfillment_status: "CANCELLED", payment_status: order.payment_status === "CASH_PENDING" ? "FAILED" : order.payment_status, cancelled_at: nowISO(), version: order.version + 1 }));
     },
@@ -667,6 +684,8 @@ function unconfiguredApi(): AdminApi {
     updateSchedule: fail,
     orders: fail,
     order: fail,
+		reservations: fail,
+		cancelReservation: fail,
     cancelOrder: fail,
     returnOrderToNew: fail,
     updateOrderContact: fail,

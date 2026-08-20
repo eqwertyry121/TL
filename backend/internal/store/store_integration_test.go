@@ -704,6 +704,106 @@ func TestAdminOrdersDateFilterUsesBelgradeLocalDayBounds(t *testing.T) {
 	}
 }
 
+func TestReservationsUseSharedCapacityAndOneActiveBookingPerClient(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	now := time.Date(2026, 8, 18, 8, 0, 0, 0, time.UTC) // Tuesday 10:00 in Belgrade.
+	date := "2026-08-19"
+	firstClient := clientSession(t, ctx, st, clientTelegramID)
+	secondClient := clientSession(t, ctx, st, clientTelegramID+10)
+	thirdClient := clientSession(t, ctx, st, clientTelegramID+11)
+
+	first, err := st.CreateReservation(ctx, firstClient, store.CreateReservationInput{
+		Date: date, StartHour: 18, Guests: 2, Locale: "ru",
+	}, "reservation-first", now)
+	if err != nil {
+		t.Fatalf("create first reservation: %v", err)
+	}
+	replayed, err := st.CreateReservation(ctx, firstClient, store.CreateReservationInput{
+		Date: date, StartHour: 18, Guests: 2, Locale: "ru",
+	}, "reservation-first", now)
+	if err != nil || replayed.ID != first.ID {
+		t.Fatalf("idempotent replay = (%s, %v), want %s", replayed.ID, err, first.ID)
+	}
+	_, err = st.CreateReservation(ctx, firstClient, store.CreateReservationInput{
+		Date: date, StartHour: 20, Guests: 2, Locale: "ru",
+	}, "reservation-second-for-same-client", now)
+	if !errors.Is(err, core.ErrActiveReservationExists) {
+		t.Fatalf("second active reservation error = %v, want %v", err, core.ErrActiveReservationExists)
+	}
+
+	second, err := st.CreateReservation(ctx, secondClient, store.CreateReservationInput{
+		Date: date, StartHour: 18, Guests: 2, Locale: "sr",
+	}, "reservation-second-table", now)
+	if err != nil {
+		t.Fatalf("create second table reservation: %v", err)
+	}
+	if first.TableID == second.TableID {
+		t.Fatal("overlapping reservations were assigned to the same table")
+	}
+	_, err = st.CreateReservation(ctx, thirdClient, store.CreateReservationInput{
+		Date: date, StartHour: 18, Guests: 2, Locale: "en",
+	}, "reservation-no-capacity", now)
+	if !errors.Is(err, core.ErrReservationUnavailable) {
+		t.Fatalf("third overlapping reservation error = %v, want %v", err, core.ErrReservationUnavailable)
+	}
+
+	availability, err := st.ReservationAvailability(ctx, thirdClient, 2, now)
+	if err != nil {
+		t.Fatalf("reservation availability: %v", err)
+	}
+	for _, day := range availability.Days {
+		if day.Date != date {
+			continue
+		}
+		for _, hour := range day.Hours {
+			if hour == 18 || hour == 19 {
+				t.Fatalf("occupied overlapping hour %d was returned as available", hour)
+			}
+		}
+	}
+
+	if _, err := st.CancelReservation(ctx, thirdClient, first.ID, false); !errors.Is(err, core.ErrForbidden) {
+		t.Fatalf("foreign cancellation error = %v, want %v", err, core.ErrForbidden)
+	}
+	cancelled, err := st.CancelReservation(ctx, firstClient, first.ID, false)
+	if err != nil || cancelled.Status != core.ReservationCancelled {
+		t.Fatalf("cancel own reservation = (%s, %v)", cancelled.Status, err)
+	}
+	if _, err := st.CreateReservation(ctx, thirdClient, store.CreateReservationInput{
+		Date: date, StartHour: 18, Guests: 2, Locale: "en",
+	}, "reservation-after-cancel", now); err != nil {
+		t.Fatalf("reuse released table: %v", err)
+	}
+}
+
+func TestAdminCanListAndCancelReservation(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	now := time.Date(2026, 8, 18, 8, 0, 0, 0, time.UTC)
+	client := clientSession(t, ctx, st, clientTelegramID)
+	admin := bootstrapOwnerSession(t, ctx, st)
+	created, err := st.CreateReservation(ctx, client, store.CreateReservationInput{
+		Date: "2026-08-20", StartHour: 19, Guests: 5, Locale: "ru",
+	}, "reservation-admin-test", now)
+	if err != nil {
+		t.Fatalf("create reservation: %v", err)
+	}
+
+	reservations, err := st.AdminReservations(ctx, admin, now)
+	if err != nil || len(reservations) != 1 || reservations[0].ID != created.ID {
+		t.Fatalf("admin reservations = (%+v, %v)", reservations, err)
+	}
+	cancelled, err := st.CancelReservation(ctx, admin, created.ID, true)
+	if err != nil || cancelled.Status != core.ReservationCancelled {
+		t.Fatalf("admin cancel = (%s, %v)", cancelled.Status, err)
+	}
+}
+
 func TestAdminOrdersDateFilterUsesCreatedAtIndexOnRealisticDataset(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)

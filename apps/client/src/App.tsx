@@ -1,4 +1,4 @@
-import type { FulfillmentType, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Role } from "@tk-delivery/api-client/generated";
+import type { FulfillmentType, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Reservation, ReservationAvailability, Role } from "@tk-delivery/api-client/generated";
 import { createSingleFlightAuthRetry, isAuthErrorLike } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { startVisiblePolling } from "@tk-delivery/api-client/polling";
@@ -10,6 +10,7 @@ import {
   ChevronRight,
   MapPin,
   Minus,
+	MoreHorizontal,
   Phone,
   Plus,
   ReceiptText,
@@ -114,6 +115,13 @@ function ClientMiniApp() {
   const [additionSubmitting, setAdditionSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
+	const [reservation, setReservation] = useState<Reservation | null>(null);
+	const [reservationAvailability, setReservationAvailability] = useState<ReservationAvailability | null>(null);
+	const [reservationGuests, setReservationGuests] = useState(2);
+	const [selectedReservation, setSelectedReservation] = useState<{ date: string; hour: number } | null>(null);
+	const [reservationLoading, setReservationLoading] = useState(false);
+	const [reservationSubmitting, setReservationSubmitting] = useState(false);
+	const [reservationIdempotencyKey, setReservationIdempotencyKey] = useState("");
 
   const token = data.session?.token || "";
   const items = useMemo(() => data.categories.flatMap((category) => category.items), [data.categories]);
@@ -132,7 +140,7 @@ function ClientMiniApp() {
   const total = subtotal;
   const checkoutOpen = Boolean(data.runtime?.accepting_orders);
   const activeOrder = data.orders.find((order) => !isTerminalOrderStatus(order.fulfillment_status));
-  const dayOffBlocked = isDayOffRuntime(data.runtime) && !isOwnerTelegramId(data.session?.telegram_user_id);
+  const dayOffBlocked = isDayOffRuntime(data.runtime) && route.name !== "booking" && !isOwnerTelegramId(data.session?.telegram_user_id);
   const paymentMethods = useMemo(() => checkoutPaymentMethods(data.runtime?.enabled_payments || []), [data.runtime?.enabled_payments]);
   const cashLocationRequired = data.runtime?.cash_location_required ?? true;
   const routedOrder = route.name === "order"
@@ -294,6 +302,25 @@ function ClientMiniApp() {
       stopped = true;
     };
   }, [route.name, token, withAuth]);
+
+	useEffect(() => {
+		if (!token || route.name !== "booking") return;
+		let stopped = false;
+		setReservationLoading(true);
+		Promise.all([
+			withAuth((authToken) => api.myReservation(authToken), token),
+			withAuth((authToken) => api.reservationAvailability(authToken, reservationGuests), token),
+		]).then(([mine, availability]) => {
+			if (stopped) return;
+			setReservation(mine.reservation);
+			setReservationAvailability(availability);
+		}).catch((err) => {
+			if (!stopped) setError(errorText(err, locale));
+		}).finally(() => {
+			if (!stopped) setReservationLoading(false);
+		});
+		return () => { stopped = true; };
+	}, [route.name, token, reservationGuests, locale, withAuth]);
 
   useEffect(() => {
     if (!(route.name === "order" || route.name === "add") || !token || routeOrderTerminal) return;
@@ -672,6 +699,52 @@ function ClientMiniApp() {
     setOrdersPage(orderPageMeta(response));
   }
 
+	async function submitReservation() {
+		if (!token || !selectedReservation || reservationSubmitting) return;
+		setReservationSubmitting(true);
+		setError("");
+		const key = reservationIdempotencyKey || crypto.randomUUID();
+		if (!reservationIdempotencyKey) setReservationIdempotencyKey(key);
+		try {
+			const created = await withAuth((authToken) => api.createReservation(authToken, {
+				date: selectedReservation.date,
+				start_hour: selectedReservation.hour,
+				guests: reservationGuests,
+				locale,
+			}, key), token);
+			setReservation(created);
+			setSelectedReservation(null);
+			setReservationIdempotencyKey("");
+			haptic();
+		} catch (err) {
+			setError(errorText(err, locale));
+		} finally {
+			setReservationSubmitting(false);
+		}
+	}
+
+	async function cancelCurrentReservation() {
+		if (!token || !reservation || reservationSubmitting) return;
+		const confirmed = await askConfirm({
+			title: bookingCopy(locale).cancelTitle,
+			message: bookingCopy(locale).cancelMessage,
+			confirmLabel: bookingCopy(locale).cancelConfirm,
+		});
+		if (!confirmed) return;
+		setReservationSubmitting(true);
+		setError("");
+		try {
+			await withAuth((authToken) => api.cancelReservation(authToken, reservation.id), token);
+			setReservation(null);
+			setReservationAvailability(await withAuth((authToken) => api.reservationAvailability(authToken, reservationGuests), token));
+			haptic();
+		} catch (err) {
+			setError(errorText(err, locale));
+		} finally {
+			setReservationSubmitting(false);
+		}
+	}
+
   if (publicInformationRoute) {
     return (
       <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header="Tako Lako - Грузинская кухня" runtime={data.runtime} session={data.session}>
@@ -748,6 +821,21 @@ function ClientMiniApp() {
       <OrderScreen order={fullOrderFromCache(data.orders, route.id)} locale={locale} onAdd={() => navigate({ name: "add", id: route.id })} />
     ) : route.name === "orders" ? (
       <Orders orders={data.orders} page={ordersPage} locale={locale} onLoadMore={loadMoreOrders} />
+		) : route.name === "booking" ? (
+			<Booking
+				locale={locale}
+				session={data.session}
+				reservation={reservation}
+				availability={reservationAvailability}
+				guests={reservationGuests}
+				selected={selectedReservation}
+				loading={reservationLoading}
+				submitting={reservationSubmitting}
+				onGuests={(guests) => { setReservationGuests(guests); setSelectedReservation(null); setReservationIdempotencyKey(""); }}
+				onSelect={(date, hour) => { setSelectedReservation({ date, hour }); setReservationIdempotencyKey(""); }}
+				onSubmit={submitReservation}
+				onCancel={cancelCurrentReservation}
+			/>
     ) : (
       <Menu categories={data.categories} cart={cart} onSetLine={setLine} />
     );
@@ -898,7 +986,7 @@ function Shell({
 }) {
   const isRoot = route.name === "menu";
   const showLocale = isRoot || isPublicInformationRoute(route);
-  const dayOffBlocked = isDayOffRuntime(runtime) && !isOwnerTelegramId(session?.telegram_user_id);
+  const dayOffBlocked = isDayOffRuntime(runtime) && route.name !== "booking" && !isOwnerTelegramId(session?.telegram_user_id);
   const showClosedBanner = runtime && !runtime.accepting_orders && !dayOffBlocked;
 
   return (
@@ -921,7 +1009,16 @@ function Shell({
             </div>
           </div>
           <div className="header-actions">
-            <ProfileBadge session={session} />
+            <div className="profile-actions">
+						<ProfileBadge session={session} />
+						<details className="client-more">
+							<summary aria-label={locale === "ru" ? "Ещё" : locale === "sr" ? "Još" : "More"}><MoreHorizontal size={20} /></summary>
+							<div className="client-more-menu">
+								<a href="#/support">{t(locale, "support")}</a>
+								<a href="#/terms">{locale === "ru" ? "Условия" : locale === "sr" ? "Uslovi" : "Terms"}</a>
+							</div>
+						</details>
+					</div>
             {showLocale && (
               <div className="locale">
                 {(["ru", "sr", "en"] as Locale[]).map((entry) => (
@@ -944,8 +1041,8 @@ function Shell({
           <a className={route.name === "orders" ? "active" : ""} href="#/orders">
             {t(locale, "orders")}
           </a>
-          <a className={route.name === "support" ? "active" : ""} href="#/support">
-            {t(locale, "support")}
+          <a className={route.name === "booking" ? "active" : ""} href="#/booking">
+            {t(locale, "booking")}
           </a>
         </nav>
         {isOwnerTelegramId(session?.telegram_user_id) && <OwnerRoleSwitch activeRole="CLIENT" />}
@@ -971,6 +1068,7 @@ function DayOffOverlay({ locale, runtime }: { locale: Locale; runtime?: AppData[
             <span>{t(locale, "nextOpening")}</span> <strong>{nextOpening}</strong>
           </small>
         )}
+			<a className="day-off-booking" href="#/booking">{bookingCopy(locale).title}</a>
       </section>
     </div>
   );
@@ -1974,6 +2072,128 @@ function Support({ support, locale }: { support: string; locale: Locale }) {
   );
 }
 
+function Booking({
+	locale,
+	session,
+	reservation,
+	availability,
+	guests,
+	selected,
+	loading,
+	submitting,
+	onGuests,
+	onSelect,
+	onSubmit,
+	onCancel,
+}: {
+	locale: Locale;
+	session: Session | null;
+	reservation: Reservation | null;
+	availability: ReservationAvailability | null;
+	guests: number;
+	selected: { date: string; hour: number } | null;
+	loading: boolean;
+	submitting: boolean;
+	onGuests(guests: number): void;
+	onSelect(date: string, hour: number): void;
+	onSubmit(): void;
+	onCancel(): void;
+}) {
+	const copy = bookingCopy(locale);
+	if (!session) {
+		return (
+			<div className="page narrow booking-page">
+				<div className="page-title"><span>Tako Lako</span><h1>{copy.title}</h1></div>
+				<OpenInTelegramCard />
+			</div>
+		);
+	}
+	if (loading && !reservation && !availability) {
+		return <div className="state">{copy.loading}</div>;
+	}
+	if (reservation) {
+		return (
+			<div className="page narrow booking-page">
+				<div className="page-title"><span>Tako Lako</span><h1>{copy.booked}</h1></div>
+				<section className="booking-active-card">
+					<div className="booking-date-mark"><strong>{reservation.start_hour}:00</strong><span>{reservation.end_hour}:00</span></div>
+					<div className="booking-active-copy">
+						<h2>{formatBookingDate(reservation.date, locale)}</h2>
+						<p>{copy.guests(reservation.guests)}</p>
+					</div>
+				</section>
+				<button className="secondary full booking-cancel" type="button" disabled={submitting} onClick={onCancel}>
+					{submitting ? copy.cancelling : copy.cancel}
+				</button>
+			</div>
+		);
+	}
+	const hasSlots = Boolean(availability?.days.some((day) => day.hours.length));
+	return (
+		<div className="page narrow booking-page">
+			<div className="page-title booking-title"><span>Tako Lako</span><h1>{copy.title}</h1><p>{copy.lead}</p></div>
+			<section className="booking-guests" aria-label={copy.guestLabel}>
+				<div><span>{copy.guestLabel}</span><strong>{copy.guests(guests)}</strong></div>
+				<div className="booking-stepper">
+					<button type="button" aria-label="−" disabled={guests <= 1 || submitting} onClick={() => onGuests(guests - 1)}><Minus size={19} /></button>
+					<strong>{guests}</strong>
+					<button type="button" aria-label="+" disabled={guests >= 5 || submitting} onClick={() => onGuests(guests + 1)}><Plus size={19} /></button>
+				</div>
+			</section>
+			<div className="booking-days">
+				{availability?.days.map((day) => (
+					<section className={day.hours.length ? "booking-day" : "booking-day is-empty"} key={day.date}>
+						<div className="booking-day-heading"><strong>{formatBookingDate(day.date, locale)}</strong>{!day.hours.length && <span>{copy.noSlots}</span>}</div>
+						{day.hours.length > 0 && (
+							<div className="booking-hours">
+								{day.hours.map((hour) => {
+									const active = selected?.date === day.date && selected.hour === hour;
+									return <button type="button" className={active ? "active" : ""} key={hour} disabled={submitting} onClick={() => onSelect(day.date, hour)}>{hour}:00</button>;
+								})}
+							</div>
+						)}
+					</section>
+				))}
+			</div>
+			{!loading && !hasSlots && <div className="booking-empty">{copy.empty}</div>}
+			{selected && (
+				<div className="booking-submit-bar">
+					<div><span>{formatBookingDate(selected.date, locale)}</span><strong>{selected.hour}:00 · {copy.guests(guests)}</strong></div>
+					<button className="primary" type="button" disabled={submitting} onClick={onSubmit}>{submitting ? copy.booking : copy.submit}</button>
+				</div>
+			)}
+		</div>
+	);
+}
+
+function bookingCopy(locale: Locale) {
+	if (locale === "sr") return {
+		title: "Rezervišite sto", lead: "Izaberite vreme i potvrdite rezervaciju.", loading: "Učitavanje...", booked: "Sto je rezervisan",
+		guestLabel: "Broj gostiju", guests: (count: number) => `${count} ${count === 1 ? "gost" : "gostiju"}`, noSlots: "Nema mesta", empty: "Nema slobodnih termina u narednih sedam dana.",
+		submit: "REZERVIŠI", booking: "REZERVIŠEMO...", cancel: "OTKAŽI REZERVACIJU", cancelling: "OTKAZUJEMO...",
+		cancelTitle: "Otkazati rezervaciju?", cancelMessage: "Termin će odmah biti oslobođen.", cancelConfirm: "Otkaži",
+	};
+	if (locale === "en") return {
+		title: "Book a table", lead: "Choose a time and confirm your booking.", loading: "Loading...", booked: "Table booked",
+		guestLabel: "Guests", guests: (count: number) => `${count} ${count === 1 ? "guest" : "guests"}`, noSlots: "Full", empty: "No available times in the next seven days.",
+		submit: "BOOK TABLE", booking: "BOOKING...", cancel: "CANCEL BOOKING", cancelling: "CANCELLING...",
+		cancelTitle: "Cancel the booking?", cancelMessage: "The time will become available immediately.", cancelConfirm: "Cancel",
+	};
+	return {
+		title: "Забронировать стол", lead: "Выберите время и подтвердите бронь.", loading: "Загрузка...", booked: "Стол забронирован",
+		guestLabel: "Количество гостей", guests: (count: number) => `${count} ${count === 1 ? "гость" : count < 5 ? "гостя" : "гостей"}`, noSlots: "Мест нет", empty: "На ближайшие семь дней свободного времени нет.",
+		submit: "ЗАБРОНИРОВАТЬ", booking: "БРОНИРУЕМ...", cancel: "ОТМЕНИТЬ БРОНЬ", cancelling: "ОТМЕНЯЕМ...",
+		cancelTitle: "Отменить бронь?", cancelMessage: "Время сразу станет доступно другим гостям.", cancelConfirm: "Отменить",
+	};
+}
+
+function formatBookingDate(date: string, locale: Locale): string {
+	const value = new Date(`${date}T12:00:00`);
+	return new Intl.DateTimeFormat(locale === "sr" ? "sr-Latn-RS" : locale === "en" ? "en-GB" : "ru-RU", {
+		weekday: "long", day: "numeric", month: "long",
+	}).format(value);
+}
+
 function Qty({ value, onMinus, onPlus }: { value: number; onMinus: () => void; onPlus: () => void }) {
   return (
     <div className="qty">
@@ -2262,6 +2482,8 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       CASH_LOCATION_INACCURATE: "Геолокация неточная. Повторите проверку у окна или на улице.",
       PICKUP_UNAVAILABLE: "Самовывоз сейчас недоступен",
       PICKUP_SLOT_UNAVAILABLE: "Это время уже недоступно. Выберите другой слот.",
+			RESERVATION_UNAVAILABLE: "Это время только что заняли. Выберите другое.",
+			ACTIVE_RESERVATION_EXISTS: "У вас уже есть активная бронь.",
       INVALID_INPUT: "Поделитесь телефоном через Telegram и заполните адрес",
       RATE_LIMITED: "Слишком много запросов. Подождите минуту и попробуйте ещё раз.",
       INTERNAL: "Сервер недоступен. Попробуйте ещё раз",
@@ -2284,6 +2506,8 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       CASH_LOCATION_INACCURATE: "Geolokacija nije dovoljno precizna. Ponovite proveru pored prozora ili napolju.",
       PICKUP_UNAVAILABLE: "Lično preuzimanje trenutno nije dostupno",
       PICKUP_SLOT_UNAVAILABLE: "Ovaj termin više nije dostupan. Izaberite drugi.",
+			RESERVATION_UNAVAILABLE: "Ovaj termin je upravo rezervisan. Izaberite drugi.",
+			ACTIVE_RESERVATION_EXISTS: "Već imate aktivnu rezervaciju.",
       INVALID_INPUT: "Podelite telefon preko Telegrama i unesite adresu",
       RATE_LIMITED: "Previše zahteva. Sačekajte minut i pokušajte ponovo.",
       INTERNAL: "Server nije dostupan. Pokušajte ponovo.",
@@ -2306,6 +2530,8 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       CASH_LOCATION_INACCURATE: "Geolocation is not accurate enough. Repeat the check near a window or outside.",
       PICKUP_UNAVAILABLE: "Pickup is currently unavailable",
       PICKUP_SLOT_UNAVAILABLE: "This pickup time is no longer available. Choose another slot.",
+			RESERVATION_UNAVAILABLE: "This time was just booked. Choose another one.",
+			ACTIVE_RESERVATION_EXISTS: "You already have an active reservation.",
       INVALID_INPUT: "Share your phone through Telegram and enter the address",
       RATE_LIMITED: "Too many requests. Wait a minute and try again.",
       INTERNAL: "Server is unavailable. Try again.",

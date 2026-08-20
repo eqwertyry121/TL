@@ -217,6 +217,21 @@ func (s *Server) clientTelegramWebhook(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
+	if isBotCommand(message.Text, "/start") {
+		_, _ = s.sendClientBotMessage(r.Context(), message.Chat.ID, "Добро пожаловать в Tako Lako", s.mainMiniAppKeyboard())
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	if isBotCommand(message.Text, "/book") {
+		_, _ = s.sendClientBotMessage(r.Context(), message.Chat.ID, "Выберите удобное время в Mini App", s.bookingMiniAppKeyboard())
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	if isBotCommand(message.Text, "/order") || isBotCommand(message.Text, "/menu") {
+		_, _ = s.sendClientBotMessage(r.Context(), message.Chat.ID, "Откройте меню Tako Lako", s.orderMiniAppKeyboard())
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -270,6 +285,43 @@ func (s *Server) telegramClient() *http.Client {
 func isShareLocationCommand(text string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(text))
 	return normalized == "/share" || strings.HasPrefix(normalized, "/share@")
+}
+
+func isBotCommand(text, command string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	command = strings.ToLower(command)
+	return normalized == command || strings.HasPrefix(normalized, command+"@") || strings.HasPrefix(normalized, command+" ")
+}
+
+func (s *Server) mainMiniAppKeyboard() map[string]any {
+	return map[string]any{"inline_keyboard": [][]map[string]any{
+		{{"text": "Заказать еду", "web_app": map[string]any{"url": s.clientMiniAppURL("/")}}},
+		{{"text": "Забронировать стол", "web_app": map[string]any{"url": s.clientMiniAppURL("/booking")}}},
+	}}
+}
+
+func (s *Server) bookingMiniAppKeyboard() map[string]any {
+	return map[string]any{"inline_keyboard": [][]map[string]any{
+		{{"text": "Забронировать стол", "web_app": map[string]any{"url": s.clientMiniAppURL("/booking")}}},
+	}}
+}
+
+func (s *Server) orderMiniAppKeyboard() map[string]any {
+	return map[string]any{"inline_keyboard": [][]map[string]any{
+		{{"text": "Открыть меню", "web_app": map[string]any{"url": s.clientMiniAppURL("/")}}},
+	}}
+}
+
+func (s *Server) clientMiniAppURL(route string) string {
+	base := strings.TrimRight(strings.TrimSpace(s.cfg.ClientMiniAppURL), "/")
+	if base == "" {
+		base = "https://takolako.site/main"
+	}
+	route = "/" + strings.Trim(strings.TrimSpace(route), "/")
+	if route == "/" {
+		return base + "/#/"
+	}
+	return base + "/#" + route
 }
 
 func (s *Server) sendClientBotMessage(ctx context.Context, chatID int64, text string, replyMarkup any) (int64, error) {

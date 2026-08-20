@@ -2587,3 +2587,35 @@ button:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.reservation-admin-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.reservation-admin-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.85rem;
+  min-height: 4.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 253, 248, 0.88);
+}
+
+.reservation-admin-row.is-cancelled { opacity: 0.56; }
+.reservation-admin-time,
+.reservation-admin-main { display: grid; gap: 0.15rem; }
+.reservation-admin-time { min-width: 3.7rem; color: var(--accent); }
+.reservation-admin-time strong { font-size: 1.1rem; }
+.reservation-admin-time span,
+.reservation-admin-main span { color: var(--muted); font-size: 0.85rem; }
+.reservation-admin-main a { color: var(--accent); }
+.reservation-cancelled { color: var(--muted); font-size: 0.82rem; font-weight: 800; }
+
+@media (max-width: 540px) {
+  .reservation-admin-row { grid-template-columns: auto minmax(0, 1fr); }
+  .reservation-admin-row > :last-child { grid-column: 1 / -1; width: 100%; }
+}

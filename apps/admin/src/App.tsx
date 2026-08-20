@@ -1,4 +1,4 @@
-import type { AdminAnalytics, AdminCategory, AdminDashboard, AdminMenuItem, AdminOrderCounts, AnalyticsBreakdown, AuditEntry, AuditLogResponse, Order, OrderSummary, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
+import type { AdminAnalytics, AdminCategory, AdminDashboard, AdminMenuItem, AdminOrderCounts, AnalyticsBreakdown, AuditEntry, AuditLogResponse, Order, OrderSummary, Reservation, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
 import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { startVisiblePolling } from "@tk-delivery/api-client/polling";
@@ -19,7 +19,7 @@ import {
   type MenuItemInput,
   type SettingsInput,
 } from "./api";
-import { AlertTriangle, Archive, ArrowLeft, Ban, BarChart3, CalendarDays, ChevronRight, ClipboardList, Copy, Home, Menu as MenuIcon, MessageCircle, MoreHorizontal, Phone, RefreshCw, RotateCcw, Save, Search, Send, Settings as SettingsIcon, Shield, SlidersHorizontal, StickyNote, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Archive, ArrowLeft, Ban, BarChart3, CalendarCheck, CalendarDays, ChevronRight, ClipboardList, Copy, Home, Menu as MenuIcon, MessageCircle, MoreHorizontal, Phone, RefreshCw, RotateCcw, Save, Search, Send, Settings as SettingsIcon, Shield, SlidersHorizontal, StickyNote, Trash2, Upload, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type FormEvent, type ReactNode } from "react";
 
@@ -30,6 +30,7 @@ type AdminNavGroup = { title: string; items: AdminNavItem[] };
 const tabs: AdminNavItem[] = ([
   { id: "home", label: "Главная", icon: Home },
   { id: "orders", label: "Заказы", icon: ClipboardList },
+	{ id: "reservations", label: "Брони", icon: CalendarCheck },
   { id: "menu", label: "Меню", icon: MenuIcon },
   { id: "schedule", label: "График", icon: CalendarDays },
   { id: "analytics", label: "Аналитика", icon: BarChart3 },
@@ -38,18 +39,18 @@ const tabs: AdminNavItem[] = ([
 ] satisfies Array<Omit<AdminNavItem, "shortLabel"> & { shortLabel?: string }>).map((entry) => ({ shortLabel: entry.label, ...entry }));
 
 const navGroups: AdminNavGroup[] = [
-  { title: "Работа", items: navItems(["home", "orders", "menu"]) },
+  { title: "Работа", items: navItems(["home", "orders", "reservations", "menu"]) },
   { title: "Управление", items: navItems(["schedule", "analytics"]) },
   { title: "Система", items: navItems(["settings", "audit"]) },
 ];
-const mobileTabs = navItems(["home", "orders", "menu"]);
+const mobileTabs = navItems(["home", "orders", "reservations", "menu"]);
 const moreTabs = navItems(["schedule", "analytics", "settings", "audit"]);
 const moreTabIds = new Set<AdminTab>(moreTabs.map((entry) => entry.id));
 
 const quickSchedule = { open_time: "13:00", order_cutoff_time: "21:00", close_time: "22:00" };
 type AdminActionOptions = { reload?: boolean; refreshDashboard?: boolean; successMessage?: string };
 type AdminActionRunner = <T>(action: (authToken: string) => Promise<T>, options?: AdminActionOptions) => Promise<T | undefined>;
-type AdminLoadKey = "dashboard" | "menu" | "settings" | "schedule" | "orders" | "analytics" | "audit";
+type AdminLoadKey = "dashboard" | "menu" | "settings" | "schedule" | "orders" | "reservations" | "analytics" | "audit";
 type OrdersView = "active" | "new" | "ready" | "history";
 type OrderLoadFilter = { status?: string; q?: string; date?: string; limit?: number; offset?: number };
 type AdminOrdersPageState = Pick<AdminOrdersResponse, "limit" | "offset" | "has_more" | "counts">;
@@ -91,6 +92,7 @@ export function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [schedule, setSchedule] = useState<ScheduleDay[]>([]);
   const [orders, setOrders] = useState<OrderSummary[]>([]);
+	const [reservations, setReservations] = useState<Reservation[]>([]);
   const [ordersPage, setOrdersPage] = useState<AdminOrdersPageState>({ limit: 20, offset: 0, has_more: false });
   const [ordersInitialView, setOrdersInitialView] = useState<OrdersView>("active");
   const [ordersFilter, setOrdersFilter] = useState<OrderLoadFilter>(() => ordersLoadFilter("active", "", "", 20, 0));
@@ -164,6 +166,9 @@ export function App() {
             setOrders((entry.value as AdminOrdersResponse).orders);
             setOrdersPage(orderPageMeta(entry.value as AdminOrdersResponse));
             break;
+					case "reservations":
+						setReservations((entry.value as { reservations: Reservation[] }).reservations);
+						break;
           case "analytics":
             setAnalytics(entry.value as AdminAnalytics);
             break;
@@ -193,6 +198,7 @@ export function App() {
       setOrders(response.orders.orders);
       setOrdersPage(orderPageMeta(response.orders));
     }
+		if (response.reservations) setReservations(response.reservations.reservations);
     if (response.analytics) setAnalytics(response.analytics);
     if (response.audit) {
       setAudit(response.audit.entries);
@@ -233,6 +239,8 @@ export function App() {
       sections.push(["menu", api.menu(authToken)]);
     } else if (targetTab === "orders") {
       sections.push(["orders", api.orders(authToken, normalizeOrderLoadFilter(ordersFilter))]);
+		} else if (targetTab === "reservations") {
+			sections.push(["reservations", api.reservations(authToken)]);
     } else if (targetTab === "schedule") {
       sections.push(["schedule", api.schedule(authToken)]);
       sections.push(["settings", api.settings(authToken)]);
@@ -343,6 +351,17 @@ export function App() {
     return startVisiblePolling((signal) => refreshHomeSection(signal), 10000);
   }, [tab, token]);
 
+	useEffect(() => {
+		if (!token || tab !== "reservations") return undefined;
+		return startVisiblePolling(async (signal) => {
+			try {
+				setReservations((await withAuth((authToken) => api.reservations(authToken, signal))).reservations);
+			} catch {
+				if (!signal.aborted) setError("Не удалось обновить брони");
+			}
+		}, 10000);
+	}, [tab, token]);
+
   async function run<T>(action: (authToken: string) => Promise<T>, options: AdminActionOptions = {}): Promise<T | undefined> {
     setError("");
     try {
@@ -446,6 +465,17 @@ export function App() {
     await run((authToken) => api.setManualDayOff(authToken, enabled));
   }
 
+	async function cancelBooking(reservation: Reservation) {
+		const confirmed = await askConfirm({
+			title: "Освободить стол?",
+			message: `${formatReservationAdminDate(reservation.date)} в ${reservation.start_hour}:00 · ${reservation.guests} гостей`,
+			confirmLabel: "Освободить",
+			variant: "danger",
+		});
+		if (!confirmed) return;
+		await run((authToken) => api.cancelReservation(authToken, reservation.id), { successMessage: "Стол освобождён" });
+	}
+
   function renderActiveTab() {
     if (tab === "home") {
       return dashboard && settings ? (
@@ -461,6 +491,7 @@ export function App() {
       ) : <SectionSkeleton title="Главная" />;
     }
     if (tab === "orders") return <OrdersTab orders={orders} page={ordersPage} initialView={ordersInitialView} onLoad={loadOrders} onLoadOrder={loadOrderDetail} onAction={run} />;
+		if (tab === "reservations") return <ReservationsTab reservations={reservations} onCancel={cancelBooking} />;
     if (tab === "menu") return <MenuTab menu={menu} onAction={run} />;
     if (tab === "schedule") {
       return schedule.length && dashboard && settings ? (
@@ -1113,6 +1144,43 @@ function DishForm({
       )}
     </div>
   );
+}
+
+function ReservationsTab({ reservations, onCancel }: { reservations: Reservation[]; onCancel(reservation: Reservation): void }) {
+  const days = Array.from(new Set(reservations.map((reservation) => reservation.date)));
+  if (!reservations.length) {
+    return <section className="panel empty-panel"><CalendarCheck size={28} /><h2>Броней пока нет</h2></section>;
+  }
+  return (
+    <div className="admin-stack reservations-admin">
+      {days.map((date) => (
+        <section className="panel" key={date}>
+          <div className="section-heading"><div><span className="eyebrow">Брони</span><h2>{formatReservationAdminDate(date)}</h2></div></div>
+          <div className="reservation-admin-list">
+            {reservations.filter((reservation) => reservation.date === date).map((reservation) => {
+              const cancelled = reservation.status === "CANCELLED";
+              const username = (reservation.client_username || "").replace(/^@/, "");
+              const client = username ? `@${username}` : reservation.client_first_name || "Клиент";
+              return (
+                <article className={cancelled ? "reservation-admin-row is-cancelled" : "reservation-admin-row"} key={reservation.id}>
+                  <div className="reservation-admin-time"><strong>{reservation.start_hour}:00</strong><span>{reservation.end_hour}:00</span></div>
+                  <div className="reservation-admin-main">
+                    <strong>{username ? <a href={`https://t.me/${username}`} target="_blank" rel="noreferrer">{client}</a> : client}</strong>
+                    <span>{reservation.guests} гостей · {reservation.table_label}</span>
+                  </div>
+                  {cancelled ? <span className="reservation-cancelled">Отменена</span> : <button className="danger-outline" type="button" onClick={() => onCancel(reservation)}>Освободить</button>}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function formatReservationAdminDate(date: string): string {
+  return new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long" }).format(new Date(`${date}T12:00:00`));
 }
 
 function OrdersTab({
@@ -2440,6 +2508,7 @@ function adminLoadLabel(key: AdminLoadKey): string {
     settings: "настройки",
     schedule: "график",
     orders: "заказы",
+		reservations: "брони",
     analytics: "аналитика",
     audit: "журнал",
   };

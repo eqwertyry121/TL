@@ -1,4 +1,4 @@
-import type { AdminCategory, AdminMenuItem, Category, Order, Runtime, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
+import type { AdminCategory, AdminMenuItem, Category, Order, Reservation, ReservationAvailability, Runtime, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
 import { demoCategories, demoRuntime } from "./fixtures";
 import { rawInitData, telegramUser } from "./telegram";
 import type { Api, Calculation, CashLocationChallenge, ClientBootstrapData, CreateOrderInput, Locale, Session } from "./types";
@@ -8,6 +8,7 @@ const demoCalculationsKey = "tk-client-demo-calculations-v1";
 const demoMenuKey = "tk-admin-demo-menu-v6";
 const demoSettingsKey = "tk-admin-demo-settings-v1";
 const demoCryptoTestMigrationKey = "tk-demo-crypto-test-enabled-v1";
+const demoReservationKey = "tk-client-demo-reservation-v1";
 const getCache = new Map<string, { etag: string; payload: unknown }>();
 const getCacheLimit = 64;
 
@@ -72,6 +73,10 @@ function realApi(baseURL: string): Api {
       post(`${baseURL}/api/v1/orders/${orderId}/addition`, input, token, { "Idempotency-Key": idempotencyKey }),
     getOrder: (token, id, signal) => get(`${baseURL}/api/v1/orders/${id}`, token, signal),
     listOrders: (token, filter = {}, signal) => get(`${baseURL}/api/v1/orders?${new URLSearchParams(clean(filter))}`, token, signal),
+		reservationAvailability: (token, guests, signal) => get(`${baseURL}/api/v1/reservations/availability?guests=${guests}`, token, signal),
+		myReservation: (token, signal) => get(`${baseURL}/api/v1/reservations/mine`, token, signal),
+		createReservation: (token, input, idempotencyKey) => post(`${baseURL}/api/v1/reservations`, input, token, { "Idempotency-Key": idempotencyKey }),
+		cancelReservation: (token, id) => post(`${baseURL}/api/v1/reservations/${id}/cancel`, {}, token),
   };
 }
 
@@ -324,6 +329,29 @@ function demoApi(): Api {
       const orders = loadDemoOrders().map(stripDemo);
       return { orders: orders.slice(offset, offset + limit), limit, offset, has_more: orders.length > offset + limit };
     },
+		async reservationAvailability(_token, guests) {
+			return demoReservationAvailability(guests);
+		},
+		async myReservation() {
+			return { reservation: loadDemoReservation() };
+		},
+		async createReservation(_token, input) {
+			if (loadDemoReservation()) throw apiError("ACTIVE_RESERVATION_EXISTS");
+			const reservation: Reservation = {
+				id: crypto.randomUUID(), public_number: 1, table_label: "Стол №1", date: input.date,
+				start_hour: input.start_hour, end_hour: input.start_hour + 2, guests: input.guests,
+				status: "CONFIRMED", locale: input.locale, version: 1, created_at: new Date().toISOString(),
+			};
+			localStorage.setItem(demoReservationKey, JSON.stringify(reservation));
+			return reservation;
+		},
+		async cancelReservation(_token, id) {
+			const reservation = loadDemoReservation();
+			if (!reservation || reservation.id !== id) throw apiError("FORBIDDEN");
+			const cancelled = { ...reservation, status: "CANCELLED" as const, version: reservation.version + 1, cancelled_at: new Date().toISOString() };
+			localStorage.removeItem(demoReservationKey);
+			return cancelled;
+		},
   };
 }
 
@@ -370,7 +398,35 @@ function unconfiguredApi(): Api {
     addOrderItems: fail,
     getOrder: fail,
     listOrders: fail,
+		reservationAvailability: fail,
+		myReservation: fail,
+		createReservation: fail,
+		cancelReservation: fail,
   };
+}
+
+function loadDemoReservation(): Reservation | null {
+	try {
+		const raw = localStorage.getItem(demoReservationKey);
+		if (!raw) return null;
+		const reservation = JSON.parse(raw) as Reservation;
+		if (reservation.status !== "CONFIRMED") return null;
+		return reservation;
+	} catch {
+		return null;
+	}
+}
+
+function demoReservationAvailability(guests: number): ReservationAvailability {
+	const days: ReservationAvailability["days"] = [];
+	const now = new Date();
+	for (let offset = 0; offset < 7; offset += 1) {
+		const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
+		const dateText = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+		const hours = date.getDay() === 1 ? [] : Array.from({ length: 8 }, (_, index) => 13 + index).filter((hour) => offset > 0 || hour > now.getHours());
+		days.push({ date: dateText, hours });
+	}
+	return { timezone: "Europe/Belgrade", guests, days };
 }
 
 async function get(url: string, token?: string, signal?: AbortSignal) {

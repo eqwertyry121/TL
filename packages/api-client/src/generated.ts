@@ -93,6 +93,33 @@ export interface VerifiedContact {
   verified_at?: string;
 }
 
+export type ReservationStatus = "CONFIRMED" | "CANCELLED";
+
+export interface Reservation {
+  id: string;
+  public_number: number;
+  client_user_id?: string;
+  client_username?: string;
+  client_first_name?: string;
+  table_id?: string;
+  table_label: string;
+  date: string;
+  start_hour: number;
+  end_hour: number;
+  guests: number;
+  status: "CONFIRMED" | "CANCELLED";
+  locale: string;
+  version: number;
+  created_at: string;
+  cancelled_at?: string;
+}
+
+export interface ReservationAvailability {
+  timezone: "Europe/Belgrade";
+  guests: number;
+  days: Array<{ date: string; hours: number[] }>;
+}
+
 export interface AdminCategory {
   id: string;
   title_ru: string;
@@ -316,6 +343,7 @@ export interface AdminBootstrap {
   };
   analytics?: AdminAnalytics;
   audit?: AuditLogResponse;
+	reservations?: { reservations: Reservation[] };
 }
 
 export interface PerformanceBeacon {

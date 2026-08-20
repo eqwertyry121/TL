@@ -168,6 +168,39 @@ paths:
           description: Available scheduled pickup slots for the current restaurant day, calculated from server time, lead time and per-slot capacity.
         "409":
           description: Pickup is disabled or the restaurant is not accepting orders.
+  /reservations/availability:
+    get:
+      parameters:
+        - name: guests
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5
+      responses:
+        "200":
+          description: Free two-hour reservation starts for the next seven days.
+  /reservations/mine:
+    get:
+      responses:
+        "200":
+          description: Current client's future active reservation or null.
+  /reservations:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/idempotencyKey"
+      responses:
+        "201":
+          description: Table assigned and reservation created transactionally.
+        "409":
+          description: Slot was taken or the client already has an active reservation.
+  /reservations/{id}/cancel:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Client reservation cancelled and the table released.
   /orders/calculate:
     post:
       responses:
@@ -481,6 +514,18 @@ paths:
                 type: string
         "304":
           description: Admin order summary page did not change for the supplied If-None-Match validator.
+  /admin/reservations:
+    get:
+      responses:
+        "200":
+          description: Reservations for the next seven days.
+  /admin/reservations/{id}/cancel:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Admin cancels a reservation and releases its table.
   /admin/orders/search:
     post:
       requestBody:
@@ -747,6 +792,49 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DailyAnalyticsRow"
+    Reservation:
+      type: object
+      required: [id, public_number, table_label, date, start_hour, end_hour, guests, status, locale, version, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        public_number:
+          type: integer
+        client_user_id:
+          type: string
+          format: uuid
+        client_username:
+          type: string
+        client_first_name:
+          type: string
+        table_id:
+          type: string
+          format: uuid
+        table_label:
+          type: string
+        date:
+          type: string
+          format: date
+        start_hour:
+          type: integer
+        end_hour:
+          type: integer
+        guests:
+          type: integer
+        status:
+          type: string
+          enum: [CONFIRMED, CANCELLED]
+        locale:
+          type: string
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        cancelled_at:
+          type: string
+          format: date-time
   parameters:
     id:
       name: id

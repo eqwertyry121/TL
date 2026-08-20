@@ -817,6 +817,19 @@ func requireHeaderToken(t *testing.T, name string, got string, want string) {
 	t.Fatalf("%s = %q, want token %q", name, got, want)
 }
 
+func TestClientMiniAppURLUsesFrontendOriginAndBookingHash(t *testing.T) {
+	server := New(config.Config{
+		PublicBaseURL:    "https://api.takolako.site",
+		ClientMiniAppURL: "https://takolako.site/main/",
+	}, nil, slog.Default())
+	if got := server.clientMiniAppURL("/"); got != "https://takolako.site/main/#/" {
+		t.Fatalf("menu Mini App URL = %q", got)
+	}
+	if got := server.clientMiniAppURL("/booking"); got != "https://takolako.site/main/#/booking" {
+		t.Fatalf("booking Mini App URL = %q", got)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {

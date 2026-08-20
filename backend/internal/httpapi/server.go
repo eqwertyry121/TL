@@ -190,6 +190,10 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/me", s.me)
 			r.Get("/contact", s.contact)
 			r.Get("/pickup/slots", s.pickupSlots)
+			r.Get("/reservations/availability", s.reservationAvailability)
+			r.Get("/reservations/mine", s.myReservation)
+			r.Post("/reservations", s.createReservation)
+			r.Post("/reservations/{id}/cancel", s.cancelReservation)
 			r.Post("/cash-location/challenges", s.createCashLocationChallenge)
 			r.Get("/cash-location/challenges/{id}", s.cashLocationChallenge)
 			r.Post("/cash-location/challenges/{id}/telegram-webapp-location", s.verifyCashLocationChallenge)
@@ -209,6 +213,8 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/courier/orders/{id}/delivered", s.markDelivered)
 
 			r.Get("/admin/orders", s.adminOrders)
+			r.Get("/admin/reservations", s.adminReservations)
+			r.Post("/admin/reservations/{id}/cancel", s.adminCancelReservation)
 			r.Post("/admin/orders/search", s.adminOrdersSearch)
 			r.Get("/admin/orders/{id}", s.adminOrder)
 			r.Post("/admin/orders/{id}/cancel", s.adminCancelOrder)
@@ -537,6 +543,13 @@ func (s *Server) adminBootstrap(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		response["orders"] = page
+	case "reservations":
+		reservations, err := s.store.AdminReservations(r.Context(), session, s.now())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		response["reservations"] = map[string]any{"reservations": reservations}
 	case "settings":
 		settings, err := s.store.Settings(r.Context())
 		if err != nil {
@@ -2462,6 +2475,10 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code, messageKey = http.StatusConflict, "PICKUP_UNAVAILABLE", "pickup_unavailable"
 	case errors.Is(err, core.ErrPickupSlotUnavailable):
 		status, code, messageKey = http.StatusConflict, "PICKUP_SLOT_UNAVAILABLE", "pickup_slot_unavailable"
+	case errors.Is(err, core.ErrReservationUnavailable):
+		status, code, messageKey = http.StatusConflict, "RESERVATION_UNAVAILABLE", "reservation_unavailable"
+	case errors.Is(err, core.ErrActiveReservationExists):
+		status, code, messageKey = http.StatusConflict, "ACTIVE_RESERVATION_EXISTS", "active_reservation_exists"
 	case errors.Is(err, tgauth.ErrInvalidInitData):
 		status, code, messageKey = http.StatusUnauthorized, "AUTH_INVALID", "auth_invalid"
 	default:

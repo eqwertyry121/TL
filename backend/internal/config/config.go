@@ -27,6 +27,7 @@ type Config struct {
 	Currency                  string
 	ClientBotUsername         string
 	ClientBotToken            string
+	ClientMiniAppURL          string
 	StaffBotUsername          string
 	StaffBotToken             string
 	TelegramWebhookSecret     string
@@ -80,6 +81,7 @@ func Load() (Config, error) {
 		Currency:                 get("APP_CURRENCY", "RSD"),
 		ClientBotUsername:        get("TELEGRAM_CLIENT_BOT_USERNAME", "TakoLako_main_bot"),
 		ClientBotToken:           os.Getenv("TELEGRAM_CLIENT_BOT_TOKEN"),
+		ClientMiniAppURL:         get("TELEGRAM_CLIENT_MINI_APP_URL", "https://takolako.site/main/"),
 		StaffBotUsername:         os.Getenv("TELEGRAM_STAFF_BOT_USERNAME"),
 		StaffBotToken:            os.Getenv("TELEGRAM_STAFF_BOT_TOKEN"),
 		TelegramWebhookSecret:    os.Getenv("TELEGRAM_WEBHOOK_SECRET"),

@@ -10,6 +10,7 @@ type Key =
   | "checkout"
   | "orders"
   | "support"
+	| "booking"
   | "terms"
   | "acceptTerms"
   | "termsRequired"
@@ -45,6 +46,7 @@ const dict: Record<Locale, Record<Key, string>> = {
     checkout: "Оформление",
     orders: "История",
     support: "Поддержка",
+		booking: "Столик",
     terms: "условия продажи и доставки",
     acceptTerms: "Я прочитал(а) и принимаю",
     termsRequired: "Примите условия продажи и доставки",
@@ -79,6 +81,7 @@ const dict: Record<Locale, Record<Key, string>> = {
     checkout: "Plaćanje",
     orders: "Istorija",
     support: "Podrška",
+		booking: "Sto",
     terms: "uslove prodaje i dostave",
     acceptTerms: "Pročitao/la sam i prihvatam",
     termsRequired: "Prihvatite uslove prodaje i dostave",
@@ -113,6 +116,7 @@ const dict: Record<Locale, Record<Key, string>> = {
     checkout: "Checkout",
     orders: "History",
     support: "Support",
+		booking: "Table",
     terms: "terms of sale and delivery",
     acceptTerms: "I have read and accept the",
     termsRequired: "Accept the terms of sale and delivery",

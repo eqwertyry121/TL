@@ -40,6 +40,7 @@ type Worker struct {
 type job struct {
 	id            uuid.UUID
 	orderID       uuid.UUID
+	reservationID uuid.UUID
 	recipientKind string
 	template      string
 	attempts      int
@@ -125,6 +126,9 @@ func (w *Worker) Run(ctx context.Context) {
 }
 
 func (w *Worker) ProcessOnce(ctx context.Context) error {
+	if err := w.enqueueReservationReminders(ctx); err != nil {
+		return err
+	}
 	if !w.dryRun {
 		return w.processTelegram(ctx)
 	}
@@ -257,7 +261,10 @@ func (w *Worker) claimJobs(ctx context.Context) ([]job, error) {
 		SET status='processing', attempts=attempts+1, last_error_code='', updated_at=now()
 		FROM candidates
 		WHERE j.id=candidates.id
-		RETURNING j.id, j.order_id, j.recipient_kind, j.template, j.attempts
+		RETURNING j.id,
+			COALESCE(j.order_id, '00000000-0000-0000-0000-000000000000'::uuid),
+			COALESCE(j.reservation_id, '00000000-0000-0000-0000-000000000000'::uuid),
+			j.recipient_kind, j.template, j.attempts
 	`)
 	if err != nil {
 		return nil, err
@@ -267,7 +274,7 @@ func (w *Worker) claimJobs(ctx context.Context) ([]job, error) {
 	jobs := []job{}
 	for rows.Next() {
 		var current job
-		if err := rows.Scan(&current.id, &current.orderID, &current.recipientKind, &current.template, &current.attempts); err != nil {
+		if err := rows.Scan(&current.id, &current.orderID, &current.reservationID, &current.recipientKind, &current.template, &current.attempts); err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, current)
@@ -300,6 +307,9 @@ func (w *Worker) processJob(ctx context.Context, current job) error {
 }
 
 func (w *Worker) buildMessage(ctx context.Context, current job) (string, int64, string, error) {
+	if current.reservationID != uuid.Nil {
+		return w.reservationMessage(ctx, current)
+	}
 	switch current.recipientKind {
 	case "client":
 		if w.clientToken == "" {
@@ -354,6 +364,97 @@ func (w *Worker) buildMessage(ctx context.Context, current job) (string, int64, 
 		return w.staffToken, chatID, fmt.Sprintf("Нужно проверить заказ %s", current.orderID), nil
 	default:
 		return "", 0, "", fmt.Errorf("unknown_recipient_kind")
+	}
+}
+
+func (w *Worker) enqueueReservationReminders(ctx context.Context) error {
+	_, err := w.pool.Exec(ctx, `
+		INSERT INTO notification_jobs (reservation_id, recipient_kind, template, event_key)
+		SELECT r.id, 'client', 'reservation_reminder', 'reservation:' || r.id::text || ':reminder'
+		FROM reservations r
+		WHERE r.status='CONFIRMED'
+			AND ((r.reservation_date + make_interval(hours => r.start_hour)) AT TIME ZONE 'Europe/Belgrade') > now()
+			AND ((r.reservation_date + make_interval(hours => r.start_hour)) AT TIME ZONE 'Europe/Belgrade') <= now() + interval '1 hour'
+		ON CONFLICT (event_key, recipient_kind) DO NOTHING
+	`)
+	return err
+}
+
+func (w *Worker) reservationMessage(ctx context.Context, current job) (string, int64, string, error) {
+	var clientChatID int64
+	var publicNumber, startHour, endHour, guests int
+	var date, username, firstName, tableLabel, locale string
+	err := w.pool.QueryRow(ctx, `
+		SELECT u.telegram_user_id, r.public_number, to_char(r.reservation_date, 'DD.MM.YYYY'),
+			r.start_hour, r.end_hour, r.guests, r.client_username, r.client_first_name, t.label, r.locale
+		FROM reservations r
+		JOIN users u ON u.id=r.client_user_id
+		JOIN restaurant_tables t ON t.id=r.table_id
+		WHERE r.id=$1
+	`, current.reservationID).Scan(
+		&clientChatID, &publicNumber, &date, &startHour, &endHour, &guests,
+		&username, &firstName, &tableLabel, &locale,
+	)
+	if err != nil {
+		return "", 0, "", err
+	}
+	if current.recipientKind == "client" {
+		if w.clientToken == "" {
+			return "", 0, "", fmt.Errorf("missing_client_bot_token")
+		}
+		var text string
+		switch current.template {
+		case "reservation_cancelled_by_admin":
+			text = localizedReservationText(locale,
+				fmt.Sprintf("Бронь на %s в %02d:00 отменена рестораном.", date, startHour),
+				fmt.Sprintf("Rezervacija za %s u %02d:00 je otkazana od strane restorana.", date, startHour),
+				fmt.Sprintf("Your reservation for %s at %02d:00 was cancelled by the restaurant.", date, startHour))
+		case "reservation_reminder":
+			text = localizedReservationText(locale,
+				fmt.Sprintf("Напоминаем: ждём вас сегодня в %02d:00. Бронь на %d гостей.", startHour, guests),
+				fmt.Sprintf("Podsetnik: očekujemo vas danas u %02d:00. Rezervacija za %d gostiju.", startHour, guests),
+				fmt.Sprintf("Reminder: we expect you today at %02d:00. Reservation for %d guests.", startHour, guests))
+		default:
+			text = localizedReservationText(locale,
+				fmt.Sprintf("Стол забронирован на %s с %02d:00 до %02d:00. Гостей: %d. До встречи!", date, startHour, endHour, guests),
+				fmt.Sprintf("Sto je rezervisan za %s od %02d:00 do %02d:00. Gostiju: %d. Vidimo se!", date, startHour, endHour, guests),
+				fmt.Sprintf("Your table is booked for %s from %02d:00 to %02d:00. Guests: %d. See you!", date, startHour, endHour, guests))
+		}
+		return w.clientToken, clientChatID, text, nil
+	}
+	if current.recipientKind != "admin" {
+		return "", 0, "", fmt.Errorf("unknown_reservation_recipient")
+	}
+	if w.staffToken == "" {
+		return "", 0, "", fmt.Errorf("missing_staff_bot_token")
+	}
+	adminChatID, err := w.staffTarget(ctx, "ADMIN")
+	if err != nil {
+		return "", 0, "", err
+	}
+	clientLabel := strings.TrimSpace(firstName)
+	if strings.TrimSpace(username) != "" {
+		clientLabel = "@" + strings.TrimPrefix(strings.TrimSpace(username), "@")
+	}
+	if clientLabel == "" {
+		clientLabel = fmt.Sprintf("Telegram %d", clientChatID)
+	}
+	title := "Новая бронь"
+	if current.template == "reservation_cancelled_by_client" {
+		title = "Бронь отменена клиентом"
+	}
+	text := fmt.Sprintf("%s #%d\n%s\n%s, %02d:00–%02d:00\nГостей: %d\n%s", title, publicNumber, clientLabel, date, startHour, endHour, guests, tableLabel)
+	return w.staffToken, adminChatID, text, nil
+}
+
+func localizedReservationText(locale, ru, sr, en string) string {
+	switch normalizeLocale(locale) {
+	case "sr":
+		return sr
+	case "en":
+		return en
+	default:
+		return ru
 	}
 }
 
