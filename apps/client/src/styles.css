@@ -358,10 +358,8 @@ h2 {
 	display: grid;
 	min-width: 10rem;
 	padding: 0.35rem;
-	border: 1px solid var(--color-border);
 	border-radius: 1rem;
 	background: var(--color-surface);
-	box-shadow: var(--shadow-lift);
 	color: var(--color-text);
 }
 
@@ -373,22 +371,13 @@ h2 {
 
 .client-more-menu a:active { background: var(--surface-soft); }
 
-.booking-page {
-	padding-bottom: 7rem;
-}
-
-.booking-title p {
-	max-width: 32rem;
-	color: var(--muted);
-	font-size: clamp(1rem, 3.2vw, 1.15rem);
-}
+.booking-page { padding-bottom: 7rem; }
 
 .booking-guests,
 .booking-active-card,
 .booking-day {
 	border: 1px solid var(--color-border);
-	background: rgba(255, 253, 248, 0.94);
-	box-shadow: 0 0.7rem 1.8rem rgba(67, 20, 27, 0.07);
+	background: var(--color-surface);
 }
 
 .booking-guests {
@@ -400,16 +389,8 @@ h2 {
 	border-radius: var(--radius-md);
 }
 
-.booking-guests > div:first-child,
-.booking-active-copy,
-.booking-submit-bar > div {
-	display: grid;
-	gap: 0.2rem;
-}
-
 .booking-guests span,
-.booking-submit-bar span,
-.booking-date-mark span {
+.booking-submit-bar span {
 	color: var(--muted);
 	font-size: 0.85rem;
 }
@@ -445,7 +426,6 @@ h2 {
 }
 
 .booking-day.is-empty {
-	box-shadow: none;
 	opacity: 0.64;
 }
 
@@ -455,11 +435,6 @@ h2 {
 	justify-content: space-between;
 	gap: 1rem;
 	text-transform: capitalize;
-}
-
-.booking-day-heading span {
-	color: var(--muted);
-	font-size: 0.82rem;
 }
 
 .booking-hours {
@@ -475,16 +450,12 @@ h2 {
 	background: var(--color-background);
 	color: var(--color-text);
 	font-weight: 850;
-	transition: background 150ms ease, color 150ms ease, transform 150ms ease;
 }
 
 .booking-hours button.active {
-	border-color: var(--color-primary);
 	background: var(--color-primary);
 	color: #fff;
 }
-
-.booking-hours button:active { transform: scale(0.96); }
 
 .booking-submit-bar {
 	position: fixed;
@@ -497,10 +468,8 @@ h2 {
 	align-items: center;
 	gap: 0.8rem;
 	padding: 0.7rem;
-	border: 1px solid rgba(255, 255, 255, 0.24);
 	border-radius: 1.15rem;
-	background: rgba(67, 20, 27, 0.96);
-	box-shadow: var(--shadow-lift);
+	background: var(--color-primary-dark);
 	color: #fff;
 }
 
@@ -519,17 +488,15 @@ h2 {
 .booking-date-mark {
 	display: grid;
 	place-items: center;
-	min-width: 5.3rem;
-	min-height: 5.3rem;
+	min-width: 5rem;
+	min-height: 5rem;
 	border-radius: 1.25rem;
-	background: linear-gradient(145deg, var(--color-accent), var(--color-primary));
+	background: var(--color-primary);
 	color: #fff;
 }
 
 .booking-date-mark strong { font-size: 1.35rem; }
-.booking-date-mark span { color: rgba(255,255,255,.76); }
 .booking-active-copy h2 { text-transform: capitalize; }
-.booking-active-copy p { color: var(--muted); }
 .booking-cancel { margin-top: 0.75rem; }
 .booking-empty { padding: 2rem 1rem; text-align: center; color: var(--muted); }
 
