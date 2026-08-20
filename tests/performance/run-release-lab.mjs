@@ -13,6 +13,11 @@ export const releaseLabSteps = [
     args: ["exec", "playwright", "test", "-c", "tests/performance/playwright.config.ts"],
   },
   {
+    name: "build-production-apps",
+    command: "node",
+    args: ["tests/performance/build-production.mjs"],
+  },
+  {
     name: "bundle-budget-gate",
     command: "pnpm",
     args: ["perf:budgets"],

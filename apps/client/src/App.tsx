@@ -3,26 +3,12 @@ import { createSingleFlightAuthRetry, isAuthErrorLike } from "@tk-delivery/api-c
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { startVisiblePolling } from "@tk-delivery/api-client/polling";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
-import {
-  AlertCircle,
-  ArrowLeft,
-  Check,
-	ChevronDown,
-  ChevronRight,
-  MapPin,
-  Minus,
-	MoreHorizontal,
-  Phone,
-  Plus,
-  ReceiptText,
-  ShoppingCart,
-  Trash2,
-} from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { createApi } from "./api";
 import { orderStatusText } from "./fixtures";
 import { t } from "./i18n";
+import { Icon } from "./Icon";
 import { termsVersion } from "./legal-version";
 import { maskPhone, money } from "./money";
 import { currentRoute, navigate, replaceRoute, routeToHash } from "./route";
@@ -853,7 +839,7 @@ function ClientMiniApp() {
     <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header="Tako Lako - Грузинская кухня" runtime={data.runtime} session={data.session}>
       {error && (
         <div className="notice error">
-          <AlertCircle size={18} />
+          <Icon name="alert" size={18} />
           <span>{error}</span>
         </div>
       )}
@@ -861,7 +847,7 @@ function ClientMiniApp() {
       {content}
       {cartQuantity > 0 && route.name !== "checkout" && route.name !== "cart" && route.name !== "add" && (
         <button className="cart-float" onClick={() => navigate({ name: "cart" })}>
-          <ShoppingCart size={18} />
+          <Icon name="cart" size={18} />
           <span>{cartQuantity}</span>
           <strong>{money(total)}</strong>
         </button>
@@ -912,7 +898,7 @@ function PortalLanding() {
           }}
         >
           Открыть Mini App
-          <ChevronRight size={18} />
+          <Icon name="chevron-right" size={18} />
         </a>
         <small>Если Telegram не открылся автоматически, найдите бота @takolako_main_bot.</small>
       </section>
@@ -953,7 +939,7 @@ function TelegramBotButton({ label, compact = false }: { label: string; compact?
       }}
     >
       {label}
-      <ChevronRight size={18} />
+      <Icon name="chevron-right" size={18} />
     </a>
   );
 }
@@ -1006,7 +992,7 @@ function Shell({
           <div className="header-main">
             {!isRoot && (
               <button className="icon-button" onClick={() => window.history.back()} aria-label="Назад">
-                <ArrowLeft size={20} />
+                <Icon name="arrow-left" size={20} />
               </button>
             )}
             {isRoot && <span className="brand-mark" aria-hidden="true">TL</span>}
@@ -1021,7 +1007,7 @@ function Shell({
           <div className="header-actions">
 			<div className="profile-actions">
 						<ProfileBadge session={session} />
-						<button className="client-more-trigger" type="button" aria-label={locale === "ru" ? "Ещё" : locale === "sr" ? "Još" : "More"} aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><MoreHorizontal size={20} /></button>
+						<button className="client-more-trigger" type="button" aria-label={locale === "ru" ? "Ещё" : locale === "sr" ? "Još" : "More"} aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><Icon name="more" size={20} /></button>
 					</div>
             {showLocale && (
               <div className="locale">
@@ -1402,7 +1388,7 @@ function Cart({
                 <Qty value={line.quantity} onMinus={() => onSetLine(item, line.quantity <= itemMinQuantity(item) ? 0 : line.quantity - 1)} onPlus={() => onSetLine(item, line.quantity + 1)} />
               ) : (
                 <button className="trash-button" type="button" aria-label="Удалить недоступное блюдо" onClick={() => onRemoveLine(line.itemId)}>
-                  <Trash2 size={18} />
+                  <Icon name="trash" size={18} />
                 </button>
               )}
             </div>
@@ -1562,7 +1548,7 @@ function Checkout({
         {!deliverySelected && (
           <section className="pickup-checkout" aria-label={copy.pickupTitle}>
             <div className="pickup-place">
-              <MapPin size={22} />
+              <Icon name="location" size={22} />
               <div>
                 <strong>{copy.pickupPlaceTitle}</strong>
                 <p>{pickupAddress}</p>
@@ -1626,18 +1612,18 @@ function Checkout({
           aria-label={contactVerified ? copy.phoneConfirmed : copy.phoneRequiredAria}
         >
           <span className="contact-share-icon" aria-hidden="true">
-            {contactVerified ? <Check size={22} /> : <Phone size={22} />}
+            {contactVerified ? <Icon name="check" size={22} /> : <Icon name="phone" size={22} />}
           </span>
           <span className="contact-share-copy">
             <strong>{contactLoading ? copy.contactWait : contactVerified ? copy.phoneConfirmed : copy.sharePhoneRequired}</strong>
             <small>{contactVerified ? (verifiedContact?.masked || maskPhone(draft.phone)) : locationRequired ? copy.contactThenLocation : copy.phoneNeeded}</small>
           </span>
-          {!contactVerified && <ChevronRight className="contact-share-arrow" size={22} aria-hidden="true" />}
+          {!contactVerified && <Icon name="chevron-right" className="contact-share-arrow" size={22} />}
         </button>
         {locationRequired && (
           <div className={`cash-location ${!contactVerified ? "blocked" : ""} ${cashLocation?.status === "VERIFIED" ? "verified" : cashLocation?.status === "REJECTED" || cashLocation?.status === "EXPIRED" ? "rejected" : ""}`}>
             <div>
-              <MapPin size={18} />
+              <Icon name="location" size={18} />
               <div>
                 <strong>{cashLocationTitle(cashLocation, locale)}</strong>
                 <p>{cashLocationText(cashLocation, cashLocationRadiusMeters, locale, fulfillmentType)}</p>
@@ -1978,7 +1964,7 @@ function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; 
   return (
     <div className="page narrow order-page">
       <div className="order-status">
-        <Check size={22} />
+        <Icon name="check" size={22} />
         <div>
           <h1>#{order.public_number}</h1>
           <p>{localizedStatus(order, locale)}</p>
@@ -2037,10 +2023,10 @@ function Orders({
       <div className="list">
         {orders.map((order) => (
           <button className="history-line" key={order.id} onClick={() => navigate({ name: "order", id: order.id })}>
-            <ReceiptText size={20} />
+            <Icon name="receipt" size={20} />
             <span>#{order.public_number}<small>{fulfillmentText(order)} · {localizedStatus(order, locale)}</small></span>
             <strong>{money(order.total_minor)}</strong>
-            <ChevronRight size={18} />
+            <Icon name="chevron-right" size={18} />
           </button>
         ))}
       </div>
@@ -2172,13 +2158,13 @@ function Booking({
 				<div className={guestSelectOpen ? "booking-guest-select is-open" : "booking-guest-select"} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setGuestSelectOpen(false); }}>
 					<button className="booking-guest-trigger" type="button" disabled={submitting} aria-haspopup="listbox" aria-expanded={guestSelectOpen} onClick={() => setGuestSelectOpen((open) => !open)}>
 						<span>{copy.guests(guests)}</span>
-					<ChevronDown size={20} aria-hidden="true" />
+					<Icon name="chevron-down" size={20} />
 					</button>
 					{guestSelectOpen && (
 						<div className="booking-guest-menu" role="listbox" aria-label={copy.guestLabel}>
 							{[1, 2, 3, 4, 5].map((count) => (
 								<button type="button" role="option" aria-selected={guests === count} className={guests === count ? "active" : ""} key={count} onClick={() => { onGuests(count); setGuestSelectOpen(false); }}>
-									<span>{copy.guests(count)}</span>{guests === count && <Check size={18} />}
+									<span>{copy.guests(count)}</span>{guests === count && <Icon name="check" size={18} />}
 								</button>
 							))}
 						</div>
@@ -2252,9 +2238,9 @@ function formatBookingDateCompact(date: string, locale: Locale): string {
 function Qty({ value, onMinus, onPlus }: { value: number; onMinus: () => void; onPlus: () => void }) {
   return (
     <div className="qty">
-      <button onClick={onMinus} aria-label="Минус"><Minus size={16} /></button>
+      <button onClick={onMinus} aria-label="Минус"><Icon name="minus" size={16} /></button>
       <span>{value}</span>
-      <button onClick={onPlus} aria-label="Плюс"><Plus size={16} /></button>
+      <button onClick={onPlus} aria-label="Плюс"><Icon name="plus" size={16} /></button>
     </div>
   );
 }

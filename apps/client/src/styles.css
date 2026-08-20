@@ -2988,3 +2988,29 @@ body {
     min-height: 1.9rem;
   }
 }
+
+.fatal-error {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 1rem;
+}
+
+.fatal-error__panel {
+  width: min(100%, 30rem);
+  padding: 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 1.25rem;
+  background: var(--surface);
+}
+
+.fatal-error__panel button {
+  width: 100%;
+  min-height: 3rem;
+  border: 0;
+  border-radius: 0.9rem;
+  color: var(--color-on-primary);
+  background: var(--color-primary);
+  font: inherit;
+  font-weight: 800;
+}

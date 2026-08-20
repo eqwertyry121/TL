@@ -1,14 +1,19 @@
 #!/bin/sh
 set -eu
 
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 APP_NAME="${APP_NAME:-TakoLako}"
 API_HEALTH_URL="${API_HEALTH_URL:-https://api.takolako.site/health}"
-ALERT_STATE_DIR="${ALERT_STATE_DIR:-/var/lib/tk-delivery-alerts}"
+ALERT_STATE_DIR="${ALERT_STATE_DIR:-${HOME:-/tmp}/.local/state/tk-delivery-alerts}"
 FAILED_NOTIFICATION_THRESHOLD="${FAILED_NOTIFICATION_THRESHOLD:-1}"
-COMPOSE_FILE="${COMPOSE_FILE:-/opt/tk-delivery/deploy/docker-compose.api.yml}"
-PROJECT_DIR="${PROJECT_DIR:-/opt/tk-delivery/deploy}"
+COMPOSE_FILE="${COMPOSE_FILE:-$SCRIPT_DIR/docker-compose.api.yml}"
+COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-$SCRIPT_DIR/.env.production}"
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-takolako}"
+PROJECT_DIR="${PROJECT_DIR:-$SCRIPT_DIR}"
 POSTGRES_USER="${POSTGRES_USER:-tk_delivery}"
 POSTGRES_DB="${POSTGRES_DB:-tk_delivery}"
+DISK_PATH="${DISK_PATH:-/}"
+MIN_FREE_DISK_MB="${MIN_FREE_DISK_MB:-1024}"
 
 case "$ALERT_STATE_DIR" in
   ""|"/"|"/var"|"/var/lib"|"/tmp"|"/opt")
@@ -24,7 +29,22 @@ case "$FAILED_NOTIFICATION_THRESHOLD" in
     ;;
 esac
 
+case "$MIN_FREE_DISK_MB" in
+  ""|*[!0-9]*)
+    echo "MIN_FREE_DISK_MB must be an integer" >&2
+    exit 2
+    ;;
+esac
+
 mkdir -p "$ALERT_STATE_DIR"
+
+compose() {
+  if [ -f "$COMPOSE_ENV_FILE" ]; then
+    docker compose --project-name "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"
+    return
+  fi
+  docker compose --project-name "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" "$@"
+}
 
 send_alert() {
   text="$1"
@@ -64,9 +84,24 @@ else
   alert_once "api-health" "🚨 ${APP_NAME}: API не отвечает ${API_HEALTH_URL}"
 fi
 
+free_disk_mb="$(df -Pk "$DISK_PATH" 2>/dev/null | awk 'NR == 2 { print int($4 / 1024) }')"
+case "$free_disk_mb" in
+  ""|*[!0-9]*)
+    alert_once "disk-check" "🚨 ${APP_NAME}: не удалось проверить свободное место на ${DISK_PATH}"
+    ;;
+  *)
+    recover_once "disk-check" "✅ ${APP_NAME}: проверка диска снова работает"
+    if [ "$free_disk_mb" -lt "$MIN_FREE_DISK_MB" ]; then
+      alert_once "disk-space" "🚨 ${APP_NAME}: на диске осталось ${free_disk_mb} MB"
+    else
+      recover_once "disk-space" "✅ ${APP_NAME}: свободное место восстановлено, ${free_disk_mb} MB"
+    fi
+    ;;
+esac
+
 if [ -f "$COMPOSE_FILE" ] && command -v docker >/dev/null 2>&1; then
   failed_count="$(
-    cd "$PROJECT_DIR" && docker compose -f "$COMPOSE_FILE" exec -T postgres \
+    cd "$PROJECT_DIR" && compose exec -T postgres \
       psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc \
       "SELECT count(*) FROM notification_jobs WHERE status = 'failed';" \
       2>/dev/null || true

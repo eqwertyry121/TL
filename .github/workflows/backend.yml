@@ -163,4 +163,4 @@ jobs:
         if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
         run: |
           ssh -i ~/.ssh/tk_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cd '$DEPLOY_PATH/deploy' && APP_BUILD_SHA='${{ github.sha }}' docker compose --env-file .env.production -p takolako -f docker-compose.api.yml up -d --build --remove-orphans && docker compose --env-file .env.production -p takolako -f docker-compose.api.yml exec -T app wget -qO- http://127.0.0.1:8080/ready >/dev/null"
+            "cd '$DEPLOY_PATH/deploy' && APP_BUILD_SHA='${{ github.sha }}' docker compose --env-file .env.production -p takolako -f docker-compose.api.yml up -d --build --remove-orphans && docker compose --env-file .env.production -p takolako -f docker-compose.api.yml exec -T app wget -qO- http://127.0.0.1:8080/ready >/dev/null && sh ./maintenance.sh"
