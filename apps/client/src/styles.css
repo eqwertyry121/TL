@@ -373,6 +373,13 @@ h2 {
 
 .booking-page { padding-bottom: 7rem; }
 
+.booking-title h1 {
+	font-family: var(--font-body);
+	font-size: clamp(1.8rem, 8vw, 2.6rem);
+	line-height: 1.05;
+	letter-spacing: -0.04em;
+}
+
 .booking-guests,
 .booking-active-card,
 .booking-day {
@@ -381,10 +388,8 @@ h2 {
 }
 
 .booking-guests {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 1rem;
+	display: grid;
+	gap: 0.75rem;
 	padding: clamp(0.9rem, 3vw, 1.2rem);
 	border-radius: var(--radius-md);
 }
@@ -395,22 +400,27 @@ h2 {
 	font-size: 0.85rem;
 }
 
-.booking-stepper {
+.booking-guest-options {
 	display: grid;
-	grid-template-columns: 2.65rem 2rem 2.65rem;
-	align-items: center;
-	text-align: center;
+	grid-template-columns: repeat(5, minmax(0, 1fr));
+	gap: 0.45rem;
 }
 
-.booking-stepper button {
+.booking-guest-options button {
 	display: grid;
 	place-items: center;
-	width: 2.65rem;
-	height: 2.65rem;
+	min-height: 3rem;
 	border: 1px solid var(--color-border);
 	border-radius: 0.85rem;
 	background: var(--color-background);
-	color: var(--color-primary);
+	color: var(--color-text);
+	font-weight: 850;
+}
+
+.booking-guest-options button.active {
+	border-color: var(--color-primary);
+	background: var(--color-primary);
+	color: #fff;
 }
 
 .booking-days {
@@ -621,8 +631,9 @@ h2 {
   color: rgba(255, 255, 255, 0.88);
   font-size: clamp(0.69rem, 2.25vw, 0.9rem);
   font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.05;
+  text-align: center;
+  white-space: normal;
   transition: transform 170ms ease, background 170ms ease, color 170ms ease;
 }
 

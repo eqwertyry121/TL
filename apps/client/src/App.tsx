@@ -2133,11 +2133,20 @@ function Booking({
 		<div className="page narrow booking-page">
 			<div className="page-title booking-title"><span>Tako Lako</span><h1>{copy.title}</h1><p>{copy.lead}</p></div>
 			<section className="booking-guests" aria-label={copy.guestLabel}>
-				<div><span>{copy.guestLabel}</span><strong>{copy.guests(guests)}</strong></div>
-				<div className="booking-stepper">
-					<button type="button" aria-label="−" disabled={guests <= 1 || submitting} onClick={() => onGuests(guests - 1)}><Minus size={19} /></button>
-					<strong>{guests}</strong>
-					<button type="button" aria-label="+" disabled={guests >= 5 || submitting} onClick={() => onGuests(guests + 1)}><Plus size={19} /></button>
+				<strong>{copy.guestLabel}</strong>
+				<div className="booking-guest-options">
+					{[1, 2, 3, 4, 5].map((count) => (
+						<button
+							type="button"
+							className={guests === count ? "active" : ""}
+							aria-pressed={guests === count}
+							disabled={submitting}
+							onClick={() => onGuests(count)}
+							key={count}
+						>
+							{count}
+						</button>
+					))}
 				</div>
 			</section>
 			<div className="booking-days">
@@ -2169,19 +2178,19 @@ function Booking({
 function bookingCopy(locale: Locale) {
 	if (locale === "sr") return {
 		title: "Rezervišite sto", lead: "Izaberite vreme i potvrdite rezervaciju.", loading: "Učitavanje...", booked: "Sto je rezervisan",
-		guestLabel: "Broj gostiju", guests: (count: number) => `${count} ${count === 1 ? "gost" : "gostiju"}`, noSlots: "Nema mesta", empty: "Nema slobodnih termina u narednih sedam dana.",
+		guestLabel: "Koliko vas dolazi?", guests: (count: number) => `${count} ${count === 1 ? "gost" : "gostiju"}`, noSlots: "Nema mesta", empty: "Nema slobodnih termina u narednih sedam dana.",
 		submit: "REZERVIŠI", booking: "REZERVIŠEMO...", cancel: "OTKAŽI REZERVACIJU", cancelling: "OTKAZUJEMO...",
 		cancelTitle: "Otkazati rezervaciju?", cancelMessage: "Termin će odmah biti oslobođen.", cancelConfirm: "Otkaži",
 	};
 	if (locale === "en") return {
 		title: "Book a table", lead: "Choose a time and confirm your booking.", loading: "Loading...", booked: "Table booked",
-		guestLabel: "Guests", guests: (count: number) => `${count} ${count === 1 ? "guest" : "guests"}`, noSlots: "Full", empty: "No available times in the next seven days.",
+		guestLabel: "How many guests?", guests: (count: number) => `${count} ${count === 1 ? "guest" : "guests"}`, noSlots: "Full", empty: "No available times in the next seven days.",
 		submit: "BOOK TABLE", booking: "BOOKING...", cancel: "CANCEL BOOKING", cancelling: "CANCELLING...",
 		cancelTitle: "Cancel the booking?", cancelMessage: "The time will become available immediately.", cancelConfirm: "Cancel",
 	};
 	return {
 		title: "Забронировать стол", lead: "Выберите время и подтвердите бронь.", loading: "Загрузка...", booked: "Стол забронирован",
-		guestLabel: "Количество гостей", guests: (count: number) => `${count} ${count === 1 ? "гость" : count < 5 ? "гостя" : "гостей"}`, noSlots: "Мест нет", empty: "На ближайшие семь дней свободного времени нет.",
+		guestLabel: "Сколько вас будет?", guests: (count: number) => `${count} ${count === 1 ? "гость" : count < 5 ? "гостя" : "гостей"}`, noSlots: "Мест нет", empty: "На ближайшие семь дней свободного времени нет.",
 		submit: "ЗАБРОНИРОВАТЬ", booking: "БРОНИРУЕМ...", cancel: "ОТМЕНИТЬ БРОНЬ", cancelling: "ОТМЕНЯЕМ...",
 		cancelTitle: "Отменить бронь?", cancelMessage: "Время сразу станет доступно другим гостям.", cancelConfirm: "Отменить",
 	};
