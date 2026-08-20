@@ -48,6 +48,7 @@ type job struct {
 	reservationID uuid.UUID
 	recipientKind string
 	template      string
+	eventKey      string
 	attempts      int
 }
 
@@ -251,7 +252,7 @@ func (w *Worker) claimJobs(ctx context.Context) ([]job, error) {
 		RETURNING j.id,
 			COALESCE(j.order_id, '00000000-0000-0000-0000-000000000000'::uuid),
 			COALESCE(j.reservation_id, '00000000-0000-0000-0000-000000000000'::uuid),
-			j.recipient_kind, j.template, j.attempts
+			j.recipient_kind, j.template, j.event_key, j.attempts
 	`)
 	if err != nil {
 		return nil, err
@@ -261,7 +262,7 @@ func (w *Worker) claimJobs(ctx context.Context) ([]job, error) {
 	jobs := []job{}
 	for rows.Next() {
 		var current job
-		if err := rows.Scan(&current.id, &current.orderID, &current.reservationID, &current.recipientKind, &current.template, &current.attempts); err != nil {
+		if err := rows.Scan(&current.id, &current.orderID, &current.reservationID, &current.recipientKind, &current.template, &current.eventKey, &current.attempts); err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, current)
@@ -426,16 +427,16 @@ func (w *Worker) reservationMessage(ctx context.Context, current job) (string, i
 	}
 	adminChatID := int64(0)
 	if current.recipientKind == "admin" {
-		// Backward compatibility for jobs created before per-owner delivery.
-		adminChatID, err = w.staffTarget(ctx, "ADMIN")
-		if err != nil {
-			return "", 0, "", err
+		adminChatID, err = w.ownerReservationTarget(current.eventKey)
+		if errors.Is(err, errLegacyOwnerTarget) {
+			// Backward compatibility for jobs created before per-owner delivery.
+			adminChatID, err = w.staffTarget(ctx, "ADMIN")
 		}
 	} else {
-		adminChatID, err = w.ownerReservationTarget(current.recipientKind)
-		if err != nil {
-			return "", 0, "", err
-		}
+		err = fmt.Errorf("unknown_reservation_recipient")
+	}
+	if err != nil {
+		return "", 0, "", err
 	}
 	clientLabel := strings.TrimSpace(firstName)
 	if strings.TrimSpace(username) != "" {
@@ -455,12 +456,15 @@ func ownerReservationText(template, tableLabel, date string, startHour, guests i
 	return fmt.Sprintf("%s забронирован на %02d:00\nДата: %s\nГостей: %d\nКлиент: %s", tableLabel, startHour, date, guests, clientLabel)
 }
 
-func (w *Worker) ownerReservationTarget(recipientKind string) (int64, error) {
-	const prefix = "owner:"
-	if !strings.HasPrefix(recipientKind, prefix) {
-		return 0, fmt.Errorf("unknown_reservation_recipient")
+var errLegacyOwnerTarget = errors.New("legacy_owner_target")
+
+func (w *Worker) ownerReservationTarget(eventKey string) (int64, error) {
+	const marker = ":owner:"
+	markerIndex := strings.LastIndex(eventKey, marker)
+	if markerIndex < 0 {
+		return 0, errLegacyOwnerTarget
 	}
-	telegramID, err := strconv.ParseInt(strings.TrimPrefix(recipientKind, prefix), 10, 64)
+	telegramID, err := strconv.ParseInt(eventKey[markerIndex+len(marker):], 10, 64)
 	if err != nil || telegramID <= 0 {
 		return 0, fmt.Errorf("invalid_reservation_owner")
 	}

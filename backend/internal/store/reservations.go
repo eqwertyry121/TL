@@ -380,12 +380,12 @@ func insertReservationOwnerNotifications(ctx context.Context, tx pgx.Tx, reserva
 	}
 	sort.Slice(ownerIDs, func(i, j int) bool { return ownerIDs[i] < ownerIDs[j] })
 	for _, telegramID := range ownerIDs {
-		recipient := "owner:" + strconv.FormatInt(telegramID, 10)
+		ownerEventKey := eventKey + ":owner:" + strconv.FormatInt(telegramID, 10)
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO notification_jobs (reservation_id, recipient_kind, template, event_key)
-			VALUES ($1,$2,$3,$4)
+			VALUES ($1,'admin',$2,$3)
 			ON CONFLICT (event_key, recipient_kind) DO NOTHING
-		`, reservationID, recipient, template, eventKey); err != nil {
+		`, reservationID, template, ownerEventKey); err != nil {
 			return err
 		}
 	}

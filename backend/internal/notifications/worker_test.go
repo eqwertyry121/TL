@@ -320,15 +320,18 @@ func TestStaffTargetSkipsAdminForOperationalNotifications(t *testing.T) {
 
 func TestOwnerReservationTargetAllowsOnlyConfiguredOwners(t *testing.T) {
 	worker := &Worker{ownerTelegramIDs: []int64{1048084234, 8241921060}}
-	got, err := worker.ownerReservationTarget("owner:8241921060")
+	got, err := worker.ownerReservationTarget("reservation:123:created:owner:8241921060")
 	if err != nil || got != 8241921060 {
 		t.Fatalf("owner reservation target = (%d, %v)", got, err)
 	}
-	if _, err := worker.ownerReservationTarget("owner:7000000000"); !errors.Is(err, errOperationalStaffUnavailable) {
+	if _, err := worker.ownerReservationTarget("reservation:123:created:owner:7000000000"); !errors.Is(err, errOperationalStaffUnavailable) {
 		t.Fatalf("unconfigured owner error = %v, want %v", err, errOperationalStaffUnavailable)
 	}
-	if _, err := worker.ownerReservationTarget("owner:not-a-number"); err == nil {
+	if _, err := worker.ownerReservationTarget("reservation:123:created:owner:not-a-number"); err == nil {
 		t.Fatal("invalid owner recipient was accepted")
+	}
+	if _, err := worker.ownerReservationTarget("reservation:123:created"); !errors.Is(err, errLegacyOwnerTarget) {
+		t.Fatalf("legacy owner target error = %v, want %v", err, errLegacyOwnerTarget)
 	}
 }
 

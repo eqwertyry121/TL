@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -721,11 +723,7 @@ func TestReservationsUseSharedCapacityAndOneActiveBookingPerClient(t *testing.T)
 	if err != nil {
 		t.Fatalf("create first reservation: %v", err)
 	}
-	assertReservationNotificationJobs(t, ctx, pool, first.ID, map[string]string{
-		"client":           "reservation_confirmed",
-		"owner:1048084234": "reservation_created",
-		"owner:8241921060": "reservation_created",
-	})
+	assertReservationOwnerJobs(t, ctx, pool, first.ID, "reservation_created", fmt.Sprintf("reservation:%s:created", first.ID))
 	replayed, err := st.CreateReservation(ctx, firstClient, store.CreateReservationInput{
 		Date: date, StartHour: 18, Guests: 2, Locale: "ru",
 	}, "reservation-first", now)
@@ -777,11 +775,7 @@ func TestReservationsUseSharedCapacityAndOneActiveBookingPerClient(t *testing.T)
 	if err != nil || cancelled.Status != core.ReservationCancelled {
 		t.Fatalf("cancel own reservation = (%s, %v)", cancelled.Status, err)
 	}
-	assertReservationNotificationJobs(t, ctx, pool, first.ID, map[string]string{
-		"client":           "reservation_confirmed",
-		"owner:1048084234": "reservation_cancelled_by_client",
-		"owner:8241921060": "reservation_cancelled_by_client",
-	})
+	assertReservationOwnerJobs(t, ctx, pool, first.ID, "reservation_cancelled_by_client", fmt.Sprintf("reservation:%s:cancelled:CLIENT", first.ID))
 	if _, err := st.CreateReservation(ctx, thirdClient, store.CreateReservationInput{
 		Date: date, StartHour: 18, Guests: 2, Locale: "en",
 	}, "reservation-after-cancel", now); err != nil {
@@ -1815,46 +1809,35 @@ func assertNotificationJobs(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	}
 }
 
-func assertReservationNotificationJobs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, reservationID uuid.UUID, expected map[string]string) {
+func assertReservationOwnerJobs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, reservationID uuid.UUID, template, eventKey string) {
 	t.Helper()
 	rows, err := pool.Query(ctx, `
-		SELECT recipient_kind, template
+		SELECT event_key
 		FROM notification_jobs
-		WHERE reservation_id=$1 AND status='pending'
-		ORDER BY recipient_kind, created_at
-	`, reservationID)
+		WHERE reservation_id=$1 AND recipient_kind='admin' AND template=$2 AND status='pending'
+		ORDER BY event_key
+	`, reservationID, template)
 	if err != nil {
-		t.Fatalf("query reservation notification jobs: %v", err)
+		t.Fatalf("query reservation owner jobs: %v", err)
 	}
 	defer rows.Close()
-	got := map[string][]string{}
+	got := []string{}
 	for rows.Next() {
-		var recipient, template string
-		if err := rows.Scan(&recipient, &template); err != nil {
-			t.Fatalf("scan reservation notification job: %v", err)
+		var current string
+		if err := rows.Scan(&current); err != nil {
+			t.Fatalf("scan reservation owner job: %v", err)
 		}
-		got[recipient] = append(got[recipient], template)
+		got = append(got, current)
 	}
 	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate reservation notification jobs: %v", err)
+		t.Fatalf("iterate reservation owner jobs: %v", err)
 	}
-	for recipient, template := range expected {
-		templates := got[recipient]
-		found := false
-		for _, candidate := range templates {
-			if candidate == template {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("reservation notification %s/%s missing; all=%v", recipient, template, got)
-		}
+	want := []string{
+		eventKey + ":owner:1048084234",
+		eventKey + ":owner:8241921060",
 	}
-	for recipient := range got {
-		if _, ok := expected[recipient]; !ok {
-			t.Fatalf("unexpected reservation notification recipient %s; all=%v", recipient, got)
-		}
+	if !slices.Equal(got, want) {
+		t.Fatalf("reservation owner jobs = %v, want %v", got, want)
 	}
 }
 
