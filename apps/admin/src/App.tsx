@@ -235,6 +235,7 @@ export function App() {
       sections.push(["orders", api.orders(authToken, normalizeOrderLoadFilter(ordersFilter))]);
     } else if (targetTab === "schedule") {
       sections.push(["schedule", api.schedule(authToken)]);
+      sections.push(["settings", api.settings(authToken)]);
     } else if (targetTab === "settings") {
       sections.push(["settings", api.settings(authToken)]);
     } else if (targetTab === "analytics") {
@@ -363,6 +364,24 @@ export function App() {
     }
   }
 
+  async function saveSchedule(next: ScheduleDay[]): Promise<ScheduleDay[]> {
+    setError("");
+    try {
+      const response = await withAuth((authToken) => api.updateSchedule(authToken, next));
+      setSchedule(response.schedule);
+      try {
+        setDashboard(await withAuth((authToken) => api.dashboard(authToken)));
+      } catch {
+        // The schedule is already saved; a secondary status refresh must not hide that success.
+      }
+      showToast("График сохранён");
+      return response.schedule;
+    } catch (err) {
+      setError(errorText(err));
+      throw err;
+    }
+  }
+
   async function loadOrders(filter: OrderLoadFilter, signal?: AbortSignal) {
     setError("");
     const normalizedFilter = normalizeOrderLoadFilter(filter, ordersPage);
@@ -444,7 +463,14 @@ export function App() {
     if (tab === "orders") return <OrdersTab orders={orders} page={ordersPage} initialView={ordersInitialView} onLoad={loadOrders} onLoadOrder={loadOrderDetail} onAction={run} />;
     if (tab === "menu") return <MenuTab menu={menu} onAction={run} />;
     if (tab === "schedule") {
-      return schedule.length ? <ScheduleTab schedule={schedule} onSave={(next) => run((authToken) => api.updateSchedule(authToken, next)).then(() => undefined)} /> : <SectionSkeleton title="График" />;
+      return schedule.length && dashboard && settings ? (
+        <ScheduleTab
+          schedule={schedule}
+          runtime={dashboard.runtime}
+          manualDayOff={settings.manual_day_off}
+          onSave={saveSchedule}
+        />
+      ) : <SectionSkeleton title="График" />;
     }
     if (tab === "analytics") {
       return analytics ? <AnalyticsTab analytics={analytics} range={range} onRange={(next) => { setRange(next); void load(token, next); }} onExport={() => void exportAnalyticsCSV(range)} /> : <SectionSkeleton title="Аналитика" />;
@@ -1580,30 +1606,61 @@ function OrderContactDialog({ dialog, onClose }: { dialog: Extract<OrderDialogSt
   );
 }
 
-function ScheduleTab({ schedule, onSave }: { schedule: ScheduleDay[]; onSave(schedule: ScheduleDay[]): Promise<void> }) {
+function ScheduleTab({
+  schedule,
+  runtime,
+  manualDayOff,
+  onSave,
+}: {
+  schedule: ScheduleDay[];
+  runtime: AdminDashboard["runtime"];
+  manualDayOff: boolean;
+  onSave(schedule: ScheduleDay[]): Promise<ScheduleDay[]>;
+}) {
   const [draft, setDraft] = useState(schedule);
   const [saving, setSaving] = useState(false);
-  useEffect(() => setDraft(schedule), [schedule]);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    setDraft(schedule);
+    setSaved(false);
+  }, [schedule]);
+
+  const today = belgradeWeekday(runtime.server_time);
+  const scheduleOpen = isScheduleOpenNow(draft, runtime.server_time);
+  const validationError = scheduleValidationError(draft);
+  const dirty = scheduleFingerprint(draft) !== scheduleFingerprint(schedule);
 
   function patchDay(index: number, patch: Partial<ScheduleDay>) {
-    setDraft(replace(draft, index, { ...draft[index], ...patch }));
+    setSaved(false);
+    setDraft((current) => replace(current, index, { ...current[index], ...patch }));
   }
 
   async function patchDayAndSave(index: number, patch: Partial<ScheduleDay>) {
     const next = replace(draft, index, { ...draft[index], ...patch });
+    const previous = draft;
     setDraft(next);
+    setSaved(false);
     setSaving(true);
     try {
-      await onSave(next);
+      const authoritative = await onSave(next);
+      setDraft(authoritative);
+      setSaved(true);
+    } catch {
+      setDraft(previous);
     } finally {
       setSaving(false);
     }
   }
 
   async function saveDraft() {
+    if (validationError || !dirty) return;
     setSaving(true);
     try {
-      await onSave(draft);
+      const authoritative = await onSave(draft);
+      setDraft(authoritative);
+      setSaved(true);
+    } catch {
+      // The global error panel contains the server error; keep the edited draft for correction/retry.
     } finally {
       setSaving(false);
     }
@@ -1611,36 +1668,75 @@ function ScheduleTab({ schedule, onSave }: { schedule: ScheduleDay[]; onSave(sch
 
   return (
     <section className="stack">
-      <div className="panel">
-        <h2>Рабочее время</h2>
-        <p className="muted">Время Нови-Сада.</p>
+      <div className={`panel schedule-live-status ${runtime.accepting_orders ? "is-open" : "is-blocked"}`}>
+        <div className="schedule-live-copy">
+          <span className="eyebrow">Сейчас · Нови-Сад</span>
+          <h2>{runtime.accepting_orders ? "Заказы принимаются" : "Заказы не принимаются"}</h2>
+          <p>{scheduleRuntimeExplanation(runtime.reason, manualDayOff, scheduleOpen)}</p>
+        </div>
+        <div className="schedule-live-facts">
+          <span>По графику</span>
+          <strong>{scheduleOpen ? "открыто" : "закрыто"}</strong>
+        </div>
       </div>
+
+      {runtime.reason === "fiscal_process_pending" && (
+        <div className="schedule-blocker" role="status">
+          <AlertTriangle size={20} />
+          <div>
+            <strong>График работает, но есть отдельная блокировка</strong>
+            <p>Сервер не разрешит реальные заказы, пока в конфигурации не подтверждён фискальный процесс. Изменение часов эту защиту не отключает.</p>
+          </div>
+        </div>
+      )}
+
+      <div className="schedule-heading">
+        <div>
+          <h2>Неделя</h2>
+          <p className="muted">Открытие — начало заказов. «Заказы до» — конец приёма. Закрытие — конец работы кухни.</p>
+        </div>
+        {dirty && <span className="unsaved-badge">Есть изменения</span>}
+      </div>
+
       <div className="schedule-grid">
         {draft.map((day, index) => (
-          <article className={day.closed ? "schedule-card is-closed" : "schedule-card"} key={day.day_of_week}>
+          <article className={`${day.closed ? "schedule-card is-closed" : "schedule-card"}${today === day.day_of_week ? " is-today" : ""}`} key={day.day_of_week}>
             <div className="schedule-card-head">
               <div>
-                <strong>{weekdayShort(day.day_of_week)}</strong>
+                <div className="schedule-day-title">
+                  <strong>{weekdayLong(day.day_of_week)}</strong>
+                  {today === day.day_of_week && <span>Сегодня</span>}
+                </div>
                 <span>{day.closed ? "Выходной" : `${day.open_time}–${day.close_time}, заказы до ${day.order_cutoff_time}`}</span>
               </div>
               <button
-                className={day.closed ? "primary" : "danger-button"}
+                className={`schedule-day-toggle${day.closed ? " is-off" : " is-on"}`}
                 disabled={saving}
+                aria-pressed={!day.closed}
                 onClick={() => void patchDayAndSave(index, { closed: !day.closed, ...(!day.closed ? {} : quickSchedule) })}
               >
-                {saving ? "Сохраняю…" : day.closed ? "Сделать рабочим" : "Выходной"}
+                {day.closed ? "Выходной" : "Рабочий"}
               </button>
             </div>
-            <div className="form-grid three">
-              <label><span>Открытие</span><input disabled={day.closed} type="time" value={day.open_time} onChange={(event) => patchDay(index, { open_time: event.target.value })} /></label>
-              <label><span>Заказы до</span><input disabled={day.closed} type="time" value={day.order_cutoff_time} onChange={(event) => patchDay(index, { order_cutoff_time: event.target.value })} /></label>
-              <label><span>Закрытие</span><input disabled={day.closed} type="time" value={day.close_time} onChange={(event) => patchDay(index, { close_time: event.target.value })} /></label>
-            </div>
-            {!day.closed && <button disabled={saving} onClick={() => void patchDayAndSave(index, quickSchedule)}>{saving ? "Сохраняю…" : "Поставить 13:00 / 21:00 / 22:00"}</button>}
+            {!day.closed && (
+              <div className="schedule-time-row">
+                <label><span>Открытие</span><input type="time" value={day.open_time} onChange={(event) => patchDay(index, { open_time: event.target.value })} /></label>
+                <label><span>Заказы до</span><input type="time" value={day.order_cutoff_time} onChange={(event) => patchDay(index, { order_cutoff_time: event.target.value })} /></label>
+                <label><span>Закрытие</span><input type="time" value={day.close_time} onChange={(event) => patchDay(index, { close_time: event.target.value })} /></label>
+                <button className="schedule-template" disabled={saving} onClick={() => void patchDayAndSave(index, quickSchedule)}>13–21–22</button>
+              </div>
+            )}
           </article>
         ))}
       </div>
-      <button className="primary sticky-save" disabled={saving} onClick={() => void saveDraft()}><Save size={16} /> {saving ? "Сохраняю…" : "Сохранить график"}</button>
+
+      {validationError && <div className="schedule-validation"><AlertTriangle size={18} /> {validationError}</div>}
+      <div className="schedule-savebar">
+        <span>{saved && !dirty ? "График сохранён" : dirty ? "Сохраните изменённое время" : "Все изменения сохранены"}</span>
+        <button className="primary" disabled={saving || !dirty || Boolean(validationError)} onClick={() => void saveDraft()}>
+          <Save size={16} /> {saving ? "Сохраняю…" : "Сохранить"}
+        </button>
+      </div>
     </section>
   );
 }
@@ -2003,6 +2099,72 @@ function weekdayShort(day: number): string {
   return ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"][day] || String(day);
 }
 
+function weekdayLong(day: number): string {
+  return ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"][day] || String(day);
+}
+
+function belgradeClock(serverTime: string): { weekday: number; minutes: number } {
+  const value = new Date(serverTime);
+  const safeValue = Number.isNaN(value.getTime()) ? new Date() : value;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Belgrade",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(safeValue);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value || "";
+  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(part("weekday"));
+  return { weekday: Math.max(0, weekday), minutes: Number(part("hour")) * 60 + Number(part("minute")) };
+}
+
+function belgradeWeekday(serverTime: string): number {
+  return belgradeClock(serverTime).weekday;
+}
+
+function timeMinutes(value: string): number | null {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+function isScheduleOpenNow(schedule: ScheduleDay[], serverTime: string): boolean {
+  const clock = belgradeClock(serverTime);
+  const day = schedule.find((entry) => entry.day_of_week === clock.weekday);
+  if (!day || day.closed) return false;
+  const open = timeMinutes(day.open_time);
+  const cutoff = timeMinutes(day.order_cutoff_time);
+  return open !== null && cutoff !== null && clock.minutes >= open && clock.minutes < cutoff;
+}
+
+function scheduleValidationError(schedule: ScheduleDay[]): string {
+  for (const day of schedule) {
+    const open = timeMinutes(day.open_time);
+    const cutoff = timeMinutes(day.order_cutoff_time);
+    const close = timeMinutes(day.close_time);
+    if (open === null || cutoff === null || close === null) return `${weekdayLong(day.day_of_week)}: заполните все три времени.`;
+    if (!(open < cutoff && cutoff <= close)) {
+      return `${weekdayLong(day.day_of_week)}: открытие должно быть раньше конца приёма, а конец приёма — не позже закрытия.`;
+    }
+  }
+  return "";
+}
+
+function scheduleFingerprint(schedule: ScheduleDay[]): string {
+  return JSON.stringify(schedule.map((day) => [day.day_of_week, day.closed, day.open_time, day.order_cutoff_time, day.close_time]));
+}
+
+function scheduleRuntimeExplanation(reason: string, manualDayOff: boolean, scheduleOpen: boolean): string {
+  if (reason === "fiscal_process_pending") return "Часы сохранены, но приём остановлен отдельной серверной защитой.";
+  if (manualDayOff || reason === "manual_day_off") return "Включён ручной режим «Выходной» на главной странице.";
+  if (reason === "weekly_day_off") return "Сегодня отмечено как выходной.";
+  if (reason === "schedule_closed") return scheduleOpen ? "Статус обновляется — по сохранённым часам уже можно принимать заказы." : "Сейчас ещё рано или приём заказов уже завершён.";
+  return scheduleOpen ? "Текущее время входит в период приёма заказов." : "Сейчас время вне периода приёма заказов.";
+}
+
 function replace<T>(items: T[], index: number, value: T): T[] {
   return items.map((item, current) => current === index ? value : item);
 }
@@ -2216,15 +2378,19 @@ function formatMeters(meters: number): string {
 
 function runtimeReason(reason: string): string {
   if (reason === "manual_day_off") return "Включён ручной режим ВЫХОДНОЙ.";
+  if (reason === "weekly_day_off") return "Сегодня выходной по недельному графику.";
   if (reason === "schedule_closed") return "Сейчас вне времени приёма заказов.";
   if (reason === "order_cutoff_passed") return "Приём заказов на сегодня завершён.";
+  if (reason === "fiscal_process_pending") return "Приём заблокирован: фискальный процесс ещё не подтверждён на сервере.";
   return "Работает по текущему графику.";
 }
 
 function compactRuntimeReason(reason: string): string {
   if (reason === "manual_day_off") return "Ручной выходной";
+  if (reason === "weekly_day_off") return "Выходной по графику";
   if (reason === "schedule_closed") return "По графику закрыто";
   if (reason === "order_cutoff_passed") return "Заказы на сегодня закрыты";
+  if (reason === "fiscal_process_pending") return "Нужно подтвердить фискальный процесс";
   return "Заказы до 21:00";
 }
 

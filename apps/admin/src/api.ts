@@ -253,7 +253,10 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
         response.orders = await adminOrders(options);
         break;
       case "schedule":
-        response.schedule = await get(`${baseURL}/api/v1/admin/schedule`, token);
+        [response.schedule, response.settings] = await Promise.all([
+          get(`${baseURL}/api/v1/admin/schedule`, token),
+          get(`${baseURL}/api/v1/admin/settings`, token),
+        ]);
         break;
       case "settings":
         response.settings = await get(`${baseURL}/api/v1/admin/settings`, token);
@@ -376,7 +379,8 @@ function demoApi(): AdminApi {
         const limit = options.limit || 20;
         response.orders = { orders: orders.slice(offset, offset + limit), limit, offset, has_more: orders.length > offset + limit, counts: demoOrderCounts(countBase) };
       } else if (tab === "schedule") {
-        response.schedule = { schedule: loadSettings().schedule || defaultSchedule() };
+        response.settings = loadSettings();
+        response.schedule = { schedule: response.settings.schedule || defaultSchedule() };
       } else if (tab === "analytics") {
         response.analytics = calculateAnalytics(options.range || "today");
       } else if (tab === "audit") {
