@@ -1119,16 +1119,11 @@ function menuDisplayItems(categories: AppData["categories"]) {
     itemIndex,
   })));
   return [...entries]
-    .sort((left, right) => Number(isRecommendedItem(right.item)) - Number(isRecommendedItem(left.item)) ||
-      left.categorySort - right.categorySort ||
+    .sort((left, right) => left.categorySort - right.categorySort ||
       left.item.sort_order - right.item.sort_order ||
       left.categoryIndex - right.categoryIndex ||
       left.itemIndex - right.itemIndex)
     .map(({ item }, visualIndex) => ({ item, visualIndex }));
-}
-
-function isRecommendedItem(item: MenuItem): boolean {
-  return Boolean(splitRecommendationDescription(item.description).recommendationBadge);
 }
 
 function Menu({ categories, cart, onSetLine }: { categories: AppData["categories"]; cart: CartState; onSetLine: (item: MenuItem, quantity: number) => void }) {
