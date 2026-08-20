@@ -13,7 +13,6 @@ const optimizationEnvKeys = [
   "FISCAL_PROCESS_ACCEPTED",
 ];
 
-const releaseSHAExpression = "${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}";
 
 const publicLegalEnvKeys = [
   "VITE_LEGAL_BUSINESS_NAME",
@@ -148,7 +147,11 @@ test("frontend deploy and performance CI run root optimization gates", () => {
   assertWorkflowStepRuns(pagesWorkflow, "Optimization contract checks", "pnpm check");
   assertWorkflowStepRuns(pagesWorkflow, "API deployment diagnostics", "pnpm perf:deployment-diagnostics");
   assertWorkflowStepEnv(pagesWorkflow, "API deployment diagnostics", "PERF_BASE_URL", "https://api.takolako.site");
-  assertWorkflowStepEnv(pagesWorkflow, "API deployment diagnostics", "PERF_EXPECTED_BUILD_SHA", releaseSHAExpression);
+  assert.doesNotMatch(
+    sliceWorkflowStep(pagesWorkflow, "API deployment diagnostics"),
+    /PERF_EXPECTED_BUILD_SHA/,
+    "frontend deploy must allow a compatible API release with a different build sha",
+  );
   assertWorkflowStepBefore(pagesWorkflow, "API deployment diagnostics", "Build client Mini App");
   for (const [stepName, command] of [
     ["OpenAPI generated contract tests", "pnpm openapi:check"],

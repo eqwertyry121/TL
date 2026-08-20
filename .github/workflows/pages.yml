@@ -52,7 +52,6 @@ jobs:
       - name: API deployment diagnostics
         env:
           PERF_BASE_URL: https://api.takolako.site
-          PERF_EXPECTED_BUILD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
         run: pnpm perf:deployment-diagnostics
 
       - name: Build client Mini App
