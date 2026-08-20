@@ -8,7 +8,10 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 const api = createStaffApi("KITCHEN");
 const kitchenSeenOrdersKey = "tk-kitchen-seen-orders-v2";
+const notificationSoundUrl = `${import.meta.env.BASE_URL}new-order-notification.mp3`;
 let notificationAudioContext: AudioContext | null = null;
+let notificationAudioBuffer: AudioBuffer | null = null;
+let notificationAudioBufferPromise: Promise<AudioBuffer> | null = null;
 let pendingNotificationSound = false;
 let notificationSoundPlayingUntil = 0;
 type ConfirmDialogState = {
@@ -487,6 +490,7 @@ async function unlockNotificationSound() {
   if (!ctx) return;
 
   try {
+    void loadNotificationAudioBuffer(ctx).catch(() => undefined);
     if (ctx.state === "suspended") await ctx.resume();
     if (ctx.state !== "running") return;
     playSilentUnlockTone(ctx);
@@ -506,7 +510,7 @@ function playBeep() {
   if (ctx.state === "suspended") {
     void ctx.resume().then(() => {
       if (ctx.state === "running") {
-        playBeepNow(ctx);
+        void playNotificationSound(ctx);
       } else {
         pendingNotificationSound = true;
       }
@@ -521,7 +525,7 @@ function playBeep() {
     return;
   }
 
-  playBeepNow(ctx);
+  void playNotificationSound(ctx);
 }
 
 function getNotificationAudioContext() {
@@ -545,58 +549,51 @@ function playSilentUnlockTone(ctx: AudioContext) {
   osc.stop(now + 0.03);
 }
 
-function playBeepNow(ctx: AudioContext) {
+async function loadNotificationAudioBuffer(ctx: AudioContext): Promise<AudioBuffer> {
+  if (notificationAudioBuffer) return notificationAudioBuffer;
+  if (notificationAudioBufferPromise) return notificationAudioBufferPromise;
+
+  notificationAudioBufferPromise = fetch(notificationSoundUrl, { cache: "force-cache" })
+    .then((response) => {
+      if (!response.ok) throw new Error(`Notification sound unavailable: ${response.status}`);
+      return response.arrayBuffer();
+    })
+    .then((data) => ctx.decodeAudioData(data))
+    .then((buffer) => {
+      notificationAudioBuffer = buffer;
+      return buffer;
+    })
+    .catch((error) => {
+      notificationAudioBufferPromise = null;
+      throw error;
+    });
+
+  return notificationAudioBufferPromise;
+}
+
+async function playNotificationSound(ctx: AudioContext) {
+  let buffer: AudioBuffer;
+  try {
+    buffer = await loadNotificationAudioBuffer(ctx);
+  } catch {
+    pendingNotificationSound = true;
+    return;
+  }
+
   const now = ctx.currentTime;
   if (now < notificationSoundPlayingUntil) return;
 
-  const soundDuration = 2.9;
-  notificationSoundPlayingUntil = now + soundDuration;
+  const repeatGap = 0.16;
+  const repeatCount = 3;
+  const totalDuration = buffer.duration * repeatCount + repeatGap * (repeatCount - 1);
+  notificationSoundPlayingUntil = now + totalDuration;
+  pendingNotificationSound = false;
 
-  const compressor = ctx.createDynamicsCompressor();
-  compressor.threshold.setValueAtTime(-18, now);
-  compressor.knee.setValueAtTime(16, now);
-  compressor.ratio.setValueAtTime(5, now);
-  compressor.attack.setValueAtTime(0.004, now);
-  compressor.release.setValueAtTime(0.22, now);
-
-  const master = ctx.createGain();
-  master.gain.setValueAtTime(0.0001, now);
-  master.gain.exponentialRampToValueAtTime(0.92, now + 0.025);
-  master.gain.setValueAtTime(0.92, now + soundDuration - 0.35);
-  master.gain.exponentialRampToValueAtTime(0.0001, now + soundDuration);
-  master.connect(compressor);
-  compressor.connect(ctx.destination);
-
-  scheduleNotificationTone(ctx, master, now, 1046.5, 0.68, 0.72);
-  scheduleNotificationTone(ctx, master, now + 0.17, 783.99, 1.18, 0.88);
-  scheduleNotificationTone(ctx, master, now + 1.32, 1046.5, 0.58, 0.38);
-  scheduleNotificationTone(ctx, master, now + 1.49, 783.99, 1.18, 0.48);
-
-  window.setTimeout(() => {
-    master.disconnect();
-    compressor.disconnect();
-  }, Math.ceil((soundDuration + 0.2) * 1000));
-}
-
-function scheduleNotificationTone(ctx: AudioContext, output: AudioNode, start: number, frequency: number, duration: number, level: number) {
-  const partials = [
-    [frequency, 1, 1],
-    [frequency * 2, 0.11, 0.54],
-  ] as const;
-
-  partials.forEach(([partialFrequency, strength, decay]) => {
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const partialEnd = start + duration * decay;
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(partialFrequency, start);
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(level * strength, start + 0.012);
-    gain.gain.exponentialRampToValueAtTime(level * strength * 0.36, start + Math.min(0.16, duration * 0.36));
-    gain.gain.exponentialRampToValueAtTime(0.0001, partialEnd);
-    oscillator.connect(gain);
-    gain.connect(output);
-    oscillator.start(start);
-    oscillator.stop(partialEnd + 0.03);
-  });
+  for (let repeat = 0; repeat < repeatCount; repeat += 1) {
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.addEventListener("ended", () => source.disconnect(), { once: true });
+    source.start(now + repeat * (buffer.duration + repeatGap));
+  }
 }
