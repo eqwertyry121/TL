@@ -10,6 +10,7 @@ const api = createStaffApi("KITCHEN");
 const kitchenSeenOrdersKey = "tk-kitchen-seen-orders-v2";
 let notificationAudioContext: AudioContext | null = null;
 let pendingNotificationSound = false;
+let notificationSoundPlayingUntil = 0;
 type ConfirmDialogState = {
   title: string;
   message: string;
@@ -546,25 +547,75 @@ function playSilentUnlockTone(ctx: AudioContext) {
 
 function playBeepNow(ctx: AudioContext) {
   const now = ctx.currentTime;
-  const master = ctx.createGain();
-  master.gain.setValueAtTime(0.8, now);
-  master.connect(ctx.destination);
+  if (now < notificationSoundPlayingUntil) return;
 
-  [0, 0.22, 0.44, 0.82, 1.04, 1.26].forEach((offset, index) => {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const start = now + offset;
-    const end = start + 0.18;
-    osc.type = "square";
-    osc.frequency.setValueAtTime(index % 2 === 0 ? 880 : 1175, start);
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(1, start + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, end);
-    osc.connect(gain);
-    gain.connect(master);
-    osc.start(start);
-    osc.stop(end + 0.02);
+  const soundDuration = 3.65;
+  notificationSoundPlayingUntil = now + soundDuration;
+
+  const compressor = ctx.createDynamicsCompressor();
+  compressor.threshold.setValueAtTime(-18, now);
+  compressor.knee.setValueAtTime(16, now);
+  compressor.ratio.setValueAtTime(5, now);
+  compressor.attack.setValueAtTime(0.004, now);
+  compressor.release.setValueAtTime(0.22, now);
+
+  const master = ctx.createGain();
+  master.gain.setValueAtTime(0.0001, now);
+  master.gain.exponentialRampToValueAtTime(0.92, now + 0.025);
+  master.gain.setValueAtTime(0.92, now + soundDuration - 0.35);
+  master.gain.exponentialRampToValueAtTime(0.0001, now + soundDuration);
+  master.connect(compressor);
+  compressor.connect(ctx.destination);
+
+  const motif = [
+    [0, 659.25, 0.58],
+    [0.31, 783.99, 0.58],
+    [0.62, 987.77, 0.72],
+    [1.35, 659.25, 0.58],
+    [1.66, 783.99, 0.58],
+    [1.97, 987.77, 0.78],
+  ] as const;
+  motif.forEach(([offset, frequency, duration]) => scheduleChimeVoice(ctx, master, now + offset, frequency, duration, 0.7));
+
+  [659.25, 783.99, 987.77].forEach((frequency, index) => {
+    scheduleChimeVoice(ctx, master, now + 2.72, frequency, 0.9, index === 0 ? 0.55 : 0.38);
   });
 
-  window.setTimeout(() => master.disconnect(), 1800);
+  window.setTimeout(() => {
+    master.disconnect();
+    compressor.disconnect();
+  }, Math.ceil((soundDuration + 0.2) * 1000));
+}
+
+function scheduleChimeVoice(ctx: AudioContext, output: AudioNode, start: number, frequency: number, duration: number, level: number) {
+  const end = start + duration;
+  const body = ctx.createOscillator();
+  const shimmer = ctx.createOscillator();
+  const bodyGain = ctx.createGain();
+  const shimmerGain = ctx.createGain();
+
+  body.type = "triangle";
+  body.frequency.setValueAtTime(frequency, start);
+  shimmer.type = "sine";
+  shimmer.frequency.setValueAtTime(frequency * 2, start);
+
+  applyChimeEnvelope(bodyGain.gain, start, end, level);
+  applyChimeEnvelope(shimmerGain.gain, start, end, level * 0.16);
+
+  body.connect(bodyGain);
+  shimmer.connect(shimmerGain);
+  bodyGain.connect(output);
+  shimmerGain.connect(output);
+  body.start(start);
+  shimmer.start(start);
+  body.stop(end + 0.03);
+  shimmer.stop(end + 0.03);
+}
+
+function applyChimeEnvelope(gain: AudioParam, start: number, end: number, level: number) {
+  gain.setValueAtTime(0.0001, start);
+  gain.exponentialRampToValueAtTime(level, start + 0.018);
+  gain.exponentialRampToValueAtTime(level * 0.42, start + Math.min(0.16, (end - start) * 0.35));
+  gain.setValueAtTime(level * 0.42, Math.max(start + 0.17, end - 0.22));
+  gain.exponentialRampToValueAtTime(0.0001, end);
 }
