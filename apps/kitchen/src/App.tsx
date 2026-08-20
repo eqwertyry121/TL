@@ -233,7 +233,7 @@ export function App() {
           <div className="window-list">
             {!!sortedPickupReadyOrders.length && <OrderGroup title="ГОТОВЫ К ВЫДАЧЕ" count={sortedPickupReadyOrders.length} tone="ready">{sortedPickupReadyOrders.map((order) => <KitchenOrderCard key={order.id} order={order} seenIds={seenIds} busy={busy} onSeen={markSeen} onPrimary={markPickupCollected} />)}</OrderGroup>}
             {!!pickupDueOrders.length && <OrderGroup title="ГОТОВИТЬ СЕЙЧАС" count={pickupDueOrders.length} tone="urgent">{pickupDueOrders.map((order) => <KitchenOrderCard key={order.id} order={order} seenIds={seenIds} busy={busy} onSeen={markSeen} onPrimary={markReady} />)}</OrderGroup>}
-            {!!pickupLaterOrders.length && <OrderGroup title="ПОЗЖЕ СЕГОДНЯ" count={pickupLaterOrders.length}>{pickupLaterOrders.map((order) => <FuturePickupRow key={order.id} order={order} />)}</OrderGroup>}
+            {!!pickupLaterOrders.length && <OrderGroup title="ПОЗЖЕ СЕГОДНЯ" count={pickupLaterOrders.length}>{pickupLaterOrders.map((order) => <KitchenOrderCard key={order.id} order={order} seenIds={seenIds} busy={busy} onSeen={markSeen} onPrimary={markReady} />)}</OrderGroup>}
             {!sortedPickupOrders.length && !sortedPickupReadyOrders.length && <div className="empty">Пока заказов нет</div>}
           </div>
         </section>
@@ -245,10 +245,6 @@ export function App() {
 
 function OrderGroup({ title, count, tone = "", children }: { title: string; count: number; tone?: string; children: ReactNode }) {
   return <section className={`order-group ${tone}`}><h2>{title} <b>{count}</b></h2>{children}</section>;
-}
-
-function FuturePickupRow({ order }: { order: Order }) {
-  return <article className="future-pickup"><time>{timeHHMM(order.pickup_at || order.created_at)}</time><div><strong>#{order.public_number} · {clientLabel(order)}</strong><span>{order.items.map((item) => `${item.quantity}× ${item.snapshot_title}`).join(" · ")}</span></div></article>;
 }
 
 function ConfirmDialog({ dialog, onClose }: { dialog: ConfirmDialogState; onClose(confirmed: boolean): void }) {

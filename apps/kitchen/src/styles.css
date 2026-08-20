@@ -302,10 +302,6 @@ h1 {
 .order-group h2 b { display:grid; place-items:center; min-width:1.75rem; height:1.75rem; border-radius:999px; background:rgba(107,31,42,.08); color:var(--color-primary); }
 .order-group.ready h2 { color:var(--color-secondary); }
 .order-group.urgent h2 { color:var(--color-accent); }
-.future-pickup { display:grid; grid-template-columns:4.2rem minmax(0,1fr); gap:.7rem; align-items:center; padding:.8rem; border:1px solid var(--line); border-radius:var(--radius-sm); background:rgba(255,253,248,.84); }
-.future-pickup time { color:var(--color-primary); font-size:1.25rem; font-weight:950; }
-.future-pickup div { min-width:0; display:grid; gap:.18rem; }
-.future-pickup span { overflow:hidden; color:var(--muted); font-size:.84rem; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
 .order-row.pickup-soon { border-left-color:var(--color-gold); }
 .order-row.pickup-now { border-left-color:var(--color-accent); box-shadow:0 .8rem 1.8rem rgba(185,85,50,.14); }
 .order-row.pickup-ready { border-left-color:var(--color-secondary); }
