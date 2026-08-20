@@ -20,8 +20,8 @@ const mediaMenuEndpoint = process.env.PERF_MEDIA_MENU_ENDPOINT || "/api/v1/menu?
 const checkoutIterations = Number.parseInt(process.env.PERF_CHECKOUT_ITERATIONS || "0", 10);
 const checkoutConcurrency = Number.parseInt(process.env.PERF_CHECKOUT_CONCURRENCY || "1", 10);
 const checkoutMaxP95Ms = Number.parseInt(process.env.PERF_CHECKOUT_MAX_P95_MS || String(maxP95Ms), 10);
-const checkoutItemID = process.env.PERF_CHECKOUT_ITEM_ID || "22222222-2222-2222-2222-222222222001";
-const checkoutQuantity = Number.parseInt(process.env.PERF_CHECKOUT_QUANTITY || "5", 10);
+const checkoutItemID = process.env.PERF_CHECKOUT_ITEM_ID || "44444444-4444-4444-4444-444444444001";
+const checkoutQuantity = Number.parseInt(process.env.PERF_CHECKOUT_QUANTITY || "1", 10);
 const checkoutTelegramUserID = Number.parseInt(process.env.PERF_CHECKOUT_TELEGRAM_USER_ID || "9000000001", 10);
 
 function percentile(values, p) {
