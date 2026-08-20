@@ -2607,7 +2607,7 @@ button:hover {
   border: 1px solid var(--line);
   border-radius: 1rem;
   color: var(--text);
-  background: rgba(255, 253, 248, 0.94);
+  background: var(--panel);
   box-shadow: 0 0.28rem 0.8rem rgba(67, 20, 27, 0.05);
   cursor: pointer;
   list-style: none;
@@ -2663,7 +2663,7 @@ button:hover {
   padding: 0.38rem;
   border: 1px solid var(--line);
   border-radius: 1rem;
-  background: var(--surface);
+  background: var(--panel);
   box-shadow: 0 1rem 2.6rem rgba(38, 26, 23, 0.2);
 }
 
@@ -2678,12 +2678,12 @@ button:hover {
   border: 0;
   border-radius: 0.75rem;
   color: var(--text);
-  background: transparent;
+  background: var(--panel);
   text-align: left;
 }
 
 .reservation-day-option > span:first-child { display: grid; gap: 0.08rem; }
-.reservation-day-option.is-active { background: rgba(107, 31, 42, 0.09); }
+.reservation-day-option.is-active { background: var(--panel-soft); }
 .reservation-day-option.is-active strong { color: var(--accent); }
 
 .reservation-option-count {
