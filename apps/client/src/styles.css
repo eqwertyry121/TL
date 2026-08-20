@@ -366,6 +366,26 @@ h2 {
 	font-weight: 750;
 }
 
+.client-more-menu .developer-menu-link {
+	display: grid;
+	gap: 0.16rem;
+	border-top: 1px solid var(--color-border);
+	margin-top: 0.2rem;
+	padding-top: 0.8rem;
+}
+
+.developer-menu-link strong {
+	font-size: 0.9rem;
+	line-height: 1.15;
+}
+
+.developer-menu-link small {
+	color: var(--color-text-secondary);
+	font-size: 0.7rem;
+	font-weight: 650;
+	line-height: 1.25;
+}
+
 .booking-page {
 	padding-bottom: 7rem;
 }

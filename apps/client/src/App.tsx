@@ -58,6 +58,8 @@ import type { Api, AppData, Calculation, CashLocationChallenge, CartLine, CartSt
 
 const api = createApi();
 const clientBotMiniAppURL = "https://t.me/TakoLako_main_bot?startapp";
+const developerTelegramURL = "https://t.me/eqwertyry";
+const recommendedMenuItemIDs = new Set(["44444444-4444-4444-4444-444444444013"]);
 const Terms = lazy(() => import("./legal").then((module) => ({ default: module.Terms })));
 const Returns = lazy(() => import("./legal").then((module) => ({ default: module.Returns })));
 const Privacy = lazy(() => import("./legal").then((module) => ({ default: module.Privacy })));
@@ -775,6 +777,7 @@ function ClientMiniApp() {
     ) : route.name === "add" ? (
       <AddToOrder
         order={fullOrderFromCache(data.orders, route.id)}
+        locale={locale}
         categories={data.categories}
         lines={availableAdditionLines}
         cart={additionCart}
@@ -843,7 +846,7 @@ function ClientMiniApp() {
 				onCancel={cancelCurrentReservation}
 			/>
     ) : (
-      <Menu categories={data.categories} cart={cart} onSetLine={setLine} />
+      <Menu categories={data.categories} cart={cart} locale={locale} onSetLine={setLine} />
     );
 
   return (
@@ -1053,6 +1056,19 @@ function Shell({
 				<div className="client-more-menu" role="menu" onClick={(event) => event.stopPropagation()}>
 					<a role="menuitem" href="#/support" onClick={() => setMoreOpen(false)}>{t(locale, "support")}</a>
 					<a role="menuitem" href="#/terms" onClick={() => setMoreOpen(false)}>{locale === "ru" ? "Условия" : locale === "sr" ? "Uslovi" : "Terms"}</a>
+					<a
+						className="developer-menu-link"
+						href={developerTelegramURL}
+						role="menuitem"
+						onClick={(event) => {
+							event.preventDefault();
+							setMoreOpen(false);
+							openTelegramLink(developerTelegramURL);
+						}}
+					>
+						<strong>{locale === "ru" ? "Нашли баг?" : locale === "sr" ? "Pronašli ste grešku?" : "Found a bug?"}</strong>
+						<small>{locale === "ru" ? "Связаться с разработчиком" : locale === "sr" ? "Kontaktirajte developera" : "Contact the developer"}</small>
+					</a>
 				</div>
 			</div>,
 			document.body,
@@ -1126,7 +1142,7 @@ function menuDisplayItems(categories: AppData["categories"]) {
     .map(({ item }, visualIndex) => ({ item, visualIndex }));
 }
 
-function Menu({ categories, cart, onSetLine }: { categories: AppData["categories"]; cart: CartState; onSetLine: (item: MenuItem, quantity: number) => void }) {
+function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
   const flatItems = menuDisplayItems(categories);
   return (
     <div className="page">
@@ -1138,7 +1154,7 @@ function Menu({ categories, cart, onSetLine }: { categories: AppData["categories
             const { description } = splitRecommendationDescription(item.description);
             return (
               <article className={qty > 0 ? "dish-card in-cart" : "dish-card"} key={item.id}>
-                <DishVisual item={item} visualIndex={visualIndex} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
+                <DishVisual item={item} visualIndex={visualIndex} locale={locale} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
                 <div className="dish-body">
                   <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
                     {item.title}
@@ -1169,6 +1185,7 @@ function Menu({ categories, cart, onSetLine }: { categories: AppData["categories
 
 function AddToOrder({
   order,
+  locale,
   categories,
   lines,
   cart,
@@ -1180,6 +1197,7 @@ function AddToOrder({
   onSubmit,
 }: {
   order?: Order;
+  locale: Locale;
   categories: AppData["categories"];
   lines: CartLine[];
   cart: CartState;
@@ -1221,7 +1239,7 @@ function AddToOrder({
             const { description } = splitRecommendationDescription(item.description);
             return (
               <article className={qty > 0 ? "dish-card in-cart" : "dish-card"} key={item.id}>
-                <DishVisual item={item} visualIndex={visualIndex} />
+                <DishVisual item={item} visualIndex={visualIndex} locale={locale} />
                 <div className="dish-body">
                   <strong className="plain-title">{item.title}</strong>
                   <p>{description}</p>
@@ -1264,7 +1282,7 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
   const { description } = splitRecommendationDescription(item.description);
   return (
     <div className="page narrow dish-page">
-      <DishVisual item={item} visualIndex={2} hero />
+      <DishVisual item={item} visualIndex={2} locale={locale} hero />
       <span className="eyebrow">Tako Lako special</span>
       <h1>{item.title}</h1>
       <p className="lead">{description}</p>
@@ -1290,12 +1308,14 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
 function DishVisual({
   item,
   visualIndex,
+  locale,
   hero = false,
   asButton = false,
   onClick,
 }: {
   item: MenuItem;
   visualIndex: number;
+  locale: Locale;
   hero?: boolean;
   asButton?: boolean;
   onClick?: () => void;
@@ -1303,7 +1323,8 @@ function DishVisual({
   const src = menuPhotoURL(item.photo_path);
   const srcSet = menuPhotoSrcSet(item);
   const dimensions = menuPhotoDimensions(item, hero);
-  const { recommendationBadge } = splitRecommendationDescription(item.description);
+  const embeddedBadge = splitRecommendationDescription(item.description).recommendationBadge;
+  const recommendationBadge = embeddedBadge || recommendationBadgeForItem(item, locale);
   const className = `${hero ? "hero-art" : "dish-art"} art-${visualIndex % 6}${src ? " has-photo" : ""}`;
   const content = (
     <>
@@ -2388,6 +2409,11 @@ function splitRecommendationDescription(description: string): { description: str
     }
   }
   return { description: text };
+}
+
+function recommendationBadgeForItem(item: MenuItem, locale: Locale): string | undefined {
+  if (!recommendedMenuItemIDs.has(item.id)) return undefined;
+  return locale === "ru" ? "Рекомендация от разработчика" : locale === "sr" ? "Preporuka developera" : "Recommendation";
 }
 
 function isDayOffRuntime(runtime?: AppData["runtime"]): boolean {
