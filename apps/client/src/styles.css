@@ -1507,8 +1507,8 @@ textarea {
   border: 0;
   border-radius: 999px;
   padding: 0.9rem 1.2rem;
-  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-  color: var(--on-primary);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  color: var(--color-on-primary);
   font-weight: 900;
   text-decoration: none;
   box-shadow: 0 0.9rem 1.8rem rgba(67, 20, 27, 0.16);
@@ -1655,13 +1655,17 @@ textarea {
 .pickup-checkout { display:grid; gap:.85rem; padding:.9rem; border:1px solid #e3d6c7; border-radius:var(--radius-md); background:rgba(255,253,248,.92); }
 .pickup-place { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:.7rem; }
 .pickup-place p,.pickup-time-picker p { margin:.2rem 0 0; color:var(--muted); }
-.pickup-place a { color:var(--primary); font-weight:900; }
+.pickup-place a { color:var(--color-primary); font-weight:900; }
 .pickup-time-picker { display:grid; gap:.6rem; }
 .pickup-slots { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.5rem; }
-.pickup-slots button { min-height:3.35rem; display:grid; place-content:center; gap:.1rem; border:1px solid #e3d6c7; border-radius:.9rem; background:#fffdf8; color:var(--text); text-align:center; }
+.pickup-slots button { appearance:none; min-height:3.35rem; display:grid; place-content:center; gap:.1rem; border:1px solid #e3d6c7; border-radius:.9rem; background:#fffdf8; color:var(--text); text-align:center; transition:border-color 150ms ease,background-color 150ms ease,color 150ms ease,box-shadow 150ms ease,transform 120ms ease; }
 .pickup-slots button small { font-size:.67rem; color:var(--muted); }
-.pickup-slots button.active { border-color:var(--primary); background:var(--primary); color:#fff; box-shadow:0 .45rem 1rem rgba(107,31,42,.2); }
-.pickup-slots button.active small { color:rgba(255,255,255,.78); }
+.pickup-slots button.active,
+.pickup-slots button.active:hover,
+.pickup-slots button.active:focus,
+.pickup-slots button.active:active { border-color:#7c2d38; background:linear-gradient(145deg,#7b2935,#5b1923); color:#fffdf8; box-shadow:inset 0 0 0 1px rgba(255,253,248,.12),0 .42rem 1rem rgba(67,20,27,.2); transform:none; }
+.pickup-slots button.active small { color:rgba(255,253,248,.8); }
+.pickup-slots button:focus-visible { outline:2px solid rgba(185,85,50,.45); outline-offset:2px; }
 .pickup-slots-loading { padding:.8rem; border-radius:.8rem; background:#f8f1e5; color:var(--muted); }
 
 .cash-location {
@@ -1982,6 +1986,7 @@ textarea {
 
 .developer-support,
 .add-order-cta,
+.active-order-lock,
 .addition-panel,
 .addition-total {
   border: 1px solid var(--line);
@@ -2055,6 +2060,37 @@ textarea {
 
 .add-order-cta .primary {
   min-height: 2.75rem;
+}
+
+.active-order-lock {
+  display: grid;
+  gap: 0.9rem;
+  padding: clamp(1rem, 2.8vw, 1.3rem);
+  border: 1px solid rgba(107, 31, 42, 0.2);
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(200, 155, 60, 0.15), transparent 42%),
+    linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(248, 241, 229, 0.94));
+  box-shadow: 0 0.9rem 2.2rem rgba(67, 20, 27, 0.08);
+}
+
+.active-order-lock.compact {
+  margin-top: 0.1rem;
+}
+
+.active-order-lock h2 {
+  margin-top: 0.3rem;
+  font-family: var(--font-body);
+  font-size: clamp(1.15rem, 3.2vw, 1.45rem);
+  letter-spacing: -0.015em;
+}
+
+.active-order-lock p {
+  margin-top: 0.3rem;
+  color: var(--muted);
+  font-size: clamp(0.9rem, 2.3vw, 1rem);
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .add-order-page {

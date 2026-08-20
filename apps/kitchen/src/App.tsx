@@ -181,7 +181,14 @@ export function App() {
   }
 
   async function markPickupCollected(order: Order) {
-    const confirmed = await askConfirm({ title: `Заказ #${order.public_number}`, message: "Заказ выдан клиенту?", confirmLabel: "Выдано" });
+    const cash = order.payment_method === "cash" && order.payment_status !== "PAID";
+    const confirmed = await askConfirm({
+      title: `Заказ #${order.public_number}`,
+      message: cash
+        ? `Клиент забрал заказ и передал ${money(order.total_minor)} наличными?`
+        : "Клиент забрал заказ?",
+      confirmLabel: cash ? "Забран и оплачен" : "Забран",
+    });
     if (!confirmed) return;
     markSeen(order);
     setBusy(order.id);
@@ -316,7 +323,7 @@ function KitchenOrderCard({
             void onPrimary(order);
           }}
         >
-          <Check size={20} /> {pickupReady ? "ВЫДАНО" : pickup ? "ГОТОВ К САМОВЫВОЗУ" : "ЗАКАЗ ГОТОВ"}
+          <Check size={20} /> {pickupReady ? (order.payment_method === "cash" && order.payment_status !== "PAID" ? "ЗАБРАН И ОПЛАЧЕН" : "ЗАБРАН") : pickup ? "ГОТОВ К САМОВЫВОЗУ" : "ЗАКАЗ ГОТОВ"}
         </button>
       </div>
     </article>

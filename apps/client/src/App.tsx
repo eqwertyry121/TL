@@ -131,6 +131,7 @@ function ClientMiniApp() {
   const additionSubtotal = availableAdditionLines.reduce((sum, line) => sum + line.quantity * line.unitPriceMinor, 0);
   const total = subtotal;
   const checkoutOpen = Boolean(data.runtime?.accepting_orders);
+  const activeOrder = data.orders.find((order) => !isTerminalOrderStatus(order.fulfillment_status));
   const dayOffBlocked = isDayOffRuntime(data.runtime) && !isOwnerTelegramId(data.session?.telegram_user_id);
   const paymentMethods = useMemo(() => checkoutPaymentMethods(data.runtime?.enabled_payments || []), [data.runtime?.enabled_payments]);
   const cashLocationRequired = data.runtime?.cash_location_required ?? true;
@@ -306,6 +307,18 @@ function ClientMiniApp() {
       }
     }, 10000, true);
   }, [route, token, routeOrderTerminal, withAuth]);
+
+  useEffect(() => {
+    if (!token || !activeOrder || route.name === "order" || route.name === "add") return;
+    return startVisiblePolling(async (signal) => {
+      try {
+        const order = await withAuth((authToken) => api.getOrder(authToken, activeOrder.id, signal), token);
+        mergeOrder(order);
+      } catch {
+        if (signal.aborted) return;
+      }
+    }, 10000, true);
+  }, [token, activeOrder?.id, activeOrder?.version, route.name, withAuth]);
 
   useEffect(() => {
     setAdditionCalculation(null);
@@ -521,6 +534,11 @@ function ClientMiniApp() {
 
   async function submitOrder() {
     if (!token || submitting) return;
+    if (activeOrder) {
+      setError(activeOrderExistsText(locale));
+      replaceRoute({ name: "order", id: activeOrder.id });
+      return;
+    }
     const deliverySelected = fulfillmentType === "delivery";
     if (!verifiedContact?.verified || !draft.phone.trim() || (deliverySelected && (!draft.street.trim() || !draft.houseNumber.trim()))) {
       setError(deliverySelected ? checkoutCopy(locale).phoneAndAddressRequired : checkoutCopy(locale).phoneRequired);
@@ -691,9 +709,9 @@ function ClientMiniApp() {
         onSubmit={submitAddition}
       />
     ) : route.name === "cart" ? (
-      <Cart lines={cartLines} itemLookup={itemLookup} subtotal={subtotal} total={total} checkoutOpen={checkoutOpen} locale={locale} onSetLine={setLine} onRemoveLine={removeCartLine} />
+      <Cart lines={cartLines} itemLookup={itemLookup} subtotal={subtotal} total={total} checkoutOpen={checkoutOpen} activeOrder={activeOrder} locale={locale} onSetLine={setLine} onRemoveLine={removeCartLine} />
     ) : route.name === "checkout" ? (
-      <Checkout
+      activeOrder ? <ActiveOrderLock order={activeOrder} locale={locale} /> : <Checkout
         lines={availableCartLines}
         draft={draft}
         calculation={calculation}
@@ -1225,6 +1243,7 @@ function Cart({
   subtotal,
   total,
   checkoutOpen,
+  activeOrder,
   locale,
   onSetLine,
   onRemoveLine,
@@ -1234,6 +1253,7 @@ function Cart({
   subtotal: number;
   total: number;
   checkoutOpen: boolean;
+  activeOrder?: OrderSummary;
   locale: Locale;
   onSetLine: (item: MenuItem, quantity: number) => void;
   onRemoveLine: (itemId: string) => void;
@@ -1266,10 +1286,30 @@ function Cart({
         })}
       </div>
       <Totals subtotal={subtotal} total={total} locale={locale} />
-      <button className="primary full" disabled={!checkoutOpen || !hasAvailableLines} onClick={() => navigate({ name: "checkout" })}>
-        {!checkoutOpen ? t(locale, "checkoutClosed") : hasAvailableLines ? `${t(locale, "goCheckout")} · ${money(total)}` : t(locale, "noAvailableItems")}
-      </button>
+      {activeOrder ? (
+        <ActiveOrderLock order={activeOrder} locale={locale} compact />
+      ) : (
+        <button className="primary full" disabled={!checkoutOpen || !hasAvailableLines} onClick={() => navigate({ name: "checkout" })}>
+          {!checkoutOpen ? t(locale, "checkoutClosed") : hasAvailableLines ? `${t(locale, "goCheckout")} · ${money(total)}` : t(locale, "noAvailableItems")}
+        </button>
+      )}
     </div>
+  );
+}
+
+function ActiveOrderLock({ order, locale, compact = false }: { order: OrderSummary; locale: Locale; compact?: boolean }) {
+  const copy = activeOrderLockCopy(locale, order);
+  return (
+    <section className={compact ? "active-order-lock compact" : "page narrow active-order-lock"} aria-live="polite">
+      <div>
+        <span className="eyebrow">{copy.eyebrow}</span>
+        <h2>{copy.title}</h2>
+        <p>{copy.description}</p>
+      </div>
+      <button className="primary full" type="button" onClick={() => navigate({ name: "order", id: order.id })}>
+        {copy.button}
+      </button>
+    </section>
   );
 }
 
@@ -2174,6 +2214,34 @@ function profileInitials(profile: Pick<Session, "username" | "first_name">): str
   return source.slice(0, 2).toUpperCase();
 }
 
+function activeOrderExistsText(locale: Locale): string {
+  if (locale === "sr") return "Već imate aktivnu porudžbinu. Novu možete poslati kada preuzmete ili primite trenutnu.";
+  if (locale === "en") return "You already have an active order. You can place another after the current one is collected or delivered.";
+  return "У вас уже есть активный заказ. Новый можно оформить после получения текущего.";
+}
+
+function activeOrderLockCopy(locale: Locale, order: OrderSummary): { eyebrow: string; title: string; description: string; button: string } {
+  const number = `#${order.public_number}`;
+  if (locale === "sr") return {
+    eyebrow: "Aktivna porudžbina",
+    title: `Porudžbina ${number} je u toku`,
+    description: "Nova porudžbina biće dostupna kada preuzmete ili primite ovu.",
+    button: `Otvori porudžbinu ${number}`,
+  };
+  if (locale === "en") return {
+    eyebrow: "Active order",
+    title: `Order ${number} is in progress`,
+    description: "You can place another order after this one is collected or delivered.",
+    button: `Open order ${number}`,
+  };
+  return {
+    eyebrow: "Активный заказ",
+    title: `Заказ ${number} уже выполняется`,
+    description: "Новый заказ можно оформить после получения текущего.",
+    button: `Открыть заказ ${number}`,
+  };
+}
+
 function errorText(err: unknown, locale: Locale = "ru"): string {
   const code = typeof err === "object" && err && "code" in err ? String((err as { code: unknown }).code) : String((err as Error)?.message || err);
   const messages = {
@@ -2184,7 +2252,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       INVALID_QUANTITY: "Проверьте количество блюд",
       EMPTY_CART: "В корзине нет доступных блюд",
       IDEMPOTENCY_CONFLICT: "Заказ уже отправляется. Проверьте статус",
-      ACTIVE_ORDER_EXISTS: "У вас уже есть активный заказ. Новый можно оформить после доставки текущего.",
+      ACTIVE_ORDER_EXISTS: activeOrderExistsText("ru"),
       ORDER_STATUS_CONFLICT: "Заказ уже изменился. Обновите экран и проверьте статус.",
       CALCULATION_EXPIRED: "Цены или заказ изменились. Пересчитайте сумму.",
       AUTH_INVALID: "Telegram авторизация не прошла",
@@ -2206,7 +2274,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       INVALID_QUANTITY: "Proverite količinu jela",
       EMPTY_CART: "U korpi nema dostupnih jela",
       IDEMPOTENCY_CONFLICT: "Porudžbina se već šalje. Proverite status.",
-      ACTIVE_ORDER_EXISTS: "Već imate aktivnu porudžbinu. Novu možete poslati nakon završetka trenutne.",
+      ACTIVE_ORDER_EXISTS: activeOrderExistsText("sr"),
       ORDER_STATUS_CONFLICT: "Porudžbina se promenila. Osvežite ekran i proverite status.",
       CALCULATION_EXPIRED: "Cene ili porudžbina su se promenile. Ponovo izračunajte iznos.",
       AUTH_INVALID: "Telegram autorizacija nije prošla",
@@ -2228,7 +2296,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       INVALID_QUANTITY: "Check item quantities",
       EMPTY_CART: "There are no available items in the cart",
       IDEMPOTENCY_CONFLICT: "The order is already being submitted. Check the status.",
-      ACTIVE_ORDER_EXISTS: "You already have an active order. Place a new one after the current order is completed.",
+      ACTIVE_ORDER_EXISTS: activeOrderExistsText("en"),
       ORDER_STATUS_CONFLICT: "The order has changed. Refresh the screen and check the status.",
       CALCULATION_EXPIRED: "Prices or the order changed. Recalculate the total.",
       AUTH_INVALID: "Telegram authorization failed",

@@ -914,6 +914,18 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	if order.FulfillmentType != core.FulfillmentPickup || order.PickupAt == nil || order.PickupCookAt == nil || order.PickupAddress == "" {
 		t.Fatalf("pickup order snapshot mismatch: %+v", order)
 	}
+	if _, err := st.CreateCashOrder(ctx, clientSession, store.CreateOrderInput{
+		CalculationToken:        calc.Token,
+		CashLocationChallengeID: challenge.ID.String(),
+		Phone:                   phone,
+		FulfillmentType:         core.FulfillmentPickup,
+		PickupAt:                &slots.Slots[0].PickupAt,
+		PaymentMethod:           core.PaymentCash,
+		TermsAccepted:           true,
+		Locale:                  "ru",
+	}, "idem-second-active-pickup", "request-hash-second-active-pickup", now); !errors.Is(err, core.ErrActiveOrderExists) {
+		t.Fatalf("second active pickup order should be blocked, got %v", err)
+	}
 	if want := order.PickupAt.Add(-40 * time.Minute); !order.PickupCookAt.Equal(want) {
 		t.Fatalf("pickup cook time = %s, want %s", order.PickupCookAt, want)
 	}
@@ -966,6 +978,31 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 		"kitchen": 1,
 		"client":  2,
 	})
+
+	nextCalc, err := st.CalculateForFulfillment(ctx, clientSession, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, core.FulfillmentPickup, now)
+	if err != nil {
+		t.Fatalf("calculate pickup after collection: %v", err)
+	}
+	nextChallenge, err := st.CreateCashLocationChallenge(ctx, clientSession, store.CreateCashLocationChallengeInput{CalculationToken: nextCalc.Token}, now, true)
+	if err != nil {
+		t.Fatalf("create pickup challenge after collection: %v", err)
+	}
+	nextSlots, err := st.PickupSlots(ctx, clientSession, now)
+	if err != nil || len(nextSlots.Slots) == 0 {
+		t.Fatalf("pickup slots after collection: %+v, %v", nextSlots, err)
+	}
+	if _, err := st.CreateCashOrder(ctx, clientSession, store.CreateOrderInput{
+		CalculationToken:        nextCalc.Token,
+		CashLocationChallengeID: nextChallenge.ID.String(),
+		Phone:                   phone,
+		FulfillmentType:         core.FulfillmentPickup,
+		PickupAt:                &nextSlots.Slots[0].PickupAt,
+		PaymentMethod:           core.PaymentCash,
+		TermsAccepted:           true,
+		Locale:                  "ru",
+	}, "idem-pickup-after-collection", "request-hash-pickup-after-collection", now); err != nil {
+		t.Fatalf("pickup order should be allowed after collection: %v", err)
+	}
 }
 
 func TestOrderItemSnapshotsSurviveMenuEditAndArchive(t *testing.T) {

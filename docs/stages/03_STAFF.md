@@ -6,7 +6,7 @@
 
 Доставка: `NEW → одна кнопка Kitchen → OUT_FOR_DELIVERY → одна кнопка Courier → DELIVERED`.
 
-Самовывоз: `NEW → одна кнопка Kitchen → READY_FOR_PICKUP → ВЫДАНО → DELIVERED`.
+Самовывоз: `NEW → одна кнопка Kitchen → READY_FOR_PICKUP → ЗАБРАН И ОПЛАЧЕН → DELIVERED`.
 
 ## Критерии входа
 
@@ -83,7 +83,8 @@ Courier pickup-заказы не получает. Детали: [PICKUP_SPEC.md
 4. Success доставки: card исчезает, backend status `OUT_FOR_DELIVERY`,
    уведомления queued клиенту и курьеру.
 5. Success самовывоза: backend status `READY_FOR_PICKUP`, уведомление queued
-   только клиенту, card остаётся в `ГОТОВЫ К ВЫДАЧЕ` до кнопки `ВЫДАНО`.
+   только клиенту, card остаётся в `ГОТОВЫ К ВЫДАЧЕ` до кнопки
+   `ЗАБРАН И ОПЛАЧЕН` для наличных либо `ЗАБРАН` для уже оплаченного заказа.
 6. Conflict означает, что order уже изменён ADMIN/другим устройством; refresh.
 7. Timeout → проверить order state с тем же key, не создавать второй action.
 

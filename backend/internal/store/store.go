@@ -3699,7 +3699,9 @@ func (s *Store) MarkPickupCollected(ctx context.Context, sess core.Session, orde
 	var updatedID uuid.UUID
 	err = tx.QueryRow(ctx, `
 		UPDATE orders
-		SET fulfillment_status='DELIVERED', payment_status='PAID', delivered_at=now(), updated_at=now(), version=version+1
+		SET fulfillment_status='DELIVERED',
+			payment_status=CASE WHEN payment_method='cash' THEN 'PAID' ELSE payment_status END,
+			delivered_at=now(), updated_at=now(), version=version+1
 		WHERE id=$1
 			AND fulfillment_type='pickup'
 		AND fulfillment_status='READY_FOR_PICKUP'
