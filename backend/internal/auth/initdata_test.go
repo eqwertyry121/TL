@@ -34,6 +34,20 @@ func TestVerifyTelegramInitData(t *testing.T) {
 	}
 }
 
+func TestVerifyTelegramInitDataRejectsFutureAuthDate(t *testing.T) {
+	token := "123456:test-token"
+	now := time.Unix(1_700_000_000, 0)
+	values := url.Values{}
+	values.Set("auth_date", "1700000360")
+	values.Set("query_id", "future")
+	values.Set("user", `{"id":1048084234,"first_name":"Owner"}`)
+	values.Set("hash", sign(values, token))
+
+	if _, err := VerifyTelegramInitData(values.Encode(), token, time.Hour, now); err == nil {
+		t.Fatal("initData from the future must fail")
+	}
+}
+
 func sign(values url.Values, token string) string {
 	clone := url.Values{}
 	for k, v := range values {

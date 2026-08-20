@@ -155,7 +155,6 @@ func (s *Server) log() *slog.Logger {
 func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(s.withRequestLog)
 	r.Use(withGzip)
@@ -1936,10 +1935,17 @@ func publicRateLimitPolicy(method, path string) (rateLimitPolicy, bool) {
 
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil && host != "" {
-		return host
+	if err != nil || host == "" {
+		host = r.RemoteAddr
 	}
-	return r.RemoteAddr
+	remoteIP := net.ParseIP(host)
+	if remoteIP != nil && remoteIP.IsLoopback() {
+		forwardedIP := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP")))
+		if forwardedIP != nil {
+			return forwardedIP.String()
+		}
+	}
+	return host
 }
 
 func (s *Server) withRequestLog(next http.Handler) http.Handler {
@@ -2496,17 +2502,10 @@ func writeError(w http.ResponseWriter, err error) {
 }
 
 func redactedInternalError(err error) string {
-	value := strings.TrimSpace(err.Error())
-	if value == "" {
+	if err == nil {
 		return "unknown"
 	}
-	if strings.Contains(value, "api.telegram.org/bot") {
-		return "telegram_request_error"
-	}
-	if len(value) > 240 {
-		return value[:240]
-	}
-	return value
+	return "internal_error"
 }
 
 func isBadJSONError(err error) bool {

@@ -60,7 +60,11 @@ func VerifyTelegramInitData(rawInitData, botToken string, maxAge time.Duration, 
 	if err != nil {
 		return TelegramUser{}, ErrInvalidInitData
 	}
-	if maxAge > 0 && now.Sub(time.Unix(authDate, 0)) > maxAge {
+	authTime := time.Unix(authDate, 0)
+	if authTime.After(now.Add(5 * time.Minute)) {
+		return TelegramUser{}, ErrInvalidInitData
+	}
+	if maxAge > 0 && now.Sub(authTime) > maxAge {
 		return TelegramUser{}, ErrInvalidInitData
 	}
 	var user TelegramUser

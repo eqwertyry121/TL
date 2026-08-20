@@ -222,6 +222,38 @@ func TestIPRateLimiterPrunesToHardCap(t *testing.T) {
 	}
 }
 
+func TestClientIPIgnoresForwardedHeadersFromUntrustedPeer(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "203.0.113.10:4321"
+	req.Header.Set("X-Real-IP", "198.51.100.25")
+	req.Header.Set("X-Forwarded-For", "198.51.100.26")
+
+	if got := clientIP(req); got != "203.0.113.10" {
+		t.Fatalf("clientIP = %q, want direct peer", got)
+	}
+}
+
+func TestClientIPTrustsValidRealIPFromLoopbackProxy(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:4321"
+	req.Header.Set("X-Real-IP", "198.51.100.25")
+	req.Header.Set("X-Forwarded-For", "192.0.2.1, 198.51.100.25")
+
+	if got := clientIP(req); got != "198.51.100.25" {
+		t.Fatalf("clientIP = %q, want trusted proxy value", got)
+	}
+}
+
+func TestClientIPRejectsMalformedRealIPFromLoopbackProxy(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:4321"
+	req.Header.Set("X-Real-IP", "not-an-ip")
+
+	if got := clientIP(req); got != "127.0.0.1" {
+		t.Fatalf("clientIP = %q, want loopback fallback", got)
+	}
+}
+
 func TestWriteErrorReturnsInternalForUnknownErrors(t *testing.T) {
 	w := httptest.NewRecorder()
 
@@ -232,6 +264,13 @@ func TestWriteErrorReturnsInternalForUnknownErrors(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"code":"INTERNAL"`) {
 		t.Fatalf("body missing INTERNAL code: %s", w.Body.String())
+	}
+}
+
+func TestRedactedInternalErrorNeverIncludesOriginalMessage(t *testing.T) {
+	secret := "phone=+381611234567 token=secret database-path=/private/db"
+	if got := redactedInternalError(errors.New(secret)); strings.Contains(got, secret) || got != "internal_error" {
+		t.Fatalf("redactedInternalError = %q", got)
 	}
 }
 
