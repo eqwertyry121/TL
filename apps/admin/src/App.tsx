@@ -1147,17 +1147,39 @@ function DishForm({
 }
 
 function ReservationsTab({ reservations, onCancel }: { reservations: Reservation[]; onCancel(reservation: Reservation): void }) {
-  const days = Array.from(new Set(reservations.map((reservation) => reservation.date)));
-  if (!reservations.length) {
-    return <section className="panel empty-panel"><CalendarCheck size={28} /><h2>Броней пока нет</h2></section>;
-  }
+  const days = useMemo(() => reservationAdminDays(7), []);
+  const [selectedDate, setSelectedDate] = useState(days[0]);
+  const selectedReservations = reservations.filter((reservation) => reservation.date === selectedDate);
+  const activeCount = selectedReservations.filter((reservation) => reservation.status === "CONFIRMED").length;
+
   return (
     <div className="admin-stack reservations-admin">
-      {days.map((date) => (
-        <section className="panel" key={date}>
-          <div className="section-heading"><div><span className="eyebrow">Брони</span><h2>{formatReservationAdminDate(date)}</h2></div></div>
+      <div className="reservation-day-tabs" aria-label="Выберите день">
+        {days.map((date) => {
+          const count = reservations.filter((reservation) => reservation.date === date && reservation.status === "CONFIRMED").length;
+          return (
+            <button
+              aria-pressed={date === selectedDate}
+              className={date === selectedDate ? "reservation-day-tab is-active" : "reservation-day-tab"}
+              key={date}
+              onClick={() => setSelectedDate(date)}
+              type="button"
+            >
+              <strong>{formatReservationWeekday(date)}</strong>
+              <span>{formatReservationShortDate(date)}{count > 0 ? ` · ${count}` : ""}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <section className="panel reservation-day-panel">
+        <div className="section-heading reservation-day-heading">
+          <div><h2>{formatReservationAdminDate(selectedDate)}</h2></div>
+          {activeCount > 0 && <span className="reservation-day-count">{activeCount}</span>}
+        </div>
+        {selectedReservations.length > 0 ? (
           <div className="reservation-admin-list">
-            {reservations.filter((reservation) => reservation.date === date).map((reservation) => {
+            {selectedReservations.map((reservation) => {
               const cancelled = reservation.status === "CANCELLED";
               const username = (reservation.client_username || "").replace(/^@/, "");
               const client = username ? `@${username}` : reservation.client_first_name || "Клиент";
@@ -1173,14 +1195,48 @@ function ReservationsTab({ reservations, onCancel }: { reservations: Reservation
               );
             })}
           </div>
-        </section>
-      ))}
+        ) : (
+          <div className="reservation-day-empty"><CalendarCheck size={22} /><span>Броней нет</span></div>
+        )}
+      </section>
     </div>
   );
 }
 
 function formatReservationAdminDate(date: string): string {
-  return new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long" }).format(new Date(`${date}T12:00:00`));
+  return capitalize(new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Belgrade" }).format(reservationDate(date)));
+}
+
+function formatReservationWeekday(date: string): string {
+  return capitalize(new Intl.DateTimeFormat("ru-RU", { weekday: "long", timeZone: "Europe/Belgrade" }).format(reservationDate(date)));
+}
+
+function formatReservationShortDate(date: string): string {
+  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", timeZone: "Europe/Belgrade" }).format(reservationDate(date)).replace(".", "");
+}
+
+function reservationDate(date: string): Date {
+  return new Date(`${date}T12:00:00Z`);
+}
+
+function reservationAdminDays(count: number): string[] {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "Europe/Belgrade",
+  }).formatToParts(new Date());
+  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value || 0);
+  const start = new Date(Date.UTC(value("year"), value("month") - 1, value("day"), 12));
+  return Array.from({ length: count }, (_, index) => {
+    const current = new Date(start);
+    current.setUTCDate(start.getUTCDate() + index);
+    return `${current.getUTCFullYear()}-${String(current.getUTCMonth() + 1).padStart(2, "0")}-${String(current.getUTCDate()).padStart(2, "0")}`;
+  });
+}
+
+function capitalize(value: string): string {
+  return value ? value.charAt(0).toLocaleUpperCase("ru-RU") + value.slice(1) : value;
 }
 
 function OrdersTab({

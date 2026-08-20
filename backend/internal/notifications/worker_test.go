@@ -265,6 +265,7 @@ func TestStaffTargetPrefersRealStaffOverBootstrapOwner(t *testing.T) {
 		INSERT INTO staff (user_id, telegram_user_id, role, display_label, active)
 		VALUES
 			($1, $2, 'COURIER', 'Owner Courier', true),
+			($1, $2, 'ADMIN', 'Owner Admin', true),
 			($3, $4, 'COURIER', 'Real Courier', true)
 		ON CONFLICT (telegram_user_id, role)
 		DO UPDATE SET user_id=EXCLUDED.user_id, active=true, updated_at=now()
@@ -283,6 +284,37 @@ func TestStaffTargetPrefersRealStaffOverBootstrapOwner(t *testing.T) {
 	}
 	if got != realCourierTelegramID {
 		t.Fatalf("staff target = %d, want real courier %d", got, realCourierTelegramID)
+	}
+}
+
+func TestStaffTargetSkipsAdminForOperationalNotifications(t *testing.T) {
+	ctx := context.Background()
+	pool := newNotificationsIntegrationPool(t, ctx)
+	defer pool.Close()
+
+	ownerTelegramID := int64(7000000011)
+	ownerUserID := insertNotificationTestUserWithTelegram(t, ctx, pool, ownerTelegramID)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO staff (user_id, telegram_user_id, role, display_label, active)
+		VALUES
+			($1, $2, 'ADMIN', 'Owner Admin', true),
+			($1, $2, 'KITCHEN', 'Owner Kitchen', true)
+		ON CONFLICT (telegram_user_id, role)
+		DO UPDATE SET user_id=EXCLUDED.user_id, active=true, updated_at=now()
+	`, ownerUserID, ownerTelegramID); err != nil {
+		t.Fatalf("insert staff: %v", err)
+	}
+
+	worker := &Worker{pool: pool, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if _, err := worker.staffTarget(ctx, "KITCHEN"); !errors.Is(err, errOperationalStaffUnavailable) {
+		t.Fatalf("kitchen target error = %v, want %v", err, errOperationalStaffUnavailable)
+	}
+	got, err := worker.staffTarget(ctx, "ADMIN")
+	if err != nil {
+		t.Fatalf("admin target: %v", err)
+	}
+	if got != ownerTelegramID {
+		t.Fatalf("admin target = %d, want %d", got, ownerTelegramID)
 	}
 }
 

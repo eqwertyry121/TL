@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -15,8 +16,11 @@ import (
 
 	cryptobox "github.com/eqwertyry121/TL/backend/internal/crypto"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var errOperationalStaffUnavailable = errors.New("operational_staff_unavailable")
 
 type Worker struct {
 	pool             *pgxpool.Pool
@@ -177,25 +181,7 @@ func (w *Worker) warnIfBacklogIsStale(ctx context.Context) error {
 		"pending_count", pendingCount,
 		"oldest_age_seconds", int(oldestAge.Seconds()),
 	)
-	if !w.dryRun && w.staffToken != "" {
-		if err := w.sendAdminBacklogAlert(ctx, pendingCount, oldestAge); err != nil {
-			w.logger.Warn("notification backlog alert failed", "error", redactedError(err))
-		}
-	}
 	return nil
-}
-
-func (w *Worker) sendAdminBacklogAlert(ctx context.Context, pendingCount int, oldestAge time.Duration) error {
-	chatID, err := w.staffTarget(ctx, "ADMIN")
-	if err != nil {
-		return err
-	}
-	text := fmt.Sprintf(
-		"Notification queue is delayed. Pending jobs: %d. Oldest due job age: %d seconds.",
-		pendingCount,
-		int(oldestAge.Seconds()),
-	)
-	return w.sendMessage(ctx, w.staffToken, chatID, text)
 }
 
 func (w *Worker) processTelegram(ctx context.Context) error {
@@ -289,8 +275,16 @@ func (w *Worker) claimJobs(ctx context.Context) ([]job, error) {
 }
 
 func (w *Worker) processJob(ctx context.Context, current job) error {
+	// Admin Telegram is reserved for table-booking events. Order operations are
+	// visible in the Mini App and must not spam administrators in private chat.
+	if current.reservationID == uuid.Nil && current.recipientKind == "admin" {
+		return w.markSent(ctx, current.id)
+	}
 	token, chatID, text, err := w.buildMessage(ctx, current)
 	if err != nil {
+		if errors.Is(err, errOperationalStaffUnavailable) {
+			return w.markSent(ctx, current.id)
+		}
 		w.markFailed(ctx, current, err)
 		return err
 	}
@@ -298,11 +292,15 @@ func (w *Worker) processJob(ctx context.Context, current job) error {
 		w.markFailed(ctx, current, err)
 		return err
 	}
-	_, err = w.pool.Exec(ctx, `
+	return w.markSent(ctx, current.id)
+}
+
+func (w *Worker) markSent(ctx context.Context, id uuid.UUID) error {
+	_, err := w.pool.Exec(ctx, `
 		UPDATE notification_jobs
 		SET status='sent', last_error_code='', updated_at=now()
 		WHERE id=$1 AND status='processing'
-	`, current.id)
+	`, id)
 	return err
 }
 
@@ -475,25 +473,45 @@ func (w *Worker) staffTarget(ctx context.Context, role string) (int64, error) {
 	var chatID int64
 	if len(w.ownerTelegramIDs) > 0 {
 		err := w.pool.QueryRow(ctx, `
-			SELECT telegram_user_id
-			FROM staff
-			WHERE role=$1 AND active=true
+			SELECT target.telegram_user_id
+			FROM staff target
+			WHERE target.role=$1 AND target.active=true
+				AND ($1='ADMIN' OR NOT EXISTS (
+					SELECT 1
+					FROM staff admin_staff
+					WHERE admin_staff.telegram_user_id=target.telegram_user_id
+						AND admin_staff.role='ADMIN'
+						AND admin_staff.active=true
+				))
 			ORDER BY
-				CASE WHEN telegram_user_id = ANY($2::bigint[]) THEN 1 ELSE 0 END,
-				updated_at DESC,
-				created_at DESC,
-				telegram_user_id
+				CASE WHEN target.telegram_user_id = ANY($2::bigint[]) THEN 1 ELSE 0 END,
+				target.updated_at DESC,
+				target.created_at DESC,
+				target.telegram_user_id
 			LIMIT 1
 		`, role, w.ownerTelegramIDs).Scan(&chatID)
+		if errors.Is(err, pgx.ErrNoRows) && role != "ADMIN" {
+			return 0, errOperationalStaffUnavailable
+		}
 		return chatID, err
 	}
 	err := w.pool.QueryRow(ctx, `
-		SELECT telegram_user_id
-		FROM staff
-		WHERE role=$1 AND active=true
-		ORDER BY updated_at DESC, created_at DESC, telegram_user_id
+		SELECT target.telegram_user_id
+		FROM staff target
+		WHERE target.role=$1 AND target.active=true
+			AND ($1='ADMIN' OR NOT EXISTS (
+				SELECT 1
+				FROM staff admin_staff
+				WHERE admin_staff.telegram_user_id=target.telegram_user_id
+					AND admin_staff.role='ADMIN'
+					AND admin_staff.active=true
+			))
+		ORDER BY target.updated_at DESC, target.created_at DESC, target.telegram_user_id
 		LIMIT 1
 	`, role).Scan(&chatID)
+	if errors.Is(err, pgx.ErrNoRows) && role != "ADMIN" {
+		return 0, errOperationalStaffUnavailable
+	}
 	return chatID, err
 }
 
