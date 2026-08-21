@@ -2026,7 +2026,7 @@ p {
 @media (max-width: 56rem) {
   .admin {
     grid-template-columns: 1fr;
-    padding-bottom: calc(4.8rem + env(safe-area-inset-bottom));
+    padding-bottom: 0;
   }
 
   .sidebar {
@@ -2064,7 +2064,7 @@ p {
   }
 
   .admin-main {
-    padding-bottom: 0;
+    padding-bottom: calc(5.25rem + env(safe-area-inset-bottom));
   }
 
   .mobile-nav {
@@ -2074,7 +2074,7 @@ p {
     left: 0;
     z-index: 40;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0.35rem;
     border-top: 1px solid rgba(107, 31, 42, 0.12);
     padding: 0.5rem 0.55rem max(0.55rem, env(safe-area-inset-bottom));
