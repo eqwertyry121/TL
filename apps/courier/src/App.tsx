@@ -152,7 +152,7 @@ export function App() {
   }
 
   async function startDelivery(order: Order) {
-    if (order.courier_started_at || busy) return;
+    if (order.courier_started_at || busy) return false;
     markSeen(order.id);
     setBusy(order.id);
     setActionError("");
@@ -160,9 +160,11 @@ export function App() {
       const updated = await withAuth((authToken) => api.startCourierDelivery(authToken, order.id, `courier-start-${order.id}-${order.version}`, order.version));
       setOrders((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
       setActiveLane("now");
+      return true;
     } catch (err) {
       setActionError(staffActionErrorText(err));
       await refresh();
+      return false;
     } finally {
       setBusy("");
     }
@@ -245,7 +247,7 @@ type CourierLaneColumnProps = {
   onSeen(orderId: string): void;
   onDelivered(order: Order): void;
   onETA(order: Order, minutes: number): void;
-  onStart?(order: Order): void;
+  onStart?(order: Order): Promise<boolean>;
   onReset?(order: Order): void;
 };
 
@@ -276,41 +278,137 @@ function CourierLaneColumn({ lane, title, orders, seenIds, busy, etaBusy, onSeen
   );
 }
 
-function SwipeableCourierCard({ order, disabled, onStart, children }: { order: Order; disabled: boolean; onStart(order: Order): void; children: ReactNode }) {
-  const [offset, setOffset] = useState(0);
-  const [settling, setSettling] = useState(false);
+function SwipeableCourierCard({ order, disabled, onStart, children }: { order: Order; disabled: boolean; onStart(order: Order): Promise<boolean>; children: ReactNode }) {
+  const shellRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const revealRef = useRef<HTMLDivElement>(null);
+  const offsetRef = useRef(0);
+  const animationFrameRef = useRef<number | null>(null);
+  const [armed, setArmed] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const armedRef = useRef(false);
   const committedRef = useRef(false);
-  const bind = useDrag(({ active, movement: [mx], velocity: [vx], direction: [dx], cancel }) => {
+
+  function renderOffset(value: number) {
+    offsetRef.current = value;
+    if (cardRef.current) cardRef.current.style.transform = `translate3d(${value}px, 0, 0)`;
+    if (revealRef.current) {
+      const opacity = value < 34
+        ? (value / 34) * 0.72
+        : 0.72 + Math.min(1, (value - 34) / 54) * 0.28;
+      revealRef.current.style.opacity = String(Math.max(0, Math.min(1, opacity)));
+    }
+  }
+
+  function stopAnimation() {
+    if (animationFrameRef.current === null) return;
+    window.cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = null;
+  }
+
+  function animateOffset(target: number, onRest?: () => void) {
+    stopAnimation();
+    let position = offsetRef.current;
+    let velocity = 0;
+    let previousTime = performance.now();
+    const movingOut = target > position;
+    const stiffness = movingOut ? 410 : 500;
+    const damping = movingOut ? 35 : 39;
+    const mass = 0.76;
+
+    const tick = (time: number) => {
+      const delta = Math.min(0.032, Math.max(0.001, (time - previousTime) / 1000));
+      previousTime = time;
+      const acceleration = (-stiffness * (position - target) - damping * velocity) / mass;
+      velocity += acceleration * delta;
+      position += velocity * delta;
+      renderOffset(position);
+      if (Math.abs(position - target) < 0.45 && Math.abs(velocity) < 4) {
+        renderOffset(target);
+        animationFrameRef.current = null;
+        onRest?.();
+        return;
+      }
+      animationFrameRef.current = window.requestAnimationFrame(tick);
+    };
+
+    animationFrameRef.current = window.requestAnimationFrame(tick);
+  }
+
+  useEffect(() => () => stopAnimation(), []);
+
+  const bind = useDrag(({ active, first, offset: [rawX], velocity: [vx], direction: [dx], cancel }) => {
     if (disabled || committedRef.current) {
-      setOffset(0);
       cancel();
       return;
     }
-    const next = Math.max(0, Math.min(118, mx));
+    const width = shellRef.current?.clientWidth ?? 320;
+    const revealDistance = Math.min(156, Math.max(108, width * 0.38));
+    const commitDistance = revealDistance * 0.64;
+    const positiveMovement = Math.max(0, rawX);
+    const next = positiveMovement <= revealDistance
+      ? positiveMovement
+      : Math.min(revealDistance + 18, revealDistance + (positiveMovement - revealDistance) * 0.12);
+
     if (active) {
-      setSettling(false);
-      setOffset(next);
+      if (first) {
+        stopAnimation();
+        setDragging(true);
+      }
+      const nextArmed = next >= commitDistance;
+      if (armedRef.current !== nextArmed) {
+        if (nextArmed) swipeThresholdHaptic();
+        armedRef.current = nextArmed;
+        setArmed(nextArmed);
+      }
+      renderOffset(next);
       return;
     }
-    const commit = next >= 78 || (vx > 0.45 && dx > 0 && next > 30);
-    setSettling(true);
+    setDragging(false);
+    const commit = next >= commitDistance || (vx > 0.5 && dx > 0 && next > 34);
     if (!commit) {
-      setOffset(0);
+      armedRef.current = false;
+      setArmed(false);
+      animateOffset(0);
       return;
     }
+
     committedRef.current = true;
-    setOffset(118);
-    window.setTimeout(() => onStart(order), 130);
-  }, { axis: "x", filterTaps: true, bounds: { left: 0, right: 118 }, rubberband: 0.08 });
+    setArmed(true);
+    animateOffset(width + 24, () => {
+      void onStart(order).then((succeeded) => {
+        if (succeeded) return;
+        committedRef.current = false;
+        armedRef.current = false;
+        setArmed(false);
+        animateOffset(0);
+      });
+    });
+  }, {
+    axis: "x",
+    filterTaps: true,
+    threshold: 6,
+    from: () => [offsetRef.current, 0],
+  });
 
   return (
-    <div className="swipe-shell">
-      <div className="swipe-reveal" aria-hidden="true"><ChevronRight size={22} /><span>Везу сейчас</span></div>
-      <div {...bind()} className={`swipe-card${settling ? " is-settling" : ""}`} style={{ transform: `translate3d(${offset}px, 0, 0)`, touchAction: "pan-y" }}>
+    <div ref={shellRef} className={`swipe-shell${armed ? " is-armed" : ""}`}>
+      <div ref={revealRef} className="swipe-reveal" aria-hidden="true">
+        {armed ? <Check size={23} /> : <ChevronRight size={23} />}
+        <span>{armed ? "Отпустите" : "Везу сейчас"}</span>
+      </div>
+      <div ref={cardRef} {...bind()} className={`swipe-card${dragging ? " is-dragging" : ""}`} style={{ touchAction: "pan-y" }}>
         {children}
       </div>
     </div>
   );
+}
+
+function swipeThresholdHaptic() {
+  const telegramWindow = window as typeof window & {
+    Telegram?: { WebApp?: { HapticFeedback?: { selectionChanged?: () => void } } };
+  };
+  telegramWindow.Telegram?.WebApp?.HapticFeedback?.selectionChanged?.();
 }
 
 function CourierOrderCard({ order, unread, busy, etaBusy, onSeen, onDelivered, onETA, onReset }: { order: Order; unread: boolean; busy: boolean; etaBusy: string; onSeen(orderId: string): void; onDelivered(order: Order): void; onETA(order: Order, minutes: number): void; onReset?(order: Order): void }) {
