@@ -1588,12 +1588,12 @@ function Checkout({
       <div className="payment-selector">
         <span>{copy.paymentTitle}</span>
         <div>
-        {paymentMethods.map((method) => (
-          <button
+          {paymentMethods.map((method) => (
+            <button
               key={method}
               className={paymentMethod === method ? "active" : ""}
               type="button"
-            onClick={() => onPaymentMethod(method)}
+              onClick={() => onPaymentMethod(method)}
             >
               <strong>{paymentMethodTitle(method, locale)}</strong>
               <small>{paymentMethodDescription(method, fulfillmentType, locale)}</small>
