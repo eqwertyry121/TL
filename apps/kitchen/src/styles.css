@@ -328,7 +328,9 @@ h1 {
 .order-row.pickup-now { border-left-color:var(--color-accent); box-shadow:0 .8rem 1.8rem rgba(185,85,50,.14); }
 .order-row.pickup-ready { border-left-color:var(--color-secondary); }
 
-@media (min-width: 58rem) {
+/* The restaurant tablet reports a 663dp minimum width in landscape mode.
+   Switch to the working two-column board just below that real viewport. */
+@media (min-width: 40rem) {
   .kitchen-window-tabs { position:relative; top:auto; width:min(100%,42rem); margin-inline:auto; }
   .preparation-tabs { display:none; }
   .preparation-board { grid-template-columns:repeat(2,minmax(0,1fr)); max-width:var(--page-max); }
@@ -338,6 +340,55 @@ h1 {
   .lane-title { display:flex; align-items:center; justify-content:space-between; margin-bottom:.6rem; padding:.25rem .25rem .5rem; border-bottom:1px solid rgba(107,31,42,.1); }
   .lane-title h2 { margin:0; color:var(--text); font-size:clamp(.9rem,1.5vw,1.05rem); font-weight:950; letter-spacing:.045em; }
   .lane-title span { display:grid; place-items:center; min-width:1.8rem; height:1.8rem; border-radius:999px; background:rgba(107,31,42,.09); color:var(--color-primary); font-weight:950; }
+}
+
+@media (min-width: 40rem) and (max-width: 57.99rem) {
+  :root {
+    --page-pad: clamp(.55rem, 1.7vw, .85rem);
+    --gap: clamp(.5rem, 1.3vw, .72rem);
+  }
+
+  .header {
+    padding-top: max(.55rem, env(safe-area-inset-top));
+    padding-bottom: .55rem;
+  }
+
+  .header h1 { font-size: clamp(2rem, 5vw, 2.65rem); }
+  .header p { font-size: .8rem; }
+
+  .role-switch {
+    gap: .35rem;
+    margin-bottom: .45rem;
+  }
+
+  .role-switch a {
+    min-height: 2.45rem;
+    padding-inline: .5rem;
+    font-size: .78rem;
+  }
+
+  .kitchen-window-tabs {
+    gap: .35rem;
+    margin-bottom: .55rem;
+    padding: .25rem;
+  }
+
+  .kitchen-window-tabs button { min-height: 2.65rem; font-size: .82rem; }
+  .kitchen-window-tabs b { min-width: 1.4rem; height: 1.4rem; margin-left: .2rem; font-size: .72rem; }
+
+  .preparation-lane {
+    min-height: 8rem;
+    padding: .42rem;
+  }
+
+  .lane-title {
+    margin-bottom: .4rem;
+    padding: .12rem .15rem .38rem;
+  }
+
+  .lane-title h2 { font-size: .84rem; }
+  .lane-title span { min-width: 1.45rem; height: 1.45rem; font-size: .72rem; }
+  .lane-list { gap: .45rem; }
 }
 
 @media (min-width: 75rem) {
@@ -1106,6 +1157,83 @@ body::before {
 .swipe-card.is-dragging {
   transition: none !important;
   will-change: transform;
+}
+
+/* Compact two-column cards for the 663dp restaurant tablet. Keep these rules
+   after the base card styles so column contents can never widen the page. */
+@media (min-width: 40rem) and (max-width: 57.99rem) {
+  .order-row {
+    grid-template-columns: 2.55rem minmax(0, 1fr);
+    gap: .42rem;
+    min-width: 0;
+    padding: .5rem;
+  }
+
+  .order-avatar {
+    width: 2.55rem;
+    height: 2.55rem;
+  }
+
+  .order-avatar > span { font-size: .72rem; }
+  .order-avatar small { min-width: 1.7rem; padding: .1rem .28rem; font-size: .6rem; }
+  .order-main { min-width: 0; gap: .38rem; overflow: hidden; }
+  .order-top { min-width: 0; gap: .25rem; }
+  .order-title strong { font-size: .96rem; }
+  .order-title span { font-size: .7rem; }
+  .order-side { gap: .16rem; }
+  .read-badge { display: none; }
+
+  .new-badge,
+  .progress-badge,
+  .fulfillment-chip,
+  .payment-chip {
+    min-height: 1.48rem;
+    max-width: 100%;
+    padding-inline: .4rem;
+    overflow: hidden;
+    font-size: .62rem;
+    text-overflow: ellipsis;
+  }
+
+  .row-icon {
+    min-width: 1.82rem;
+    min-height: 1.82rem;
+  }
+
+  .order-meta-line { min-width: 0; gap: .26rem; }
+  .order-meta-line .customer-badge {
+    flex: 0 1 auto;
+    max-width: 100%;
+    min-width: 0;
+    padding-right: .38rem;
+    overflow: hidden;
+  }
+  .order-meta-line .customer-avatar { flex: 0 0 auto; width: 1.48rem; height: 1.48rem; }
+  .order-meta-line .customer-badge b { min-width: 0; overflow: hidden; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+
+  .items-compact {
+    min-width: 0;
+    gap: .24rem;
+    font-size: .84rem;
+  }
+
+  .items-compact li {
+    min-width: 0;
+    gap: .32rem;
+    padding: .34rem .42rem;
+  }
+
+  .items-compact b { min-width: 1.55rem; }
+  .items-compact span { overflow-wrap: anywhere; }
+  .compact-comment { min-width: 0; padding: .38rem .45rem; font-size: .75rem; overflow-wrap: anywhere; }
+
+  .compact-action {
+    width: 100%;
+    min-width: 0;
+    min-height: 2.55rem;
+    padding-inline: .48rem;
+    font-size: .78rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
