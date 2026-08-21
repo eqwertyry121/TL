@@ -190,6 +190,7 @@ export interface OrderSummary {
   version: number;
   created_at: string;
   kitchen_started_at?: string;
+  courier_started_at?: string;
   ready_at?: string;
   pickup_at?: string;
   delivered_at?: string;

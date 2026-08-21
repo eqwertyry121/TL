@@ -24,6 +24,8 @@ export interface StaffApi {
   listKitchenOrders(token: string, signal?: AbortSignal): Promise<{ orders: Order[] }>;
   listCourierOrders(token: string, signal?: AbortSignal): Promise<{ orders: Order[] }>;
   sendCourierETA(token: string, id: string, minutes: number): Promise<{ ok: boolean }>;
+  startCourierDelivery(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
+  resetCourierDelivery(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
   startKitchenPreparation(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
   resetKitchenPreparation(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
   markReady(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
@@ -177,6 +179,8 @@ function realApi(baseURL: string, appEnv: string): StaffApi {
     listKitchenOrders: (token, signal) => get(`${baseURL}/api/v1/kitchen/orders`, token, signal),
     listCourierOrders: (token, signal) => get(`${baseURL}/api/v1/courier/orders`, token, signal),
     sendCourierETA: (token, id, minutes) => post(`${baseURL}/api/v1/courier/orders/${id}/eta`, { minutes }, token),
+    startCourierDelivery: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/courier/orders/${id}/start`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
+    resetCourierDelivery: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/courier/orders/${id}/delivery/reset`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
     startKitchenPreparation: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/start`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
     resetKitchenPreparation: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/preparation/reset`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
     markReady: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/ready`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
@@ -210,6 +214,12 @@ function demoApi(role: StaffRole): StaffApi {
     async sendCourierETA() {
       return { ok: true };
     },
+    async startCourierDelivery(_token, id) {
+      return updateDemoCourierDelivery(id, true);
+    },
+    async resetCourierDelivery(_token, id) {
+      return updateDemoCourierDelivery(id, false);
+    },
     async startKitchenPreparation(_token, id) {
       return updateDemoPreparation(id, true);
     },
@@ -240,6 +250,8 @@ function unconfiguredApi(): StaffApi {
     listKitchenOrders: fail,
     listCourierOrders: fail,
     sendCourierETA: fail,
+    startCourierDelivery: fail,
+    resetCourierDelivery: fail,
     startKitchenPreparation: fail,
     resetKitchenPreparation: fail,
     markReady: fail,
@@ -380,6 +392,24 @@ function updateDemoPreparation(id: string, started: boolean): Order {
   const next: DemoOrder = {
     ...order,
     kitchen_started_at: started ? new Date().toISOString() : undefined,
+    version: order.version + 1,
+  };
+  orders[index] = next;
+  saveDemoOrders(orders);
+  window.dispatchEvent(new StorageEvent("storage", { key: demoOrdersKey }));
+  return stripDemo(next);
+}
+
+function updateDemoCourierDelivery(id: string, started: boolean): Order {
+  const orders = loadDemoOrders();
+  const index = orders.findIndex((order) => order.id === id);
+  const order = orders[index];
+  if (!order || order.fulfillment_status !== "OUT_FOR_DELIVERY" || Boolean(order.courier_started_at) === started) {
+    throw Object.assign(new Error("ORDER_STATUS_CONFLICT"), { code: "ORDER_STATUS_CONFLICT" });
+  }
+  const next: DemoOrder = {
+    ...order,
+    courier_started_at: started ? new Date().toISOString() : undefined,
     version: order.version + 1,
   };
   orders[index] = next;

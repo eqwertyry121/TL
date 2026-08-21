@@ -168,6 +168,7 @@ order всё равно появится app polling.
 - `GET /courier/orders`;
 - все orders `OUT_FOR_DELIVERY`;
 - самые старые ready first;
+- backend возвращает внутреннюю пометку `courier_started_at`;
 - no claim/assignment/mine/available sections;
 - immediate refresh on resume.
 
@@ -176,6 +177,17 @@ order всё равно появится app polling.
 ## 9. Courier главный экран
 
 Header `ДОСТАВКИ` + connection indicator.
+
+Под header две крупные группы:
+
+- `ВЕЗУ СЕЙЧАС` — карточки с `courier_started_at`;
+- `ОТВЕЗТИ` — остальные готовые доставки.
+
+На телефоне одновременно показывается только выбранная группа. На экранах от
+48rem группы можно показать двумя колонками. Свайп вправо по карточке в
+`ОТВЕЗТИ` атомарно ставит `courier_started_at`, после чего интерфейс открывает
+`ВЕЗУ СЕЙЧАС`. Это не новый fulfillment status, не assignment и не сигнал
+клиенту. Через `⋯` доступно `Вернуть в «Отвезти»`.
 
 Card:
 
@@ -223,12 +235,18 @@ Card исчезает из active list. Повтор request безопасен.
 - скопировать адрес;
 - открыть external map с URL-encoded text address;
 - проблема с доставкой → ADMIN/support chat.
+- `Вернуть в «Отвезти»`, только если стоит внутренняя пометка
+  `courier_started_at`;
 - быстрые кнопки `5/10/15/20 мин` открывают ЛС клиента с draft-сообщением
   `курьер TakoLako: приеду к вам через X минут`, если у клиента есть
   `@username`; если username нет, используется fallback-уведомление через bot.
 
 Map — только внешняя ссылка. Система не получает coordinates, не строит и не
 оптимизирует route.
+
+Операции start/reset требуют роли COURIER, `Idempotency-Key` и актуальную
+version, работают только для `OUT_FOR_DELIVERY`, пишут order event и не создают
+Telegram notification.
 
 Проблема с доставкой не создаёт новый status в первой версии. ADMIN решает:
 исправить contact/address, вернуть order на кухню или отменить.

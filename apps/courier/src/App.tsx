@@ -1,13 +1,16 @@
 import type { Order, Role } from "@tk-delivery/api-client/generated";
+import { useDrag } from "@use-gesture/react";
 import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
 import { clientLabel, courierEtaLink, courierTimeText, createStaffApi, isAuthError, mapLink, money, openTelegramLink, paymentText, problemLink, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
-import { AlertTriangle, Check, Copy, MapPin, MoreVertical, Phone, RefreshCw, WifiOff } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Copy, MapPin, MoreVertical, Phone, RefreshCw, RotateCcw, WifiOff } from "lucide-react";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const api = createStaffApi("COURIER");
 const courierSeenOrdersKey = "tk-courier-seen-orders-v1";
+type CourierLane = "now" | "later";
 type ConfirmDialogState = {
   title: string;
   confirmLabel: string;
@@ -23,6 +26,7 @@ export function App() {
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState("");
   const [etaBusy, setEtaBusy] = useState("");
+  const [activeLane, setActiveLane] = useState<CourierLane>("later");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const seenIdsRef = useRef(loadSeenOrderIds(courierSeenOrdersKey));
   const [seenIds, setSeenIds] = useState<Set<string>>(() => new Set(seenIdsRef.current));
@@ -32,6 +36,8 @@ export function App() {
   }), []);
 
   const sortedOrders = useMemo(() => [...orders].sort((a, b) => new Date(a.ready_at || a.created_at).getTime() - new Date(b.ready_at || b.created_at).getTime()), [orders]);
+  const nowOrders = useMemo(() => sortedOrders.filter((order) => Boolean(order.courier_started_at)), [sortedOrders]);
+  const laterOrders = useMemo(() => sortedOrders.filter((order) => !order.courier_started_at), [sortedOrders]);
 
   useEffect(() => installPerformanceBeacon("courier", () => "orders"), []);
 
@@ -90,6 +96,7 @@ export function App() {
       if (stopped) return;
       applySession(response.session);
       setOrders(response.orders);
+      if (response.orders.some((order) => order.courier_started_at)) setActiveLane("now");
       setLastUpdated(new Date());
     }).catch(() => setOffline(true));
     return () => {
@@ -144,6 +151,39 @@ export function App() {
     }
   }
 
+  async function startDelivery(order: Order) {
+    if (order.courier_started_at || busy) return;
+    markSeen(order.id);
+    setBusy(order.id);
+    setActionError("");
+    try {
+      const updated = await withAuth((authToken) => api.startCourierDelivery(authToken, order.id, `courier-start-${order.id}-${order.version}`, order.version));
+      setOrders((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
+      setActiveLane("now");
+    } catch (err) {
+      setActionError(staffActionErrorText(err));
+      await refresh();
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function resetDelivery(order: Order) {
+    if (!order.courier_started_at || busy) return;
+    setBusy(order.id);
+    setActionError("");
+    try {
+      const updated = await withAuth((authToken) => api.resetCourierDelivery(authToken, order.id, `courier-reset-${order.id}-${order.version}`, order.version));
+      setOrders((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
+      setActiveLane("later");
+    } catch (err) {
+      setActionError(staffActionErrorText(err));
+      await refresh();
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
     <div className="app">
       <header className="header">
@@ -156,89 +196,151 @@ export function App() {
       {offline && <div className="status bad"><WifiOff size={18} /><span>Нет связи с сервером</span></div>}
       {actionError && <div className="status bad"><AlertTriangle size={18} /><span>{actionError}</span></div>}
       {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="COURIER" />}
-      <main className="list">
-        {sortedOrders.length === 0 ? <div className="empty">Готовых доставок нет</div> : sortedOrders.map((order) => {
-          const unread = !seenIds.has(order.id);
-          return (
-            <article className={`order-row${unread ? " is-new" : ""}`} key={order.id} onClick={() => markSeen(order.id)}>
-              <OrderAvatar order={order} unread={unread} />
-              <div className="order-main">
-                <div className="order-top">
-                  <div className="order-title">
-                    <strong>Заказ #{order.public_number}</strong>
-                    <span>{courierTimeText(order)}</span>
-                  </div>
-                  <div className="order-side">
-                    <span className={unread ? "new-badge" : "read-badge"}>{unread ? "Новый" : "Прочитано"}</span>
-                    <Menu order={order} />
-                  </div>
-                </div>
-                <div className="order-meta-line">
-                  <CustomerBadge order={order} />
-                  <span className="payment-chip">{paymentText(order)}</span>
-                </div>
-                <div className="address-compact">
-                  <MapPin size={18} />
-                  <span>{order.address || "Адрес не указан"}</span>
-                </div>
-                {order.phone ? (
-                  <a
-                    className="phone-compact"
-                    href={`tel:${order.phone}`}
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <Phone size={18} />
-                    <span>{order.phone}</span>
-                  </a>
-                ) : (
-                  <div className="phone-compact is-disabled">
-                    <Phone size={18} />
-                    <span>Телефон не указан</span>
-                  </div>
-                )}
-                <ul className="items-compact" aria-label={`Состав заказа #${order.public_number}`}>
-                  {order.items.map((item, index) => (
-                    <li key={`${item.menu_item_id}-${index}`}>
-                      <b>{item.quantity}×</b>
-                      <span>{item.snapshot_title}</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="courier-footer">
-                  <div className="cash-compact">{order.payment_method === "cash" ? money(order.total_minor) : "ОПЛАЧЕН"}</div>
-                  <button
-                    className="primary compact-action"
-                    disabled={busy === order.id}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void markDelivered(order);
-                    }}
-                  >
-                    <Check size={20} /> ДОСТАВЛЕНО
-                  </button>
-                </div>
-                <div className="eta compact-eta" onClick={(event) => event.stopPropagation()}>
-                  <span>Сообщить ETA:</span>
-                  <div>
-                    {[5, 10, 15, 20].map((minutes) => (
-                      <button
-                        key={minutes}
-                        disabled={etaBusy === `${order.id}:${minutes}`}
-                        title={courierEtaLink(order, minutes) ? "Открыть ЛС с готовым сообщением" : "У клиента нет username, отправим через bot"}
-                        onClick={() => void sendETA(order, minutes)}
-                      >
-                        {minutes} мин
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </article>
-          );
-        })}
+      <nav className="courier-lane-tabs" aria-label="Очередь доставок">
+        <button className={activeLane === "now" ? "active" : ""} onClick={() => setActiveLane("now")}>
+          <span>Везу сейчас</span><b>{nowOrders.length}</b>
+        </button>
+        <button className={activeLane === "later" ? "active" : ""} onClick={() => setActiveLane("later")}>
+          <span>Отвезти</span><b>{laterOrders.length}</b>
+        </button>
+      </nav>
+      <main className={`courier-board active-${activeLane}`}>
+        <CourierLaneColumn
+          lane="now"
+          title="Везу сейчас"
+          orders={nowOrders}
+          seenIds={seenIds}
+          busy={busy}
+          etaBusy={etaBusy}
+          onSeen={markSeen}
+          onDelivered={markDelivered}
+          onETA={sendETA}
+          onReset={resetDelivery}
+        />
+        <CourierLaneColumn
+          lane="later"
+          title="Отвезти"
+          orders={laterOrders}
+          seenIds={seenIds}
+          busy={busy}
+          etaBusy={etaBusy}
+          onSeen={markSeen}
+          onDelivered={markDelivered}
+          onETA={sendETA}
+          onStart={startDelivery}
+        />
       </main>
       {confirmDialog && <ConfirmDialog dialog={confirmDialog} onClose={closeConfirm} />}
     </div>
+  );
+}
+
+type CourierLaneColumnProps = {
+  lane: CourierLane;
+  title: string;
+  orders: Order[];
+  seenIds: Set<string>;
+  busy: string;
+  etaBusy: string;
+  onSeen(orderId: string): void;
+  onDelivered(order: Order): void;
+  onETA(order: Order, minutes: number): void;
+  onStart?(order: Order): void;
+  onReset?(order: Order): void;
+};
+
+function CourierLaneColumn({ lane, title, orders, seenIds, busy, etaBusy, onSeen, onDelivered, onETA, onStart, onReset }: CourierLaneColumnProps) {
+  return (
+    <section className={`courier-lane lane-${lane}`} aria-label={title}>
+      <div className="lane-title"><h2>{title}</h2><span>{orders.length}</span></div>
+      <div className="lane-list">
+        {orders.length === 0 ? <div className="empty">{lane === "now" ? "Сейчас ничего не везёте" : "Следующих доставок нет"}</div> : orders.map((order) => {
+          const card = (
+            <CourierOrderCard
+              key={order.id}
+              order={order}
+              unread={!seenIds.has(order.id)}
+              busy={busy === order.id}
+              etaBusy={etaBusy}
+              onSeen={onSeen}
+              onDelivered={onDelivered}
+              onETA={onETA}
+              onReset={onReset}
+            />
+          );
+          if (lane === "later" && onStart) return <SwipeableCourierCard key={order.id} order={order} disabled={Boolean(busy)} onStart={onStart}>{card}</SwipeableCourierCard>;
+          return card;
+        })}
+      </div>
+    </section>
+  );
+}
+
+function SwipeableCourierCard({ order, disabled, onStart, children }: { order: Order; disabled: boolean; onStart(order: Order): void; children: ReactNode }) {
+  const [offset, setOffset] = useState(0);
+  const [settling, setSettling] = useState(false);
+  const committedRef = useRef(false);
+  const bind = useDrag(({ active, movement: [mx], velocity: [vx], direction: [dx], cancel }) => {
+    if (disabled || committedRef.current) {
+      setOffset(0);
+      cancel();
+      return;
+    }
+    const next = Math.max(0, Math.min(118, mx));
+    if (active) {
+      setSettling(false);
+      setOffset(next);
+      return;
+    }
+    const commit = next >= 78 || (vx > 0.45 && dx > 0 && next > 30);
+    setSettling(true);
+    if (!commit) {
+      setOffset(0);
+      return;
+    }
+    committedRef.current = true;
+    setOffset(118);
+    window.setTimeout(() => onStart(order), 130);
+  }, { axis: "x", filterTaps: true, bounds: { left: 0, right: 118 }, rubberband: 0.08 });
+
+  return (
+    <div className="swipe-shell">
+      <div className="swipe-reveal" aria-hidden="true"><ChevronRight size={22} /><span>Везу сейчас</span></div>
+      <div {...bind()} className={`swipe-card${settling ? " is-settling" : ""}`} style={{ transform: `translate3d(${offset}px, 0, 0)`, touchAction: "pan-y" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function CourierOrderCard({ order, unread, busy, etaBusy, onSeen, onDelivered, onETA, onReset }: { order: Order; unread: boolean; busy: boolean; etaBusy: string; onSeen(orderId: string): void; onDelivered(order: Order): void; onETA(order: Order, minutes: number): void; onReset?(order: Order): void }) {
+  return (
+    <article className={`order-row${unread ? " is-new" : ""}${order.courier_started_at ? " is-driving" : ""}`} onClick={() => onSeen(order.id)}>
+      <OrderAvatar order={order} unread={unread} />
+      <div className="order-main">
+        <div className="order-top">
+          <div className="order-title"><strong>Заказ #{order.public_number}</strong><span>{courierTimeText(order)}</span></div>
+          <div className="order-side">
+            {order.courier_started_at ? <span className="driving-badge">Везу</span> : <span className={unread ? "new-badge" : "read-badge"}>{unread ? "Новый" : "Прочитано"}</span>}
+            <Menu order={order} busy={busy} onReset={onReset} />
+          </div>
+        </div>
+        <div className="order-meta-line"><CustomerBadge order={order} /><span className="payment-chip">{paymentText(order)}</span></div>
+        <div className="address-compact"><MapPin size={18} /><span>{order.address || "Адрес не указан"}</span></div>
+        {order.phone ? <a className="phone-compact" href={`tel:${order.phone}`} onClick={(event) => event.stopPropagation()}><Phone size={18} /><span>{order.phone}</span></a> : <div className="phone-compact is-disabled"><Phone size={18} /><span>Телефон не указан</span></div>}
+        <ul className="items-compact" aria-label={`Состав заказа #${order.public_number}`}>
+          {order.items.map((item, index) => <li key={`${item.menu_item_id}-${index}`}><b>{item.quantity}×</b><span>{item.snapshot_title}</span></li>)}
+        </ul>
+        <div className="courier-footer">
+          <div className="cash-compact">{order.payment_method === "cash" ? money(order.total_minor) : "ОПЛАЧЕН"}</div>
+          <button className="primary compact-action" disabled={busy} onClick={(event) => { event.stopPropagation(); void onDelivered(order); }}><Check size={20} /> ДОСТАВЛЕНО</button>
+        </div>
+        <div className="eta compact-eta" onClick={(event) => event.stopPropagation()}>
+          <span>Сообщить ETA:</span>
+          <div>{[5, 10, 15, 20].map((minutes) => <button key={minutes} disabled={etaBusy === `${order.id}:${minutes}`} title={courierEtaLink(order, minutes) ? "Открыть ЛС с готовым сообщением" : "У клиента нет username, отправим через bot"} onClick={() => void onETA(order, minutes)}>{minutes} мин</button>)}</div>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -308,7 +410,7 @@ function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
   );
 }
 
-function Menu({ order }: { order: Order }) {
+function Menu({ order, busy, onReset }: { order: Order; busy: boolean; onReset?(order: Order): void }) {
   const [open, setOpen] = useState(false);
   const phone = order.phone?.trim();
   const address = order.address?.trim();
@@ -336,6 +438,7 @@ function Menu({ order }: { order: Order }) {
             <span>Адрес не указан</span>
           )}
           <a href={problemLink(order)} target="_blank" rel="noreferrer">Проблема с доставкой</a>
+          {order.courier_started_at && onReset && <button type="button" disabled={busy} onClick={() => { setOpen(false); void onReset(order); }}><RotateCcw size={16} /> Вернуть в «Отвезти»</button>}
         </div>
       )}
     </div>

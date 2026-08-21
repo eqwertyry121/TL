@@ -351,6 +351,22 @@ paths:
       responses:
         "200":
           description: Courier notifies client that delivery is expected in 5, 10, 15 or 20 minutes. Delivery orders only.
+  /courier/orders/{id}/start:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      responses:
+        "200":
+          description: Marks an OUT_FOR_DELIVERY order as being carried now without changing its customer-facing fulfillment status or sending notifications.
+  /courier/orders/{id}/delivery/reset:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      responses:
+        "200":
+          description: Returns an OUT_FOR_DELIVERY order to the courier later lane without changing its customer-facing fulfillment status.
   /courier/orders/{id}/delivered:
     post:
       parameters:

@@ -210,6 +210,8 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/kitchen/orders/{id}/picked-up", s.markPickupCollected)
 
 			r.Get("/courier/orders", s.courierOrders)
+			r.Post("/courier/orders/{id}/start", s.startCourierDelivery)
+			r.Post("/courier/orders/{id}/delivery/reset", s.resetCourierDelivery)
 			r.Post("/courier/orders/{id}/eta", s.courierETA)
 			r.Post("/courier/orders/{id}/delivered", s.markDelivered)
 
@@ -1633,6 +1635,49 @@ func (s *Server) markDelivered(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	order, err := s.store.MarkDelivered(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash(raw), req.ExpectedVersion)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *Server) startCourierDelivery(w http.ResponseWriter, r *http.Request) {
+	s.updateCourierDelivery(w, r, true)
+}
+
+func (s *Server) resetCourierDelivery(w http.ResponseWriter, r *http.Request) {
+	s.updateCourierDelivery(w, r, false)
+}
+
+func (s *Server) updateCourierDelivery(w http.ResponseWriter, r *http.Request, started bool) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		ExpectedVersion int `json:"expected_version"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if req.ExpectedVersion <= 0 {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	var order core.Order
+	if started {
+		order, err = s.store.StartCourierDelivery(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash(raw), req.ExpectedVersion)
+	} else {
+		order, err = s.store.ResetCourierDelivery(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash(raw), req.ExpectedVersion)
+	}
 	if err != nil {
 		writeError(w, err)
 		return

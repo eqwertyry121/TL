@@ -1090,6 +1090,77 @@ func TestKitchenPreparationStateIsIdempotentAndBlocksAdditions(t *testing.T) {
 	}
 }
 
+func TestCourierDeliveryStateIsIdempotentAndDoesNotNotify(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	kitchenSession := adminSession
+	kitchenSession.ActiveRole = core.RoleKitchen
+	courierSession := adminSession
+	courierSession.ActiveRole = core.RoleCourier
+	client := clientSession(t, ctx, st, clientTelegramID)
+	now := time.Now().UTC()
+	order := createVerifiedCashOrder(t, ctx, st, clientTelegramID, "+38160111426", "Novi Sad courier state", "idem-courier-state-order", now)
+	ready, err := st.MarkReady(ctx, kitchenSession, order.ID, "idem-courier-state-ready", "courier-state-ready", order.Version)
+	if err != nil {
+		t.Fatalf("mark courier state order ready: %v", err)
+	}
+
+	if _, err := st.StartCourierDelivery(ctx, client, order.ID, "idem-courier-state-forbidden", "courier-state-forbidden", ready.Version); !errors.Is(err, core.ErrForbidden) {
+		t.Fatalf("client start courier delivery should be forbidden, got %v", err)
+	}
+	var notificationsBefore int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM notification_jobs WHERE order_id=$1`, order.ID).Scan(&notificationsBefore); err != nil {
+		t.Fatalf("count notifications before courier state: %v", err)
+	}
+
+	started, err := st.StartCourierDelivery(ctx, courierSession, order.ID, "idem-courier-state-start", "courier-state-start", ready.Version)
+	if err != nil {
+		t.Fatalf("start courier delivery: %v", err)
+	}
+	if started.FulfillmentStatus != core.StatusOutForDelivery || started.CourierStartedAt == nil || started.Version != ready.Version+1 {
+		t.Fatalf("unexpected courier started order: status=%s started_at=%v version=%d", started.FulfillmentStatus, started.CourierStartedAt, started.Version)
+	}
+	replayed, err := st.StartCourierDelivery(ctx, courierSession, order.ID, "idem-courier-state-start", "courier-state-start", ready.Version)
+	if err != nil || replayed.Version != started.Version || replayed.CourierStartedAt == nil {
+		t.Fatalf("unexpected courier start replay: order=%+v err=%v", replayed, err)
+	}
+	courierOrders, err := st.CourierOrders(ctx, courierSession)
+	if err != nil {
+		t.Fatalf("list courier orders: %v", err)
+	}
+	if len(courierOrders) != 1 || courierOrders[0].ID != order.ID || courierOrders[0].CourierStartedAt == nil {
+		t.Fatalf("courier delivery marker missing from list: %+v", courierOrders)
+	}
+
+	reset, err := st.ResetCourierDelivery(ctx, courierSession, order.ID, "idem-courier-state-reset", "courier-state-reset", started.Version)
+	if err != nil {
+		t.Fatalf("reset courier delivery: %v", err)
+	}
+	if reset.CourierStartedAt != nil || reset.FulfillmentStatus != core.StatusOutForDelivery || reset.Version != started.Version+1 {
+		t.Fatalf("unexpected courier reset order: %+v", reset)
+	}
+	var notificationsAfter int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM notification_jobs WHERE order_id=$1`, order.ID).Scan(&notificationsAfter); err != nil {
+		t.Fatalf("count notifications after courier state: %v", err)
+	}
+	if notificationsAfter != notificationsBefore {
+		t.Fatalf("courier delivery state generated notifications: before=%d after=%d", notificationsBefore, notificationsAfter)
+	}
+	var eventCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)::int FROM order_events
+		WHERE order_id=$1 AND action IN ('courier_delivery_started', 'courier_delivery_reset')
+	`, order.ID).Scan(&eventCount); err != nil {
+		t.Fatalf("count courier delivery events: %v", err)
+	}
+	if eventCount != 2 {
+		t.Fatalf("courier delivery event count=%d, want 2", eventCount)
+	}
+}
+
 func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)
