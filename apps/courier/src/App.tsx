@@ -197,26 +197,14 @@ export function App() {
       {actionError && <div className="status bad"><AlertTriangle size={18} /><span>{actionError}</span></div>}
       {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="COURIER" />}
       <nav className="courier-lane-tabs" aria-label="Очередь доставок">
-        <button className={activeLane === "now" ? "active" : ""} onClick={() => setActiveLane("now")}>
-          <span>Везу сейчас</span><b>{nowOrders.length}</b>
-        </button>
         <button className={activeLane === "later" ? "active" : ""} onClick={() => setActiveLane("later")}>
           <span>Отвезти</span><b>{laterOrders.length}</b>
         </button>
+        <button className={activeLane === "now" ? "active" : ""} onClick={() => setActiveLane("now")}>
+          <span>Везу сейчас</span><b>{nowOrders.length}</b>
+        </button>
       </nav>
       <main className={`courier-board active-${activeLane}`}>
-        <CourierLaneColumn
-          lane="now"
-          title="Везу сейчас"
-          orders={nowOrders}
-          seenIds={seenIds}
-          busy={busy}
-          etaBusy={etaBusy}
-          onSeen={markSeen}
-          onDelivered={markDelivered}
-          onETA={sendETA}
-          onReset={resetDelivery}
-        />
         <CourierLaneColumn
           lane="later"
           title="Отвезти"
@@ -228,6 +216,18 @@ export function App() {
           onDelivered={markDelivered}
           onETA={sendETA}
           onStart={startDelivery}
+        />
+        <CourierLaneColumn
+          lane="now"
+          title="Везу сейчас"
+          orders={nowOrders}
+          seenIds={seenIds}
+          busy={busy}
+          etaBusy={etaBusy}
+          onSeen={markSeen}
+          onDelivered={markDelivered}
+          onETA={sendETA}
+          onReset={resetDelivery}
         />
       </main>
       {confirmDialog && <ConfirmDialog dialog={confirmDialog} onClose={closeConfirm} />}
