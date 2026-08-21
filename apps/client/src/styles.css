@@ -1560,10 +1560,10 @@ textarea {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   justify-content: stretch;
-  gap: clamp(0.72rem, 2.2vw, 0.95rem);
+  gap: clamp(0.6rem, 2vw, 0.8rem);
   width: 100%;
-  min-height: clamp(4.35rem, 10dvh, 5rem);
-  border: 2px solid rgba(107, 31, 42, 0.35);
+  min-height: clamp(3.75rem, 8dvh, 4.25rem);
+  border: 1px solid rgba(107, 31, 42, 0.35);
   border-radius: var(--radius-md);
   background:
     radial-gradient(circle at 12% 0%, rgba(200, 155, 60, 0.28), transparent 34%),
@@ -1571,7 +1571,7 @@ textarea {
   color: #fff;
   text-align: left;
   letter-spacing: 0;
-  box-shadow: 0 0.9rem 2rem rgba(107, 31, 42, 0.18);
+  box-shadow: 0 0.55rem 1.25rem rgba(107, 31, 42, 0.16);
   transition: transform 170ms ease, border 170ms ease, box-shadow 170ms ease;
 }
 
@@ -1581,8 +1581,8 @@ textarea {
 
 .contact-share-icon {
   display: grid;
-  width: clamp(2.55rem, 8vw, 3rem);
-  height: clamp(2.55rem, 8vw, 3rem);
+  width: clamp(2.3rem, 7vw, 2.65rem);
+  height: clamp(2.3rem, 7vw, 2.65rem);
   place-items: center;
   border-radius: 999px;
   background: rgba(255, 253, 248, 0.16);
@@ -1597,7 +1597,7 @@ textarea {
 
 .contact-share-copy strong {
   overflow: hidden;
-  font-size: clamp(1.08rem, 3.4vw, 1.28rem);
+  font-size: clamp(1rem, 3.1vw, 1.16rem);
   font-weight: 950;
   line-height: 1.05;
   text-overflow: ellipsis;
@@ -1684,8 +1684,8 @@ textarea {
 .required-contact {
   border-color: rgba(200, 155, 60, 0.64);
   box-shadow:
-    0 1rem 2.2rem rgba(107, 31, 42, 0.22),
-    0 0 0 0.18rem rgba(200, 155, 60, 0.16);
+    0 0.6rem 1.35rem rgba(107, 31, 42, 0.18),
+    0 0 0 0.1rem rgba(200, 155, 60, 0.14);
 }
 
 .required-contact:not(.active-contact) {
