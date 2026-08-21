@@ -1488,6 +1488,7 @@ function Checkout({
   onCalculate: () => Promise<Calculation | null>;
   onSubmit: () => Promise<void>;
 }) {
+  const [cardPaymentNoticeVisible, setCardPaymentNoticeVisible] = useState(false);
   useEffect(() => {
     if (lines.length) void onCalculate().catch(() => undefined);
   }, [fulfillmentType, lines.length]);
@@ -1589,12 +1590,38 @@ function Checkout({
         <span>{copy.paymentTitle}</span>
         <div>
           {paymentMethods.map((method) => (
-            <button key={method} className={paymentMethod === method ? "active" : ""} type="button" onClick={() => onPaymentMethod(method)}>
+            <button
+              key={method}
+              className={paymentMethod === method ? "active" : ""}
+              type="button"
+              onClick={() => {
+                setCardPaymentNoticeVisible(false);
+                onPaymentMethod(method);
+              }}
+            >
               <strong>{paymentMethodTitle(method, locale)}</strong>
               <small>{paymentMethodDescription(method, fulfillmentType, locale)}</small>
             </button>
           ))}
+          <button
+            className="payment-coming-soon"
+            type="button"
+            aria-expanded={cardPaymentNoticeVisible}
+            onClick={() => setCardPaymentNoticeVisible(true)}
+          >
+            <span className="payment-coming-soon-head">
+              <strong>{copy.cardTitle}</strong>
+              <span>{copy.comingSoon}</span>
+            </span>
+            <small>{copy.cardDescription}</small>
+          </button>
         </div>
+        {cardPaymentNoticeVisible && (
+          <aside className="payment-coming-soon-note" role="status">
+            <strong>{copy.cardSoonTitle}</strong>
+            <span>{copy.cardSoonText}</span>
+          </aside>
+        )}
         {paymentMethod === "crypto" && (
           <p>{copy.cryptoNotice}</p>
         )}
@@ -1672,6 +1699,11 @@ function checkoutCopy(locale: Locale) {
       pickupTimeRequired: "Выберите время самовывоза",
       placePickupOrder: "ОФОРМИТЬ НА",
       paymentTitle: "Способ оплаты",
+      cardTitle: "Банковской картой",
+      cardDescription: "Visa · Mastercard · DinaCard",
+      comingSoon: "Скоро",
+      cardSoonTitle: "Оплата картой скоро появится",
+      cardSoonText: "Подключаем безопасную онлайн-оплату. Пока выберите оплату наличными.",
       cryptoNotice: "Тестовый режим: реальная крипта не списывается. Заказ создаётся как оплаченный, чтобы проверить flow кухни, курьера и админки.",
       requiredSteps: "Обязательные шаги",
       ready: "готово",
@@ -1731,6 +1763,11 @@ function checkoutCopy(locale: Locale) {
       pickupTimeRequired: "Izaberite vreme preuzimanja",
       placePickupOrder: "NARUČI ZA",
       paymentTitle: "Način plaćanja",
+      cardTitle: "Platna kartica",
+      cardDescription: "Visa · Mastercard · DinaCard",
+      comingSoon: "Uskoro",
+      cardSoonTitle: "Plaćanje karticom stiže uskoro",
+      cardSoonText: "Povezujemo bezbedno onlajn plaćanje. Za sada izaberite gotovinu.",
       cryptoNotice: "Test režim: prava kripto uplata se ne naplaćuje. Porudžbina se kreira kao plaćena radi provere toka kuhinje, kurira i admina.",
       requiredSteps: "Obavezni koraci",
       ready: "spremno",
@@ -1790,6 +1827,11 @@ function checkoutCopy(locale: Locale) {
       pickupTimeRequired: "Choose a pickup time",
       placePickupOrder: "ORDER FOR",
       paymentTitle: "Payment method",
+      cardTitle: "Bank card",
+      cardDescription: "Visa · Mastercard · DinaCard",
+      comingSoon: "Soon",
+      cardSoonTitle: "Card payments are coming soon",
+      cardSoonText: "We are connecting secure online payments. For now, please choose cash.",
       cryptoNotice: "Test mode: no real crypto is charged. The order is created as paid to test the kitchen, courier and admin flow.",
       requiredSteps: "Required steps",
       ready: "ready",
