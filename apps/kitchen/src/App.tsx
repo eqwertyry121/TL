@@ -4,7 +4,8 @@ import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
 import { clientLabel, createStaffApi, isAuthError, kitchenTimeText, money, openTelegramLink, paymentText, problemLink, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
 import { AlertTriangle, Check, MoreVertical, RefreshCw, WifiOff } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useDrag } from "@use-gesture/react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const api = createStaffApi("KITCHEN");
 const kitchenSeenOrdersKey = "tk-kitchen-seen-orders-v2";
@@ -30,6 +31,7 @@ export function App() {
   const [busy, setBusy] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [activeWindow, setActiveWindow] = useState<"delivery" | "pickup">("delivery");
+  const [activeLane, setActiveLane] = useState<"new" | "in_progress" | "ready">("new");
   const [clock, setClock] = useState(() => Date.now());
   const seenIdsRef = useRef(loadSeenOrderIds(kitchenSeenOrdersKey));
   const notifiedIds = useRef(new Set<string>());
@@ -46,8 +48,9 @@ export function App() {
   const sortedDeliveryOrders = useMemo(() => [...deliveryOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [deliveryOrders]);
   const sortedPickupOrders = useMemo(() => [...pickupOrders].sort((a, b) => pickupTimestamp(a) - pickupTimestamp(b)), [pickupOrders]);
   const pickupDueOrders = useMemo(() => sortedPickupOrders.filter((order) => pickupCookTimestamp(order) <= clock), [sortedPickupOrders, clock]);
-  const pickupLaterOrders = useMemo(() => sortedPickupOrders.filter((order) => pickupCookTimestamp(order) > clock), [sortedPickupOrders, clock]);
   const sortedPickupReadyOrders = useMemo(() => [...pickupReadyOrders].sort((a, b) => new Date(a.ready_at || a.created_at).getTime() - new Date(b.ready_at || b.created_at).getTime()), [pickupReadyOrders]);
+  const visibleNewOrders = useMemo(() => (activeWindow === "delivery" ? sortedDeliveryOrders : sortedPickupOrders).filter((order) => !order.kitchen_started_at), [activeWindow, sortedDeliveryOrders, sortedPickupOrders]);
+  const visibleInProgressOrders = useMemo(() => (activeWindow === "delivery" ? sortedDeliveryOrders : sortedPickupOrders).filter((order) => Boolean(order.kitchen_started_at)), [activeWindow, sortedDeliveryOrders, sortedPickupOrders]);
 
   useEffect(() => installPerformanceBeacon("kitchen", () => "orders"), []);
   useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 15000); return () => window.clearInterval(timer); }, []);
@@ -182,6 +185,38 @@ export function App() {
     }
   }
 
+  async function startPreparation(order: Order) {
+    if (busy === order.id || order.kitchen_started_at || order.fulfillment_status !== "NEW") return;
+    markSeen(order);
+    setBusy(order.id);
+    setActionError("");
+    try {
+      const updated = await withAuth((authToken) => api.startKitchenPreparation(authToken, order.id, `start-${order.id}-${order.version}`, order.version));
+      markSeen(updated);
+      setOrders((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
+    } catch (err) {
+      setActionError(staffActionErrorText(err));
+      await refresh();
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function resetPreparation(order: Order) {
+    if (busy === order.id || !order.kitchen_started_at || order.fulfillment_status !== "NEW") return;
+    setBusy(order.id);
+    setActionError("");
+    try {
+      const updated = await withAuth((authToken) => api.resetKitchenPreparation(authToken, order.id, `reset-preparation-${order.id}-${order.version}`, order.version));
+      setOrders((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
+    } catch (err) {
+      setActionError(staffActionErrorText(err));
+      await refresh();
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function markPickupCollected(order: Order) {
     const cash = order.payment_method === "cash" && order.payment_status !== "PAID";
     const confirmed = await askConfirm({
@@ -216,34 +251,99 @@ export function App() {
       {actionError && <div className="status bad"><AlertTriangle size={18} /><span>{actionError}</span></div>}
       {isOwnerTelegramId(telegramUserId) && <OwnerRoleSwitch activeRole="KITCHEN" />}
       <nav className="kitchen-window-tabs" aria-label="Тип заказов">
-        <button className={activeWindow === "delivery" ? "active" : ""} onClick={() => setActiveWindow("delivery")}>ДОСТАВКА <b>{sortedDeliveryOrders.length}</b></button>
+        <button className={activeWindow === "delivery" ? "active" : ""} onClick={() => { setActiveWindow("delivery"); if (activeLane === "ready") setActiveLane("new"); }}>ДОСТАВКА <b>{sortedDeliveryOrders.length}</b></button>
         <button className={activeWindow === "pickup" ? "active" : ""} onClick={() => setActiveWindow("pickup")}>САМОВЫВОЗ <b>{sortedPickupOrders.length + sortedPickupReadyOrders.length}</b></button>
       </nav>
-      <main className="kitchen-board">
-        <section className={`order-window delivery-window ${activeWindow === "delivery" ? "mobile-active" : ""}`}>
-          <div className="desktop-window-title"><h2>Доставка</h2><span>{sortedDeliveryOrders.length}</span></div>
-          <div className="window-list">
-            {!sortedDeliveryOrders.length && <div className="empty">Пока заказов нет</div>}
-            {sortedDeliveryOrders.map((order) => <KitchenOrderCard key={order.id} order={order} seenIds={seenIds} busy={busy} onSeen={markSeen} onPrimary={markReady} />)}
-          </div>
-        </section>
-        <section className={`order-window pickup-window ${activeWindow === "pickup" ? "mobile-active" : ""}`}>
-          <div className="desktop-window-title"><h2>Самовывоз</h2><span>{sortedPickupOrders.length + sortedPickupReadyOrders.length}</span></div>
-          <div className="window-list">
-            {!!sortedPickupReadyOrders.length && <OrderGroup title="ГОТОВЫ К ВЫДАЧЕ" count={sortedPickupReadyOrders.length} tone="ready">{sortedPickupReadyOrders.map((order) => <KitchenOrderCard key={order.id} order={order} seenIds={seenIds} busy={busy} onSeen={markSeen} onPrimary={markPickupCollected} />)}</OrderGroup>}
-            {!!pickupDueOrders.length && <OrderGroup title="ГОТОВИТЬ СЕЙЧАС" count={pickupDueOrders.length} tone="urgent">{pickupDueOrders.map((order) => <KitchenOrderCard key={order.id} order={order} seenIds={seenIds} busy={busy} onSeen={markSeen} onPrimary={markReady} />)}</OrderGroup>}
-            {!!pickupLaterOrders.length && <OrderGroup title="ПОЗЖЕ СЕГОДНЯ" count={pickupLaterOrders.length}>{pickupLaterOrders.map((order) => <KitchenOrderCard key={order.id} order={order} seenIds={seenIds} busy={busy} onSeen={markSeen} onPrimary={markReady} />)}</OrderGroup>}
-            {!sortedPickupOrders.length && !sortedPickupReadyOrders.length && <div className="empty">Пока заказов нет</div>}
-          </div>
-        </section>
-      </main>
+      <PreparationBoard
+        activeLane={activeLane}
+        busy={busy}
+        inProgressOrders={visibleInProgressOrders}
+        newOrders={visibleNewOrders}
+        onLaneChange={setActiveLane}
+        onMarkReady={markReady}
+        onPickupCollected={markPickupCollected}
+        onResetPreparation={resetPreparation}
+        onSeen={markSeen}
+        onStartPreparation={startPreparation}
+        pickup={activeWindow === "pickup"}
+        readyOrders={activeWindow === "pickup" ? sortedPickupReadyOrders : []}
+        seenIds={seenIds}
+      />
       {confirmDialog && <ConfirmDialog dialog={confirmDialog} onClose={closeConfirm} />}
     </div>
   );
 }
 
-function OrderGroup({ title, count, tone = "", children }: { title: string; count: number; tone?: string; children: ReactNode }) {
-  return <section className={`order-group ${tone}`}><h2>{title} <b>{count}</b></h2>{children}</section>;
+type KitchenLane = "new" | "in_progress" | "ready";
+
+function PreparationBoard({
+  activeLane,
+  busy,
+  inProgressOrders,
+  newOrders,
+  onLaneChange,
+  onMarkReady,
+  onPickupCollected,
+  onResetPreparation,
+  onSeen,
+  onStartPreparation,
+  pickup,
+  readyOrders,
+  seenIds,
+}: {
+  activeLane: KitchenLane;
+  busy: string;
+  inProgressOrders: Order[];
+  newOrders: Order[];
+  onLaneChange(lane: KitchenLane): void;
+  onMarkReady(order: Order): void;
+  onPickupCollected(order: Order): void;
+  onResetPreparation(order: Order): void;
+  onSeen(order: Order): void;
+  onStartPreparation(order: Order): void;
+  pickup: boolean;
+  readyOrders: Order[];
+  seenIds: Set<string>;
+}) {
+  const lanes = [
+    { id: "new" as const, label: "НОВЫЕ", orders: newOrders },
+    { id: "in_progress" as const, label: "В ПРОЦЕССЕ", orders: inProgressOrders },
+    ...(pickup ? [{ id: "ready" as const, label: "ГОТОВЫ", orders: readyOrders }] : []),
+  ];
+  return (
+    <>
+      <nav className={`preparation-tabs${pickup ? " has-ready" : ""}`} aria-label="Состояние приготовления">
+        {lanes.map((lane) => (
+          <button key={lane.id} className={activeLane === lane.id ? "active" : ""} onClick={() => onLaneChange(lane.id)}>
+            {lane.label}<b>{lane.orders.length}</b>
+          </button>
+        ))}
+      </nav>
+      <main className={`preparation-board${pickup ? " has-ready" : ""}`}>
+        {lanes.map((lane) => (
+          <section key={lane.id} className={`preparation-lane lane-${lane.id}${activeLane === lane.id ? " mobile-active" : ""}`}>
+            <header className="lane-title"><h2>{lane.label}</h2><span>{lane.orders.length}</span></header>
+            <div className="lane-list">
+              {lane.orders.map((order) => (
+                  <SwipeableOrderCard
+                    key={order.id}
+                    order={order}
+                    seenIds={seenIds}
+                    busy={busy}
+                    canStart={lane.id === "new"}
+                    onSeen={onSeen}
+                    onStart={onStartPreparation}
+                    onPrimary={lane.id === "ready" ? onPickupCollected : onMarkReady}
+                    onResetPreparation={onResetPreparation}
+                  />
+                ))}
+              {!lane.orders.length && <div className="lane-empty">Нет заказов</div>}
+            </div>
+          </section>
+        ))}
+      </main>
+    </>
+  );
 }
 
 function ConfirmDialog({ dialog, onClose }: { dialog: ConfirmDialogState; onClose(confirmed: boolean): void }) {
@@ -260,18 +360,108 @@ function ConfirmDialog({ dialog, onClose }: { dialog: ConfirmDialogState; onClos
   );
 }
 
+function SwipeableOrderCard({
+  order,
+  seenIds,
+  busy,
+  canStart,
+  onSeen,
+  onStart,
+  onPrimary,
+  onResetPreparation,
+}: {
+  order: Order;
+  seenIds: Set<string>;
+  busy: string;
+  canStart: boolean;
+  onSeen(order: Order): void;
+  onStart(order: Order): void;
+  onPrimary(order: Order): void;
+  onResetPreparation(order: Order): void;
+}) {
+  const shellRef = useRef<HTMLDivElement>(null);
+  const commitTimerRef = useRef<number | undefined>(undefined);
+  const [dragX, setDragX] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const draggable = canStart && busy !== order.id && order.fulfillment_status === "NEW" && !order.kitchen_started_at;
+  const bindDrag = useDrag(({ active, movement: [movementX], velocity: [velocityX] }) => {
+    if (!draggable) return;
+    const x = Math.max(0, Math.min(112, movementX));
+    setDragging(active);
+    if (active) {
+      setDragX(x);
+      return;
+    }
+    const width = shellRef.current?.clientWidth || 320;
+    const threshold = Math.min(104, Math.max(68, width * 0.24));
+    const committed = x >= threshold || (x >= 42 && velocityX >= 0.62);
+    if (!committed) {
+      setDragX(0);
+      return;
+    }
+    setDragX(112);
+    commitTimerRef.current = window.setTimeout(() => {
+      onStart(order);
+      setDragX(0);
+    }, 150);
+  }, {
+    axis: "x",
+    bounds: { left: 0, right: 112 },
+    rubberband: 0.08,
+    threshold: 6,
+    filterTaps: true,
+  });
+
+  useEffect(() => () => {
+    if (commitTimerRef.current !== undefined) window.clearTimeout(commitTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!order.kitchen_started_at || !shellRef.current || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    shellRef.current.animate(
+      [{ opacity: 0.72, transform: "translate3d(-1rem, 0, 0)" }, { opacity: 1, transform: "translate3d(0, 0, 0)" }],
+      { duration: 260, easing: "cubic-bezier(.22, 1, .36, 1)" },
+    );
+  }, [order.kitchen_started_at]);
+
+  return (
+    <div
+      ref={shellRef}
+      className={`swipe-shell${draggable ? " can-swipe" : ""}`}
+    >
+      {draggable && <div className="swipe-reveal" aria-hidden="true"><span>В ПРОЦЕССЕ</span><b>→</b></div>}
+      <div
+        {...(draggable ? bindDrag() : {})}
+        className={`swipe-card${dragging ? " is-dragging" : ""}`}
+        style={{ touchAction: "pan-y", transform: `translate3d(${dragX}px, 0, 0)` }}
+      >
+        <KitchenOrderCard
+          order={order}
+          seenIds={seenIds}
+          busy={busy}
+          onSeen={onSeen}
+          onPrimary={onPrimary}
+          onResetPreparation={onResetPreparation}
+        />
+      </div>
+    </div>
+  );
+}
+
 function KitchenOrderCard({
   order,
   seenIds,
   busy,
   onSeen,
   onPrimary,
+  onResetPreparation,
 }: {
   order: Order;
   seenIds: Set<string>;
   busy: string;
   onSeen(order: Order): void;
   onPrimary(order: Order): void;
+  onResetPreparation(order: Order): void;
 }) {
   const unread = !seenIds.has(seenKey(order));
   const addedAt = order.latest_addition?.created_at;
@@ -287,8 +477,10 @@ function KitchenOrderCard({
             <span>{pickup ? pickupTimingText(order) : kitchenTimeText(order)}</span>
           </div>
           <div className="order-side">
-            <span className={unread ? "new-badge" : "read-badge"}>{unread ? "Новый" : "Прочитано"}</span>
-            <Menu order={order} />
+            {order.kitchen_started_at
+              ? <span className="progress-badge">В процессе</span>
+              : <span className={unread ? "new-badge" : "read-badge"}>{unread ? "Новый" : "Прочитано"}</span>}
+            <Menu order={order} busy={busy === order.id} onResetPreparation={onResetPreparation} />
           </div>
         </div>
         <div className="order-meta-line">
@@ -398,7 +590,7 @@ function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
   );
 }
 
-function Menu({ order }: { order: Order }) {
+function Menu({ order, busy, onResetPreparation }: { order: Order; busy: boolean; onResetPreparation(order: Order): void }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="menu">
@@ -414,6 +606,18 @@ function Menu({ order }: { order: Order }) {
       </button>
       {open && (
         <div className="popover" onClick={(event) => event.stopPropagation()}>
+          {order.kitchen_started_at && order.fulfillment_status === "NEW" && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setOpen(false);
+                onResetPreparation(order);
+              }}
+            >
+              Вернуть в новые
+            </button>
+          )}
           <a href={problemLink(order)} target="_blank" rel="noreferrer">Сообщить о проблеме</a>
           <span>Сумма: {money(order.total_minor)}</span>
         </div>

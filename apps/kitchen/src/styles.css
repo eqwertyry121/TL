@@ -51,6 +51,7 @@ body {
   margin: 0;
   min-height: 100svh;
   min-height: 100dvh;
+  overflow-x: clip;
   background:
     radial-gradient(circle at 12% 0%, rgba(200, 155, 60, 0.24), transparent 30%),
     radial-gradient(circle at 88% 10%, rgba(185, 85, 50, 0.14), transparent 32%),
@@ -292,26 +293,56 @@ h1 {
 .kitchen-window-tabs button.active { background:var(--color-primary); color:#fff; }
 .kitchen-window-tabs b { display:inline-grid; place-items:center; min-width:1.65rem; height:1.65rem; margin-left:.35rem; border-radius:999px; background:rgba(255,255,255,.16); }
 
-.kitchen-board { display:grid; grid-template-columns:minmax(0,1fr); gap:var(--gap); align-items:start; width:100%; margin:0 auto; }
-.order-window { display:none; min-width:0; gap:.7rem; }
-.order-window.mobile-active { display:grid; }
-.desktop-window-title { display:none; }
-.window-list,.order-group { display:grid; gap:.58rem; }
-.order-group h2 { display:flex; align-items:center; justify-content:space-between; margin:.2rem 0 0; padding:.55rem .7rem; color:var(--muted); font-size:.85rem; font-weight:950; letter-spacing:.06em; }
-.order-group h2 b { display:grid; place-items:center; min-width:1.75rem; height:1.75rem; border-radius:999px; background:rgba(107,31,42,.08); color:var(--color-primary); }
-.order-group.ready h2 { color:var(--color-secondary); }
-.order-group.urgent h2 { color:var(--color-accent); }
+.preparation-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-bottom: var(--gap);
+  padding: 0.32rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 253, 248, 0.94);
+}
+
+.preparation-tabs.has-ready { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.preparation-tabs button { display:flex; align-items:center; justify-content:center; gap:.35rem; min-width:0; min-height:2.8rem; border-radius:calc(var(--radius-md) - .25rem); padding:0 .45rem; background:transparent; color:var(--muted); font-size:clamp(.72rem,2.2vw,.92rem); font-weight:950; white-space:nowrap; }
+.preparation-tabs button.active { background:var(--color-primary); color:#fff; }
+.preparation-tabs b { display:inline-grid; place-items:center; min-width:1.45rem; height:1.45rem; border-radius:999px; background:rgba(107,31,42,.08); color:inherit; font-size:.75rem; }
+.preparation-tabs button.active b { background:rgba(255,255,255,.18); }
+
+.preparation-board { display:grid; grid-template-columns:minmax(0,1fr); gap:var(--gap); align-items:start; width:100%; margin:0 auto; }
+.preparation-lane { display:none; min-width:0; }
+.preparation-lane.mobile-active { display:block; }
+.lane-title { display:none; }
+.lane-list { position:relative; display:grid; min-width:0; gap:.58rem; align-content:start; }
+.lane-empty { display:grid; place-items:center; min-height:5.5rem; border:1px dashed rgba(107,31,42,.18); border-radius:var(--radius-md); color:var(--muted); font-size:.9rem; font-weight:750; }
+
+.swipe-shell { position:relative; min-width:0; border-radius:var(--radius-md); isolation:isolate; }
+.swipe-card { position:relative; z-index:2; min-width:0; }
+.swipe-shell.can-swipe { background:linear-gradient(135deg, rgba(94,107,58,.9), rgba(73,87,40,.98)); }
+.swipe-reveal { position:absolute; inset:0 0 0 auto; z-index:1; display:flex; width:7rem; align-items:center; justify-content:center; gap:.35rem; padding:.5rem; color:#fff; font-size:.75rem; font-weight:950; letter-spacing:.03em; }
+.swipe-reveal b { font-size:1.25rem; }
+.swipe-shell.can-swipe .order-row { cursor:grab; user-select:none; -webkit-user-select:none; }
+.swipe-shell.can-swipe .order-row:active { cursor:grabbing; }
 .order-row.pickup-soon { border-left-color:var(--color-gold); }
 .order-row.pickup-now { border-left-color:var(--color-accent); box-shadow:0 .8rem 1.8rem rgba(185,85,50,.14); }
 .order-row.pickup-ready { border-left-color:var(--color-secondary); }
 
 @media (min-width: 58rem) {
-  .kitchen-window-tabs { display:none; }
-  .kitchen-board { grid-template-columns:minmax(0,1fr) minmax(0,1fr); max-width:var(--page-max); }
-  .order-window { display:grid; }
-  .desktop-window-title { display:flex; align-items:center; justify-content:space-between; padding:.2rem .15rem; }
-  .desktop-window-title h2 { margin:0; font-family:var(--font-display); font-size:1.45rem; }
-  .desktop-window-title span { color:var(--muted); font-weight:850; }
+  .kitchen-window-tabs { position:relative; top:auto; width:min(100%,42rem); margin-inline:auto; }
+  .preparation-tabs { display:none; }
+  .preparation-board { grid-template-columns:repeat(2,minmax(0,1fr)); max-width:var(--page-max); }
+  .preparation-board.has-ready { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .preparation-board.has-ready .lane-ready { grid-column:1 / -1; }
+  .preparation-lane { display:block; min-height:12rem; border:1px solid rgba(107,31,42,.1); border-radius:var(--radius-md); padding:.65rem; background:rgba(255,253,248,.46); }
+  .lane-title { display:flex; align-items:center; justify-content:space-between; margin-bottom:.6rem; padding:.25rem .25rem .5rem; border-bottom:1px solid rgba(107,31,42,.1); }
+  .lane-title h2 { margin:0; color:var(--text); font-size:clamp(.9rem,1.5vw,1.05rem); font-weight:950; letter-spacing:.045em; }
+  .lane-title span { display:grid; place-items:center; min-width:1.8rem; height:1.8rem; border-radius:999px; background:rgba(107,31,42,.09); color:var(--color-primary); font-weight:950; }
+}
+
+@media (min-width: 75rem) {
+  .preparation-board.has-ready { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .preparation-board.has-ready .lane-ready { grid-column:auto; }
 }
 
 .card {
@@ -605,6 +636,7 @@ li {
 
 .new-badge,
 .read-badge,
+.progress-badge,
 .fulfillment-chip,
 .payment-chip {
   display: inline-flex;
@@ -625,6 +657,12 @@ li {
 .read-badge {
   background: rgba(94, 107, 58, 0.12);
   color: var(--color-secondary);
+}
+
+.progress-badge {
+  background: rgba(94, 107, 58, 0.16);
+  color: var(--color-secondary);
+  box-shadow: inset 0 0 0 1px rgba(94, 107, 58, 0.22);
 }
 
 .payment-chip {
@@ -834,7 +872,8 @@ li {
 }
 
 .popover a,
-.popover span {
+.popover span,
+.popover button {
   min-height: 2.8rem;
   border-radius: var(--radius-sm);
   padding: 0.75rem;
@@ -842,6 +881,7 @@ li {
   color: var(--text);
   font-size: clamp(0.96rem, 2.5vw, 1.08rem);
   font-weight: 800;
+  text-align: left;
 }
 
 @keyframes cardIn {
@@ -1056,4 +1096,20 @@ body::before {
   background: var(--color-primary);
   font: inherit;
   font-weight: 800;
+}
+
+/* The swipe itself remains GPU-only even in the reduced WebView performance mode. */
+.swipe-card:not(.is-dragging) {
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+.swipe-card.is-dragging {
+  transition: none !important;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swipe-card {
+    transition: none !important;
+  }
 }

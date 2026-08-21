@@ -1551,21 +1551,22 @@ func (s *Store) CalculateAddition(ctx context.Context, sess core.Session, orderI
 	var fulfillmentType core.FulfillmentType
 	var paymentMethod core.PaymentMethod
 	var createdAt time.Time
-	var pickupAt, pickupCookAt sql.NullTime
+	var pickupAt, pickupCookAt, kitchenStartedAt sql.NullTime
 	var orderSubtotal, orderDelivery, orderTotal int
 	var orderCurrency string
 	err = s.pool.QueryRow(ctx, `
-		SELECT fulfillment_status, fulfillment_type, payment_method, created_at, pickup_at, pickup_cook_at, subtotal_minor, delivery_fee_minor, total_minor, currency
+		SELECT fulfillment_status, fulfillment_type, payment_method, created_at, pickup_at, pickup_cook_at, kitchen_started_at,
+			subtotal_minor, delivery_fee_minor, total_minor, currency
 		FROM orders
 		WHERE id=$1 AND client_user_id=$2
-	`, orderID, sess.UserID).Scan(&status, &fulfillmentType, &paymentMethod, &createdAt, &pickupAt, &pickupCookAt, &orderSubtotal, &orderDelivery, &orderTotal, &orderCurrency)
+	`, orderID, sess.UserID).Scan(&status, &fulfillmentType, &paymentMethod, &createdAt, &pickupAt, &pickupCookAt, &kitchenStartedAt, &orderSubtotal, &orderDelivery, &orderTotal, &orderCurrency)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.Calculation{}, core.ErrForbidden
 	}
 	if err != nil {
 		return core.Calculation{}, err
 	}
-	if status != core.StatusNew || paymentMethod != core.PaymentCash {
+	if status != core.StatusNew || paymentMethod != core.PaymentCash || kitchenStartedAt.Valid {
 		return core.Calculation{}, core.ErrOrderStatusConflict
 	}
 	if !now.UTC().Before(additionCutoff(createdAt, pickupAt, pickupCookAt, fulfillmentType, settings)) {
@@ -2899,7 +2900,7 @@ func (s *Store) ReturnOrderToNew(ctx context.Context, sess core.Session, orderID
 	var from core.FulfillmentStatus
 	err = tx.QueryRow(ctx, `
 		UPDATE orders
-		SET fulfillment_status='NEW', ready_at=NULL, updated_at=now(), version=version+1
+		SET fulfillment_status='NEW', kitchen_started_at=NULL, ready_at=NULL, updated_at=now(), version=version+1
 		WHERE id=$1 AND fulfillment_status IN ('OUT_FOR_DELIVERY', 'READY_FOR_PICKUP')
 		RETURNING CASE WHEN fulfillment_type='pickup' THEN 'READY_FOR_PICKUP' ELSE 'OUT_FOR_DELIVERY' END
 	`, orderID).Scan(&from)
@@ -3533,22 +3534,23 @@ func (s *Store) AddOrderItems(ctx context.Context, sess core.Session, orderID uu
 	var paymentMethod core.PaymentMethod
 	var orderVersion int
 	var createdAt time.Time
-	var pickupAt, pickupCookAt sql.NullTime
+	var pickupAt, pickupCookAt, kitchenStartedAt sql.NullTime
 	var orderSubtotal, orderTotal int
 	var orderCurrency string
 	err = tx.QueryRow(ctx, `
-		SELECT fulfillment_status, fulfillment_type, payment_method, version, created_at, pickup_at, pickup_cook_at, subtotal_minor, total_minor, currency
+		SELECT fulfillment_status, fulfillment_type, payment_method, version, created_at, pickup_at, pickup_cook_at, kitchen_started_at,
+			subtotal_minor, total_minor, currency
 		FROM orders
 		WHERE id=$1 AND client_user_id=$2
 		FOR UPDATE
-	`, orderID, sess.UserID).Scan(&status, &fulfillmentType, &paymentMethod, &orderVersion, &createdAt, &pickupAt, &pickupCookAt, &orderSubtotal, &orderTotal, &orderCurrency)
+	`, orderID, sess.UserID).Scan(&status, &fulfillmentType, &paymentMethod, &orderVersion, &createdAt, &pickupAt, &pickupCookAt, &kitchenStartedAt, &orderSubtotal, &orderTotal, &orderCurrency)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.Order{}, core.ErrForbidden
 	}
 	if err != nil {
 		return core.Order{}, err
 	}
-	if status != core.StatusNew || paymentMethod != core.PaymentCash || orderVersion != input.ExpectedVersion {
+	if status != core.StatusNew || paymentMethod != core.PaymentCash || orderVersion != input.ExpectedVersion || kitchenStartedAt.Valid {
 		return core.Order{}, core.ErrOrderStatusConflict
 	}
 	if !now.UTC().Before(additionCutoff(createdAt, pickupAt, pickupCookAt, fulfillmentType, settings)) {
@@ -3665,6 +3667,79 @@ func (s *Store) MarkReady(ctx context.Context, sess core.Session, orderID uuid.U
 		return core.Order{}, core.ErrForbidden
 	}
 	return s.transition(ctx, sess, orderID, "orders.mark_ready", idempotencyKey, requestHash, core.StatusNew, core.StatusOutForDelivery, expectedVersionValue(expectedVersion))
+}
+
+func (s *Store) StartKitchenPreparation(ctx context.Context, sess core.Session, orderID uuid.UUID, idempotencyKey, requestHash string, expectedVersion int) (core.Order, error) {
+	return s.setKitchenPreparation(ctx, sess, orderID, idempotencyKey, requestHash, expectedVersion, true)
+}
+
+func (s *Store) ResetKitchenPreparation(ctx context.Context, sess core.Session, orderID uuid.UUID, idempotencyKey, requestHash string, expectedVersion int) (core.Order, error) {
+	return s.setKitchenPreparation(ctx, sess, orderID, idempotencyKey, requestHash, expectedVersion, false)
+}
+
+func (s *Store) setKitchenPreparation(ctx context.Context, sess core.Session, orderID uuid.UUID, idempotencyKey, requestHash string, expectedVersion int, started bool) (core.Order, error) {
+	if sess.ActiveRole != core.RoleKitchen {
+		return core.Order{}, core.ErrForbidden
+	}
+	if strings.TrimSpace(idempotencyKey) == "" || expectedVersion <= 0 {
+		return core.Order{}, core.ErrIdempotencyConflict
+	}
+	operation := "orders.start_kitchen_preparation"
+	action := "kitchen_preparation_started"
+	if !started {
+		operation = "orders.reset_kitchen_preparation"
+		action = "kitchen_preparation_reset"
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.Order{}, err
+	}
+	defer rollback(ctx, tx)
+
+	if existingID, replay, err := s.beginIdempotency(ctx, tx, sess.UserID, operation, idempotencyKey, requestHash); err != nil {
+		return core.Order{}, err
+	} else if replay {
+		if err := tx.Commit(ctx); err != nil {
+			return core.Order{}, err
+		}
+		return s.OrderByID(ctx, existingID, false)
+	}
+
+	var updatedID uuid.UUID
+	if started {
+		err = tx.QueryRow(ctx, `
+			UPDATE orders
+			SET kitchen_started_at=now(), updated_at=now(), version=version+1
+			WHERE id=$1 AND fulfillment_status='NEW' AND kitchen_started_at IS NULL AND version=$2
+			RETURNING id
+		`, orderID, expectedVersion).Scan(&updatedID)
+	} else {
+		err = tx.QueryRow(ctx, `
+			UPDATE orders
+			SET kitchen_started_at=NULL, updated_at=now(), version=version+1
+			WHERE id=$1 AND fulfillment_status='NEW' AND kitchen_started_at IS NOT NULL AND version=$2
+			RETURNING id
+		`, orderID, expectedVersion).Scan(&updatedID)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return core.Order{}, core.ErrOrderStatusConflict
+	}
+	if err != nil {
+		return core.Order{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO order_events (order_id, from_status, to_status, action, actor_user_id, actor_role)
+		VALUES ($1, 'NEW', 'NEW', $2, $3, $4)
+	`, orderID, action, sess.UserID, string(sess.ActiveRole)); err != nil {
+		return core.Order{}, err
+	}
+	if err := s.finishIdempotency(ctx, tx, sess.UserID, operation, idempotencyKey, orderID); err != nil {
+		return core.Order{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.Order{}, err
+	}
+	return s.OrderByID(ctx, orderID, false)
 }
 
 func (s *Store) MarkDelivered(ctx context.Context, sess core.Session, orderID uuid.UUID, idempotencyKey, requestHash string, expectedVersion ...int) (core.Order, error) {
@@ -3887,7 +3962,7 @@ func (s *Store) transition(ctx context.Context, sess core.Session, orderID uuid.
 func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII bool) (core.Order, error) {
 	var order core.Order
 	var phoneCipher, addressCipher string
-	var ready, delivered, cancelled sql.NullTime
+	var kitchenStarted, ready, delivered, cancelled sql.NullTime
 	var locationVerified sql.NullTime
 	var locationDistance sql.NullInt32
 	err := s.pool.QueryRow(ctx, `
@@ -3895,7 +3970,7 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 			COALESCE(u.photo_url, ''),
 			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency, o.phone_ciphertext, o.address_ciphertext,
-			o.customer_comment, o.locale, o.version, o.created_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.customer_comment, o.locale, o.version, o.created_at, o.kitchen_started_at, o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
 		FROM orders o
 		JOIN users u ON u.id=o.client_user_id
@@ -3905,7 +3980,7 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 		&order.FulfillmentType, &order.FulfillmentStatus, &order.PaymentMethod,
 		&order.PaymentStatus, &order.SubtotalMinor, &order.DeliveryFeeMinor, &order.TotalMinor, &order.Currency,
 		&phoneCipher, &addressCipher, &order.CustomerComment, &order.Locale, &order.Version, &order.CreatedAt,
-		&ready, &delivered, &cancelled,
+		&kitchenStarted, &ready, &delivered, &cancelled,
 		&locationVerified, &locationDistance,
 	)
 	if err != nil {
@@ -3918,6 +3993,9 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 		if order.Address, err = s.box.Decrypt(addressCipher); err != nil {
 			return core.Order{}, err
 		}
+	}
+	if kitchenStarted.Valid {
+		order.KitchenStartedAt = &kitchenStarted.Time
 	}
 	if ready.Valid {
 		order.ReadyAt = &ready.Time
@@ -4057,6 +4135,10 @@ func (s *Store) attachAdditionState(order *core.Order, settings core.Settings) {
 	}
 	if order.FulfillmentStatus != core.StatusNew {
 		order.AddItemsReason = "status"
+		return
+	}
+	if order.KitchenStartedAt != nil {
+		order.AddItemsReason = "kitchen_started"
 		return
 	}
 	if order.PaymentMethod != core.PaymentCash {
@@ -4265,7 +4347,8 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 		return []core.Order{}, nil
 	}
 	pickupRows, err := s.pool.Query(ctx, `
-		SELECT id, pickup_at, pickup_original_at, pickup_cook_at, pickup_address_snapshot, pickup_instructions_snapshot
+		SELECT id, pickup_at, pickup_original_at, pickup_cook_at, kitchen_started_at,
+			pickup_address_snapshot, pickup_instructions_snapshot
 		FROM orders WHERE id=ANY($1)
 	`, ids)
 	if err != nil {
@@ -4273,9 +4356,9 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 	}
 	for pickupRows.Next() {
 		var id uuid.UUID
-		var pickupAt, pickupOriginalAt, pickupCookAtValue sql.NullTime
+		var pickupAt, pickupOriginalAt, pickupCookAtValue, kitchenStartedAt sql.NullTime
 		var address, instructions string
-		if err := pickupRows.Scan(&id, &pickupAt, &pickupOriginalAt, &pickupCookAtValue, &address, &instructions); err != nil {
+		if err := pickupRows.Scan(&id, &pickupAt, &pickupOriginalAt, &pickupCookAtValue, &kitchenStartedAt, &address, &instructions); err != nil {
 			pickupRows.Close()
 			return nil, err
 		}
@@ -4288,6 +4371,9 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 		}
 		if pickupCookAtValue.Valid {
 			order.PickupCookAt = &pickupCookAtValue.Time
+		}
+		if kitchenStartedAt.Valid {
+			order.KitchenStartedAt = &kitchenStartedAt.Time
 		}
 		order.PickupAddress = address
 		order.PickupInstructions = instructions

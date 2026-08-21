@@ -4,7 +4,7 @@
 
 Реализовать максимально простой рабочий процесс сотрудников:
 
-Доставка: `NEW → одна кнопка Kitchen → OUT_FOR_DELIVERY → одна кнопка Courier → DELIVERED`.
+Доставка: `NEW (Новые/В процессе) → одна кнопка Kitchen → OUT_FOR_DELIVERY → одна кнопка Courier → DELIVERED`.
 
 Самовывоз: `NEW → одна кнопка Kitchen → READY_FOR_PICKUP → ЗАБРАН И ОПЛАЧЕН → DELIVERED`.
 
@@ -66,13 +66,31 @@ Order row/card должен быть компактным, как список �
 - крупная кнопка `ЗАКАЗ ГОТОВ`;
 - `⋯`.
 
-Ordering: сначала самый старый. Никаких колонок и drag-and-drop.
+Ordering: сначала самый старый. Внутри `NEW` кухня видит две организационные
+группы: `НОВЫЕ` и `В ПРОЦЕССЕ`. На телефоне это вкладки, на планшете/широком
+экране — колонки. Произвольного drag-and-drop и ручной сортировки нет.
 
 ## 4. Kitchen action
 
-Kitchen показывает два окна: `ДОСТАВКА` и `САМОВЫВОЗ`. Самовывоз сортируется по
-`pickup_at` и делится на `ГОТОВИТЬ СЕЙЧАС`, `ПОЗЖЕ` и `ГОТОВЫ К ВЫДАЧЕ`.
-Courier pickup-заказы не получает. Детали: [PICKUP_SPEC.md](../PICKUP_SPEC.md).
+Kitchen показывает два окна: `ДОСТАВКА` и `САМОВЫВОЗ`. В выбранном окне заказ
+свайпом вправо переносится `НОВЫЕ → В ПРОЦЕССЕ`; backend атомарно записывает
+`kitchen_started_at`, оставляя `fulfillment_status=NEW`. Самовывоз сортируется
+по `pickup_at`, срочность всегда видна на карточке, готовые заказы находятся в
+третьей группе `ГОТОВЫ`. Courier pickup-заказы не получает. Детали:
+[PICKUP_SPEC.md](../PICKUP_SPEC.md).
+
+Требования к свайпу:
+
+1. Только ось X; вертикальный скролл страницы остаётся нативным.
+2. Смещение ограничено шириной action-зоны, карточка не может улететь за экран.
+3. Короткий жест пружинно возвращает карточку на место.
+4. Переход выполняется только после distance/velocity threshold.
+5. На широком экране layout-анимация переносит ту же карточку между колонками.
+6. `prefers-reduced-motion` отключает заметное перемещение, но действие остаётся
+   доступным.
+7. При server conflict карточка возвращается на место и список обновляется.
+8. Ошибочный свайп можно отменить через `⋯ → Вернуть в новые`.
+9. После начала приготовления backend запрещает дозаказ в этот order.
 
 После `ЗАКАЗ ГОТОВ`:
 
@@ -88,7 +106,8 @@ Courier pickup-заказы не получает. Детали: [PICKUP_SPEC.md
 6. Conflict означает, что order уже изменён ADMIN/другим устройством; refresh.
 7. Timeout → проверить order state с тем же key, не создавать второй action.
 
-Kitchen не нажимает «Принять» и не ставит `PREPARING`.
+Kitchen не нажимает «Принять» и не ставит business-status `PREPARING`.
+`kitchen_started_at` является только внутренней отметкой начала приготовления.
 
 ## 5. Kitchen звук и экран
 
@@ -115,6 +134,7 @@ Kitchen не нажимает «Принять» и не ставит `PREPARING
 Только:
 
 - `Подробнее`;
+- `Вернуть в новые`, только для заказа `В ПРОЦЕССЕ`;
 - `Сообщить о проблеме` — открыть ADMIN/support chat с номером.
 
 Не добавлять:
@@ -238,6 +258,11 @@ Kitchen/Courier эти actions не видят.
 
 Backend:
 
+- KITCHEN start/reset preparation только для `NEW`, с expected version и
+  idempotency;
+- start сохраняет `kitchen_started_at`, но не создаёт client/courier
+  notifications и не меняет fulfillment status;
+- start блокирует дальнейший дозаказ;
 - KITCHEN ready только from NEW;
 - COURIER delivered только from OUT_FOR_DELIVERY;
 - roles forbidden;
@@ -249,6 +274,8 @@ Backend:
 
 Frontend:
 
+- swipe threshold/short-swipe reset/conflict reset;
+- mobile tabs, tablet columns и `prefers-reduced-motion`;
 - polling initial/new/removal;
 - connection stale/recovery;
 - sound dedupe and disabled fallback;
@@ -261,7 +288,7 @@ Frontend:
 E2E:
 
 1. Client cash order → Kitchen appears automatically.
-2. No accept action.
+2. No accept action; swipe order to `В ПРОЦЕССЕ`.
 3. Kitchen one click/confirm ready.
 4. Client and Courier notification.
 5. Courier sees address/phone.
@@ -282,7 +309,8 @@ E2E:
 
 ## Acceptance criteria
 
-- Kitchen имеет ровно один основной list и одну основную action.
+- Kitchen имеет два простых внутренних списка `НОВЫЕ`/`В ПРОЦЕССЕ`, без
+  отдельного экрана деталей, и одну основную финальную action.
 - Orders появляются автоматически без accept.
 - Courier один, без claim/assignment/route engine.
 - Kitchen ready одновременно меняет status и ставит client/courier messages.

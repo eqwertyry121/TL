@@ -204,6 +204,8 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/orders/{id}/addition", s.addOrderItems)
 
 			r.Get("/kitchen/orders", s.kitchenOrders)
+			r.Post("/kitchen/orders/{id}/start", s.startKitchenPreparation)
+			r.Post("/kitchen/orders/{id}/preparation/reset", s.resetKitchenPreparation)
 			r.Post("/kitchen/orders/{id}/ready", s.markReady)
 			r.Post("/kitchen/orders/{id}/picked-up", s.markPickupCollected)
 
@@ -1528,6 +1530,49 @@ func (s *Server) markReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	order, err := s.store.MarkReady(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash(raw), req.ExpectedVersion)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *Server) startKitchenPreparation(w http.ResponseWriter, r *http.Request) {
+	s.updateKitchenPreparation(w, r, true)
+}
+
+func (s *Server) resetKitchenPreparation(w http.ResponseWriter, r *http.Request) {
+	s.updateKitchenPreparation(w, r, false)
+}
+
+func (s *Server) updateKitchenPreparation(w http.ResponseWriter, r *http.Request, started bool) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req struct {
+		ExpectedVersion int `json:"expected_version"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if req.ExpectedVersion <= 0 {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	var order core.Order
+	if started {
+		order, err = s.store.StartKitchenPreparation(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash(raw), req.ExpectedVersion)
+	} else {
+		order, err = s.store.ResetKitchenPreparation(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash(raw), req.ExpectedVersion)
+	}
 	if err != nil {
 		writeError(w, err)
 		return

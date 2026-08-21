@@ -1016,6 +1016,80 @@ func TestMarkReadyPersistsStatusBeforeNotificationDelivery(t *testing.T) {
 	})
 }
 
+func TestKitchenPreparationStateIsIdempotentAndBlocksAdditions(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	kitchenSession := adminSession
+	kitchenSession.ActiveRole = core.RoleKitchen
+	clientListSession := clientSession(t, ctx, st, clientTelegramID)
+	now := time.Now().UTC()
+	order := createVerifiedCashOrder(t, ctx, st, clientTelegramID, "+38160111425", "Novi Sad preparation", "idem-preparation-order", now)
+
+	if _, err := st.StartKitchenPreparation(ctx, clientListSession, order.ID, "idem-preparation-forbidden", "preparation-forbidden", order.Version); !errors.Is(err, core.ErrForbidden) {
+		t.Fatalf("client start preparation should be forbidden, got %v", err)
+	}
+	var notificationsBefore int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM notification_jobs WHERE order_id=$1`, order.ID).Scan(&notificationsBefore); err != nil {
+		t.Fatalf("count notifications before preparation: %v", err)
+	}
+
+	started, err := st.StartKitchenPreparation(ctx, kitchenSession, order.ID, "idem-preparation-start", "preparation-start", order.Version)
+	if err != nil {
+		t.Fatalf("start kitchen preparation: %v", err)
+	}
+	if started.FulfillmentStatus != core.StatusNew || started.KitchenStartedAt == nil || started.Version != order.Version+1 {
+		t.Fatalf("unexpected started order: status=%s started_at=%v version=%d", started.FulfillmentStatus, started.KitchenStartedAt, started.Version)
+	}
+	if started.CanAddItems || started.AddItemsReason != "kitchen_started" {
+		t.Fatalf("started order still accepts additions: can_add=%v reason=%q", started.CanAddItems, started.AddItemsReason)
+	}
+	replayed, err := st.StartKitchenPreparation(ctx, kitchenSession, order.ID, "idem-preparation-start", "preparation-start", order.Version)
+	if err != nil {
+		t.Fatalf("replay start kitchen preparation: %v", err)
+	}
+	if replayed.Version != started.Version || replayed.KitchenStartedAt == nil {
+		t.Fatalf("unexpected preparation replay: %+v", replayed)
+	}
+	if _, err := st.CalculateAddition(ctx, clientListSession, order.ID, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 1}}, now.Add(time.Minute)); !errors.Is(err, core.ErrOrderStatusConflict) {
+		t.Fatalf("addition after kitchen start should conflict, got %v", err)
+	}
+	kitchenOrders, err := st.KitchenOrders(ctx, kitchenSession)
+	if err != nil {
+		t.Fatalf("list kitchen orders: %v", err)
+	}
+	if len(kitchenOrders) != 1 || kitchenOrders[0].ID != order.ID || kitchenOrders[0].KitchenStartedAt == nil {
+		t.Fatalf("kitchen preparation marker missing from list: %+v", kitchenOrders)
+	}
+	var notificationsAfter int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM notification_jobs WHERE order_id=$1`, order.ID).Scan(&notificationsAfter); err != nil {
+		t.Fatalf("count notifications after preparation: %v", err)
+	}
+	if notificationsAfter != notificationsBefore {
+		t.Fatalf("preparation generated notifications: before=%d after=%d", notificationsBefore, notificationsAfter)
+	}
+
+	reset, err := st.ResetKitchenPreparation(ctx, kitchenSession, order.ID, "idem-preparation-reset", "preparation-reset", started.Version)
+	if err != nil {
+		t.Fatalf("reset kitchen preparation: %v", err)
+	}
+	if reset.KitchenStartedAt != nil || reset.FulfillmentStatus != core.StatusNew || reset.Version != started.Version+1 {
+		t.Fatalf("unexpected reset order: %+v", reset)
+	}
+	var eventCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)::int FROM order_events
+		WHERE order_id=$1 AND action IN ('kitchen_preparation_started', 'kitchen_preparation_reset')
+	`, order.ID).Scan(&eventCount); err != nil {
+		t.Fatalf("count preparation events: %v", err)
+	}
+	if eventCount != 2 {
+		t.Fatalf("preparation event count=%d, want 2", eventCount)
+	}
+}
+
 func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)

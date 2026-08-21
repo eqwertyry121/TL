@@ -24,6 +24,8 @@ export interface StaffApi {
   listKitchenOrders(token: string, signal?: AbortSignal): Promise<{ orders: Order[] }>;
   listCourierOrders(token: string, signal?: AbortSignal): Promise<{ orders: Order[] }>;
   sendCourierETA(token: string, id: string, minutes: number): Promise<{ ok: boolean }>;
+  startKitchenPreparation(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
+  resetKitchenPreparation(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
   markReady(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
   markPickupCollected(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
   markDelivered(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
@@ -175,6 +177,8 @@ function realApi(baseURL: string, appEnv: string): StaffApi {
     listKitchenOrders: (token, signal) => get(`${baseURL}/api/v1/kitchen/orders`, token, signal),
     listCourierOrders: (token, signal) => get(`${baseURL}/api/v1/courier/orders`, token, signal),
     sendCourierETA: (token, id, minutes) => post(`${baseURL}/api/v1/courier/orders/${id}/eta`, { minutes }, token),
+    startKitchenPreparation: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/start`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
+    resetKitchenPreparation: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/preparation/reset`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
     markReady: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/ready`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
     markPickupCollected: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/picked-up`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
     markDelivered: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/courier/orders/${id}/delivered`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
@@ -206,6 +210,12 @@ function demoApi(role: StaffRole): StaffApi {
     async sendCourierETA() {
       return { ok: true };
     },
+    async startKitchenPreparation(_token, id) {
+      return updateDemoPreparation(id, true);
+    },
+    async resetKitchenPreparation(_token, id) {
+      return updateDemoPreparation(id, false);
+    },
     async markReady(_token, id) {
       const order = loadDemoOrders().find((entry) => entry.id === id);
       return transitionDemoOrder(id, "NEW", orderFulfillmentType(order!) === "pickup" ? "READY_FOR_PICKUP" : "OUT_FOR_DELIVERY");
@@ -230,6 +240,8 @@ function unconfiguredApi(): StaffApi {
     listKitchenOrders: fail,
     listCourierOrders: fail,
     sendCourierETA: fail,
+    startKitchenPreparation: fail,
+    resetKitchenPreparation: fail,
     markReady: fail,
     markPickupCollected: fail,
     markDelivered: fail,
@@ -351,6 +363,24 @@ function transitionDemoOrder(id: string, from: Order["fulfillment_status"], to: 
     version: order.version + 1,
     ready_at: to === "OUT_FOR_DELIVERY" || to === "READY_FOR_PICKUP" ? now : order.ready_at,
     delivered_at: to === "DELIVERED" ? now : order.delivered_at,
+  };
+  orders[index] = next;
+  saveDemoOrders(orders);
+  window.dispatchEvent(new StorageEvent("storage", { key: demoOrdersKey }));
+  return stripDemo(next);
+}
+
+function updateDemoPreparation(id: string, started: boolean): Order {
+  const orders = loadDemoOrders();
+  const index = orders.findIndex((order) => order.id === id);
+  const order = orders[index];
+  if (!order || order.fulfillment_status !== "NEW" || Boolean(order.kitchen_started_at) === started) {
+    throw Object.assign(new Error("ORDER_STATUS_CONFLICT"), { code: "ORDER_STATUS_CONFLICT" });
+  }
+  const next: DemoOrder = {
+    ...order,
+    kitchen_started_at: started ? new Date().toISOString() : undefined,
+    version: order.version + 1,
   };
   orders[index] = next;
   saveDemoOrders(orders);

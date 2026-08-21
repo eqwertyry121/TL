@@ -371,6 +371,7 @@ type Order struct {
 	Locale                     string            `json:"locale"`
 	Version                    int               `json:"version"`
 	CreatedAt                  time.Time         `json:"created_at"`
+	KitchenStartedAt           *time.Time        `json:"kitchen_started_at,omitempty"`
 	ReadyAt                    *time.Time        `json:"ready_at,omitempty"`
 	PickupAt                   *time.Time        `json:"pickup_at,omitempty"`
 	PickupOriginalAt           *time.Time        `json:"pickup_original_at,omitempty"`

@@ -8,19 +8,20 @@
 ```text
 Клиент создал заказ
         ↓ автоматически
-Kitchen: NEW
+Kitchen: NEW (НОВЫЕ → В ПРОЦЕССЕ через kitchen_started_at)
         ↓ одна кнопка «ЗАКАЗ ГОТОВ»
 Courier + Client получают сообщение
         ↓
 Courier: «ДОСТАВЛЕНО»
 ```
 
-Кухня не принимает заказ и не отмечает начало приготовления. Courier не
+Кухня не принимает заказ; начало приготовления отмечается одним свайпом без
+нового fulfillment status. Courier не
 назначает себя и не нажимает «забрал».
 
 ## Убрано
 
-- `PREPARING` и `READY_FOR_PICKUP`;
+- `PREPARING` как fulfillment status;
 - kanban кухни;
 - stop-list у кухни;
 - несколько курьеров, claim и assignment;

@@ -306,6 +306,22 @@ paths:
       responses:
         "200":
           description: Delivery moves to OUT_FOR_DELIVERY and notifies client/courier. Pickup moves to READY_FOR_PICKUP and notifies only the client.
+  /kitchen/orders/{id}/start:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      responses:
+        "200":
+          description: Marks a NEW order as being prepared by the kitchen without changing its customer-facing fulfillment status or sending notifications.
+  /kitchen/orders/{id}/preparation/reset:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      responses:
+        "200":
+          description: Returns an in-progress NEW order to the kitchen new lane without changing its customer-facing fulfillment status.
   /kitchen/orders/{id}/picked-up:
     post:
       parameters:
