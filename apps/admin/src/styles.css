@@ -2748,7 +2748,6 @@ button:hover {
   background: rgba(255, 253, 248, 0.88);
 }
 
-.reservation-admin-row.is-cancelled { opacity: 0.56; }
 .reservation-admin-time,
 .reservation-admin-main { display: grid; gap: 0.15rem; }
 .reservation-admin-time { min-width: 3.7rem; color: var(--accent); }
@@ -2756,7 +2755,6 @@ button:hover {
 .reservation-admin-time span,
 .reservation-admin-main span { color: var(--muted); font-size: 0.85rem; }
 .reservation-admin-main a { color: var(--accent); }
-.reservation-cancelled { color: var(--muted); font-size: 0.82rem; font-weight: 800; }
 
 @media (max-width: 540px) {
   .reservation-admin-row { grid-template-columns: auto minmax(0, 1fr); }

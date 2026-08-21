@@ -1188,8 +1188,8 @@ function DishForm({
 function ReservationsTab({ reservations, focusDate, onCancel }: { reservations: Reservation[]; focusDate: string; onCancel(reservation: Reservation): void }) {
   const days = useMemo(() => reservationAdminDays(7), []);
   const [selectedDate, setSelectedDate] = useState(days[0]);
-  const selectedReservations = reservations.filter((reservation) => reservation.date === selectedDate);
-  const activeCount = selectedReservations.filter((reservation) => reservation.status === "CONFIRMED").length;
+	const selectedReservations = reservations.filter((reservation) => reservation.date === selectedDate && reservation.status === "CONFIRMED");
+	const activeCount = selectedReservations.length;
 
 	useEffect(() => {
 		if (focusDate && days.includes(focusDate)) setSelectedDate(focusDate);
@@ -1233,17 +1233,16 @@ function ReservationsTab({ reservations, focusDate, onCancel }: { reservations: 
         {selectedReservations.length > 0 ? (
           <div className="reservation-admin-list">
             {selectedReservations.map((reservation) => {
-              const cancelled = reservation.status === "CANCELLED";
               const username = (reservation.client_username || "").replace(/^@/, "");
               const client = username ? `@${username}` : reservation.client_first_name || "Клиент";
               return (
-                <article className={cancelled ? "reservation-admin-row is-cancelled" : "reservation-admin-row"} key={reservation.id}>
+                <article className="reservation-admin-row" key={reservation.id}>
                   <div className="reservation-admin-time"><strong>{reservation.start_hour}:00</strong><span>{reservation.end_hour}:00</span></div>
                   <div className="reservation-admin-main">
                     <strong>{username ? <a href={`https://t.me/${username}`} target="_blank" rel="noreferrer">{client}</a> : client}</strong>
                     <span>{reservation.guests} гостей · {reservation.table_label}</span>
                   </div>
-                  {cancelled ? <span className="reservation-cancelled">Отменена</span> : <button className="danger-outline" type="button" onClick={() => onCancel(reservation)}>Освободить</button>}
+                  <button className="danger-outline" type="button" onClick={() => onCancel(reservation)}>Освободить</button>
                 </article>
               );
             })}
