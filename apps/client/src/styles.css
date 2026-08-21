@@ -1939,13 +1939,6 @@ textarea {
   font-weight: 900;
 }
 
-.payment-coming-soon-note {
-  display: grid;
-  border-radius: 0.75rem;
-  padding: 0.72rem 0.8rem;
-  background: rgba(200, 155, 60, 0.1);
-}
-
 .fulfillment-selector button:disabled {
   cursor: not-allowed;
   opacity: .48;
