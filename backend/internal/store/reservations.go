@@ -18,7 +18,7 @@ const (
 	reservationTimezone  = "Europe/Belgrade"
 	reservationDays      = 7
 	reservationFirstHour = 13
-	reservationLastHour  = 20
+	reservationLastHour  = 21
 	reservationDuration  = 2
 )
 

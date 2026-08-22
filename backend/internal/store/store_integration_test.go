@@ -731,7 +731,7 @@ func TestReservationsUseSharedCapacityAndOneActiveBookingPerClient(t *testing.T)
 		t.Fatalf("idempotent replay = (%s, %v), want %s", replayed.ID, err, first.ID)
 	}
 	_, err = st.CreateReservation(ctx, firstClient, store.CreateReservationInput{
-		Date: date, StartHour: 20, Guests: 2, Locale: "ru",
+		Date: date, StartHour: 21, Guests: 2, Locale: "ru",
 	}, "reservation-second-for-same-client", now)
 	if !errors.Is(err, core.ErrActiveReservationExists) {
 		t.Fatalf("second active reservation error = %v, want %v", err, core.ErrActiveReservationExists)
@@ -757,6 +757,7 @@ func TestReservationsUseSharedCapacityAndOneActiveBookingPerClient(t *testing.T)
 	if err != nil {
 		t.Fatalf("reservation availability: %v", err)
 	}
+	lastSlotAvailable := false
 	for _, day := range availability.Days {
 		if day.Date != date {
 			continue
@@ -765,7 +766,13 @@ func TestReservationsUseSharedCapacityAndOneActiveBookingPerClient(t *testing.T)
 			if hour == 18 || hour == 19 {
 				t.Fatalf("occupied overlapping hour %d was returned as available", hour)
 			}
+			if hour == 21 {
+				lastSlotAvailable = true
+			}
 		}
+	}
+	if !lastSlotAvailable {
+		t.Fatal("expected final reservation slot 21:00 to be available")
 	}
 
 	if _, err := st.CancelReservation(ctx, thirdClient, first.ID, false); !errors.Is(err, core.ErrForbidden) {
