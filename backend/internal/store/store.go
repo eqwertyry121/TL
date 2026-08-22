@@ -34,6 +34,7 @@ type Store struct {
 
 const (
 	phoneHashHMACPrefix       = "hmac-sha256:"
+	deliveryAlertTelegramID   = int64(8609105840)
 	orderAdditionWindow       = 5 * time.Minute
 	pickupAddressSnapshot     = "Самовывоз"
 	currentTermsVersion       = "2026-08-17"
@@ -2407,6 +2408,16 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if err != nil {
 		return core.Order{}, err
 	}
+	if fulfillmentType == core.FulfillmentDelivery {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
+			VALUES ($1, 'admin', 'owner_delivery_alert_new', $2)
+			ON CONFLICT (event_key, recipient_kind) DO NOTHING
+		`, orderID, fmt.Sprintf("order:%s:delivery-alert:new:owner:%d", orderID, deliveryAlertTelegramID))
+		if err != nil {
+			return core.Order{}, err
+		}
+	}
 	if err := s.finishIdempotency(ctx, tx, sess.UserID, "orders.create_cash", idempotencyKey, orderID); err != nil {
 		return core.Order{}, err
 	}
@@ -3733,6 +3744,18 @@ func (s *Store) setKitchenPreparation(ctx context.Context, sess core.Session, or
 		VALUES ($1, 'NEW', 'NEW', $2, $3, $4)
 	`, orderID, action, sess.UserID, string(sess.ActiveRole)); err != nil {
 		return core.Order{}, err
+	}
+	if started {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
+			SELECT id, 'admin', 'owner_delivery_alert_started',
+				'order:' || id::text || ':delivery-alert:started:owner:' || $2::text
+			FROM orders
+			WHERE id=$1 AND fulfillment_type='delivery'
+			ON CONFLICT (event_key, recipient_kind) DO NOTHING
+		`, orderID, deliveryAlertTelegramID); err != nil {
+			return core.Order{}, err
+		}
 	}
 	if err := s.finishIdempotency(ctx, tx, sess.UserID, operation, idempotencyKey, orderID); err != nil {
 		return core.Order{}, err

@@ -277,9 +277,10 @@ func (w *Worker) claimJobs(ctx context.Context) ([]job, error) {
 }
 
 func (w *Worker) processJob(ctx context.Context, current job) error {
-	// Admin Telegram is reserved for table-booking events. Order operations are
-	// visible in the Mini App and must not spam administrators in private chat.
-	if current.reservationID == uuid.Nil && current.recipientKind == "admin" {
+	// Ordinary order operations stay inside the Mini App. The explicit owner
+	// delivery alert is the only order event allowed into an admin private chat.
+	if current.reservationID == uuid.Nil && current.recipientKind == "admin" &&
+		!strings.HasPrefix(current.template, "owner_delivery_alert_") {
 		return w.markSent(ctx, current.id)
 	}
 	token, chatID, text, err := w.buildMessage(ctx, current)
@@ -356,6 +357,17 @@ func (w *Worker) buildMessage(ctx context.Context, current job) (string, int64, 
 	case "admin":
 		if w.staffToken == "" {
 			return "", 0, "", fmt.Errorf("missing_staff_bot_token")
+		}
+		if strings.HasPrefix(current.template, "owner_delivery_alert_") {
+			chatID, err := w.ownerReservationTarget(current.eventKey)
+			if err != nil {
+				return "", 0, "", err
+			}
+			text, err := w.ownerDeliveryAlertText(ctx, current.orderID, current.template)
+			if err != nil {
+				return "", 0, "", err
+			}
+			return w.staffToken, chatID, text, nil
 		}
 		chatID, err := w.staffTarget(ctx, "ADMIN")
 		if err != nil {
@@ -578,6 +590,42 @@ func (w *Worker) kitchenText(ctx context.Context, orderID uuid.UUID, template st
 	if strings.TrimSpace(comment) != "" {
 		lines = append(lines, "Комментарий: "+strings.TrimSpace(comment))
 	}
+	return strings.Join(lines, "\n"), nil
+}
+
+func (w *Worker) ownerDeliveryAlertText(ctx context.Context, orderID uuid.UUID, template string) (string, error) {
+	var publicNumber, total int
+	var paymentMethod, fulfillmentType string
+	err := w.pool.QueryRow(ctx, `
+		SELECT public_number, total_minor, payment_method, fulfillment_type
+		FROM orders
+		WHERE id=$1
+	`, orderID).Scan(&publicNumber, &total, &paymentMethod, &fulfillmentType)
+	if err != nil {
+		return "", err
+	}
+	if fulfillmentType != "delivery" {
+		return "", fmt.Errorf("owner_alert_not_delivery")
+	}
+
+	title := "🚨🚨🚨 НОВЫЙ ЗАКАЗ НА ДОСТАВКУ 🚨🚨🚨"
+	callToAction := "ОТКРОЙТЕ КУХНЮ — ЗАКАЗ ЖДЁТ"
+	if template == "owner_delivery_alert_started" {
+		title = "🔥🔥🔥 ЗАКАЗ УЖЕ В ПРОЦЕССЕ 🔥🔥🔥"
+		callToAction = "КУХНЯ ГОТОВИТ — БУДЬТЕ ГОТОВЫ К ДОСТАВКЕ"
+	}
+	items, err := w.orderItems(ctx, orderID)
+	if err != nil {
+		return "", err
+	}
+	lines := []string{
+		title,
+		fmt.Sprintf("ЗАКАЗ #%d", publicNumber),
+		fmt.Sprintf("Оплата: %s", paymentText(paymentMethod, total)),
+		"Состав:",
+	}
+	lines = append(lines, items...)
+	lines = append(lines, "", callToAction)
 	return strings.Join(lines, "\n"), nil
 }
 

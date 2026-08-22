@@ -319,10 +319,14 @@ func TestStaffTargetSkipsAdminForOperationalNotifications(t *testing.T) {
 }
 
 func TestOwnerReservationTargetAllowsOnlyConfiguredOwners(t *testing.T) {
-	worker := &Worker{ownerTelegramIDs: []int64{1048084234, 8241921060}}
+	worker := &Worker{ownerTelegramIDs: []int64{1048084234, 8241921060, 8609105840}}
 	got, err := worker.ownerReservationTarget("reservation:123:created:owner:8241921060")
 	if err != nil || got != 8241921060 {
 		t.Fatalf("owner reservation target = (%d, %v)", got, err)
+	}
+	got, err = worker.ownerReservationTarget("order:123:delivery-alert:new:owner:8609105840")
+	if err != nil || got != 8609105840 {
+		t.Fatalf("delivery alert target = (%d, %v)", got, err)
 	}
 	if _, err := worker.ownerReservationTarget("reservation:123:created:owner:7000000000"); !errors.Is(err, errOperationalStaffUnavailable) {
 		t.Fatalf("unconfigured owner error = %v, want %v", err, errOperationalStaffUnavailable)

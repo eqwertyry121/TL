@@ -1000,6 +1000,7 @@ func TestMarkReadyPersistsStatusBeforeNotificationDelivery(t *testing.T) {
 		"kitchen": 1,
 		"client":  1,
 		"courier": 1,
+		"admin":   1,
 	})
 
 	replayedOrder, err := st.MarkReady(ctx, kitchenSession, order.ID, "idem-ready-before-telegram", "ready-before-telegram-hash")
@@ -1013,6 +1014,7 @@ func TestMarkReadyPersistsStatusBeforeNotificationDelivery(t *testing.T) {
 		"kitchen": 1,
 		"client":  1,
 		"courier": 1,
+		"admin":   1,
 	})
 }
 
@@ -1067,8 +1069,21 @@ func TestKitchenPreparationStateIsIdempotentAndBlocksAdditions(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM notification_jobs WHERE order_id=$1`, order.ID).Scan(&notificationsAfter); err != nil {
 		t.Fatalf("count notifications after preparation: %v", err)
 	}
-	if notificationsAfter != notificationsBefore {
-		t.Fatalf("preparation generated notifications: before=%d after=%d", notificationsBefore, notificationsAfter)
+	if notificationsAfter != notificationsBefore+1 {
+		t.Fatalf("preparation alert count: before=%d after=%d", notificationsBefore, notificationsAfter)
+	}
+	var preparationAlerts int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)::int
+		FROM notification_jobs
+		WHERE order_id=$1 AND recipient_kind='admin'
+			AND template='owner_delivery_alert_started'
+			AND event_key LIKE '%:owner:8609105840'
+	`, order.ID).Scan(&preparationAlerts); err != nil {
+		t.Fatalf("count preparation owner alerts: %v", err)
+	}
+	if preparationAlerts != 1 {
+		t.Fatalf("preparation owner alerts=%d, want 1", preparationAlerts)
 	}
 
 	reset, err := st.ResetKitchenPreparation(ctx, kitchenSession, order.ID, "idem-preparation-reset", "preparation-reset", started.Version)
