@@ -56,6 +56,7 @@ var ownerTesterTelegramIDs = map[int64]struct{}{
 	1048084234: {},
 	8241921060: {},
 	8609105840: {},
+	7604602332: {},
 }
 
 type CreateOrderInput struct {
@@ -4708,7 +4709,7 @@ func (s *Store) ensureNoOtherActiveCourier(ctx context.Context, q staffQueryer, 
 		WHERE role='COURIER'
 			AND active=true
 			AND id<>$1
-			AND telegram_user_id NOT IN (1048084234, 8241921060, 8609105840)
+			AND telegram_user_id NOT IN (1048084234, 8241921060, 8609105840, 7604602332)
 	`, id).Scan(&count); err != nil {
 		return err
 	}

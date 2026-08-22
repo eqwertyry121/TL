@@ -233,7 +233,7 @@ func bootstrapOwnerTelegramIDs() []int64 {
 		if legacy := strings.TrimSpace(os.Getenv("BOOTSTRAP_OWNER_TELEGRAM_ID")); legacy != "" {
 			raw = legacy
 		} else {
-			raw = "1048084234,8241921060,8609105840"
+			raw = "1048084234,8241921060,8609105840,7604602332"
 		}
 	}
 	parts := strings.Split(raw, ",")

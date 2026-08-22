@@ -1,7 +1,7 @@
 import type { Role } from "./generated";
 
 export const OWNER_TELEGRAM_ID = 1048084234;
-export const OWNER_TELEGRAM_IDS = [OWNER_TELEGRAM_ID, 8241921060, 8609105840] as const;
+export const OWNER_TELEGRAM_IDS = [OWNER_TELEGRAM_ID, 8241921060, 8609105840, 7604602332] as const;
 
 const localPorts: Record<Role, string> = {
   CLIENT: "5173",

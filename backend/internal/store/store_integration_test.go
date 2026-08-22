@@ -2011,6 +2011,7 @@ func assertReservationOwnerJobs(t *testing.T, ctx context.Context, pool *pgxpool
 	}
 	want := []string{
 		eventKey + ":owner:1048084234",
+		eventKey + ":owner:7604602332",
 		eventKey + ":owner:8241921060",
 		eventKey + ":owner:8609105840",
 	}

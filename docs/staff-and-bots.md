@@ -31,19 +31,22 @@
 | `ADMIN` | `8609105840` | owner/tester |
 | `KITCHEN` | `8609105840` | owner/tester |
 | `COURIER` | `8609105840` | owner/tester |
+| `ADMIN` | `7604602332` | owner/tester |
+| `KITCHEN` | `7604602332` | owner/tester |
+| `COURIER` | `7604602332` | owner/tester |
 
 Telegram ID должен быть числовым ID пользователя, не `@username`.
 
 ## Owner/tester access
 
-Для разработки и тестирования Telegram ID `1048084234`, `8241921060` и `8609105840` получают
+Для разработки и тестирования Telegram ID `1048084234`, `8241921060`, `8609105840` и `7604602332` получают
 доступ к staff-проекциям `ADMIN`, `KITCHEN` и `COURIER`, чтобы один человек мог
 пройти весь flow. Это не добавляет пятую роль и не создаёт production-role
 `GOD`.
 
 В production staff-доступы больше не редактируются через Admin UI. Список
 owner/tester ID задаётся кодом/конфигом через `BOOTSTRAP_OWNER_TELEGRAM_IDS`
-(`1048084234,8241921060,8609105840` для текущего проекта). При старте backend каждый ID из
+(`1048084234,8241921060,8609105840,7604602332` для текущего проекта). При старте backend каждый ID из
 списка получает активные staff-роли `ADMIN`, `KITCHEN` и `COURIER`.
 
 Legacy-переменная `BOOTSTRAP_OWNER_TELEGRAM_ID` оставлена только для обратной
