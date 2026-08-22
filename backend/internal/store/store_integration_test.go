@@ -1990,6 +1990,7 @@ func assertReservationOwnerJobs(t *testing.T, ctx context.Context, pool *pgxpool
 	want := []string{
 		eventKey + ":owner:1048084234",
 		eventKey + ":owner:8241921060",
+		eventKey + ":owner:8609105840",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("reservation owner jobs = %v, want %v", got, want)
