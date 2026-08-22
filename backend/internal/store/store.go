@@ -3749,7 +3749,7 @@ func (s *Store) setKitchenPreparation(ctx context.Context, sess core.Session, or
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
 			SELECT id, 'admin', 'owner_delivery_alert_started',
-				'order:' || id::text || ':delivery-alert:started:owner:' || $2::text
+				'order:' || id::text || ':delivery-alert:started:owner:' || $2::bigint::text
 			FROM orders
 			WHERE id=$1 AND fulfillment_type='delivery'
 			ON CONFLICT (event_key, recipient_kind) DO NOTHING
