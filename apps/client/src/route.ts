@@ -18,6 +18,11 @@ export function currentRoute(): Route {
   return { name: "menu" };
 }
 
+export function routeFromStartParam(route: Route, startParam: string): Route {
+  if (route.name === "menu" && startParam === "booking") return { name: "booking" };
+  return route;
+}
+
 export function routeToHash(route: Route): string {
   switch (route.name) {
     case "menu":

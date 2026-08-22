@@ -13,6 +13,7 @@ interface TelegramWebApp {
   platform?: string;
   initDataUnsafe?: {
     user?: TelegramUserProfile;
+    start_param?: string;
   };
   BackButton?: TelegramBackButton;
   LocationManager?: TelegramLocationManager;
@@ -207,6 +208,13 @@ export function haptic(): void {
 
 export function rawInitData(): string {
   return telegram()?.initData || "";
+}
+
+export function miniAppStartParam(): string {
+  const unsafeValue = telegram()?.initDataUnsafe?.start_param;
+  const queryValue = new URLSearchParams(window.location.search).get("tgWebAppStartParam");
+  const value = String(unsafeValue || queryValue || "").trim();
+  return /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : "";
 }
 
 function dismissSoftKeyboard(): void {

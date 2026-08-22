@@ -11,7 +11,7 @@ import { t } from "./i18n";
 import { Icon } from "./Icon";
 import { termsVersion } from "./legal-version";
 import { maskPhone, money } from "./money";
-import { currentRoute, navigate, replaceRoute, routeToHash } from "./route";
+import { currentRoute, navigate, replaceRoute, routeFromStartParam, routeToHash } from "./route";
 import {
   clearCart,
   clearCheckoutProgress,
@@ -35,6 +35,7 @@ import {
 import {
   haptic,
   initialLocale,
+  miniAppStartParam,
   openTelegramLink,
   rawInitData,
   requestTelegramContact,
@@ -62,7 +63,7 @@ function isPublicInformationRoute(route: Route): boolean {
 }
 
 export function App() {
-  const [entryRoute, setEntryRoute] = useState<Route>(currentRoute);
+  const [entryRoute, setEntryRoute] = useState<Route>(initialClientRoute);
 
   useEffect(() => {
     const onHash = () => setEntryRoute(currentRoute());
@@ -79,7 +80,7 @@ export function App() {
 }
 
 function ClientMiniApp() {
-  const [route, setRoute] = useState<Route>(currentRoute);
+  const [route, setRoute] = useState<Route>(initialClientRoute);
   const [locale, setLocale] = useState<Locale>(() => loadLocale(initialLocale()));
   const [cart, setCart] = useState<CartState>(loadCart);
   const [additionCart, setAdditionCart] = useState<CartState>({ version: 1, lines: {} });
@@ -204,7 +205,13 @@ function ClientMiniApp() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  useEffect(() => syncBackButton(route, () => window.history.back()), [route]);
+  useEffect(() => syncBackButton(route, () => {
+    if (route.name === "booking" && !window.location.hash) {
+      navigate({ name: "menu" });
+      return;
+    }
+    window.history.back();
+  }), [route]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -855,6 +862,10 @@ function ClientMiniApp() {
       {confirmDialog && <ConfirmDialog dialog={confirmDialog} onClose={closeConfirm} />}
     </Shell>
   );
+}
+
+function initialClientRoute(): Route {
+  return routeFromStartParam(currentRoute(), miniAppStartParam());
 }
 
 function ConfirmDialog({ dialog, onClose }: { dialog: ConfirmDialogState; onClose(confirmed: boolean): void }) {

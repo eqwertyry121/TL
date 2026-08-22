@@ -54,6 +54,18 @@ test("client root fallback with Telegram initData does not trigger a second docu
   assertNotIncludes(source, "function TelegramMainRedirect");
 });
 
+test("client Main Mini App deep link can open table booking directly", () => {
+  const appSource = readSource("apps/client/src/App.tsx");
+  const telegramSource = readSource("apps/client/src/telegram.ts");
+  const routeSource = readSource("apps/client/src/route.ts");
+
+  assertIncludes(appSource, "routeFromStartParam(currentRoute(), miniAppStartParam())");
+  assertIncludes(telegramSource, "initDataUnsafe?.start_param");
+  assertIncludes(telegramSource, 'get("tgWebAppStartParam")');
+  assertIncludes(routeSource, 'startParam === "booking"');
+  assertIncludes(routeSource, 'return { name: "booking" }');
+});
+
 test("client legal pages stay available without Telegram authentication", () => {
   const appSource = readSource("apps/client/src/App.tsx");
   const routeSource = readSource("apps/client/src/route.ts");
