@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - test
   pull_request:
   workflow_dispatch:
 
@@ -164,3 +165,152 @@ jobs:
         run: |
           ssh -i ~/.ssh/tk_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
             "cd '$DEPLOY_PATH/deploy' && APP_BUILD_SHA='${{ github.sha }}' docker compose --env-file .env.production -p takolako -f docker-compose.api.yml up -d --build --remove-orphans && docker compose --env-file .env.production -p takolako -f docker-compose.api.yml exec -T app wget -qO- http://127.0.0.1:8080/ready >/dev/null && sh ./maintenance.sh"
+
+  deploy-test:
+    needs: backend
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/test' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: test
+      url: ${{ vars.TK_TEST_BASE_URL || 'https://test.takolako.site' }}
+    env:
+      DEPLOY_HOST: ${{ secrets.TK_DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.TK_DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.TK_DEPLOY_SSH_KEY }}
+      DEPLOY_PATH: ${{ secrets.TK_DEPLOY_PATH }}
+      TEST_BASE_URL: ${{ vars.TK_TEST_BASE_URL || 'https://test.takolako.site' }}
+    steps:
+      - name: Check test deploy configuration
+        id: deploy_config
+        shell: bash
+        env:
+          TEST_BOT_TOKEN: ${{ secrets.TK_TEST_CLIENT_BOT_TOKEN }}
+        run: |
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_USER" ] || [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_PATH" ] || [ -z "$TEST_BOT_TOKEN" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Test deploy skipped: production SSH secrets or TK_TEST_CLIENT_BOT_TOKEN is not configured."
+            exit 0
+          fi
+          case "$DEPLOY_PATH" in
+            ""|"/"|"/opt"|"/home"|"/srv")
+              echo "Unsafe TK_DEPLOY_PATH: $DEPLOY_PATH" >&2
+              exit 1
+              ;;
+          esac
+          case "$TEST_BASE_URL" in
+            https://*) ;;
+            *)
+              echo "TK_TEST_BASE_URL must be an https URL." >&2
+              exit 1
+              ;;
+          esac
+          echo "test_deploy_path=${DEPLOY_PATH}-test" >> "$GITHUB_OUTPUT"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.16.0
+
+      - name: Setup Node
+        if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Resolve test bot username
+        if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
+        id: test_bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TK_TEST_CLIENT_BOT_TOKEN }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const token = process.env.TELEGRAM_TOKEN;
+          const response = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+          const payload = await response.json();
+          if (!response.ok || !payload.ok || !payload.result?.username) {
+            throw new Error("Telegram getMe did not return a bot username");
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `username=${payload.result.username}\n`);
+          NODE
+
+      - name: Build test Mini Apps
+        if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
+        env:
+          VITE_APP_ENV: test
+          VITE_DEMO_MODE: "false"
+          VITE_API_BASE_URL: ${{ env.TEST_BASE_URL }}
+          VITE_BUILD_SHA: ${{ github.sha }}
+          VITE_LEGAL_BUSINESS_NAME: ${{ vars.LEGAL_BUSINESS_NAME }}
+          VITE_LEGAL_REGISTRATION_NUMBER: ${{ vars.LEGAL_REGISTRATION_NUMBER }}
+          VITE_LEGAL_TAX_ID: ${{ vars.LEGAL_TAX_ID }}
+          VITE_LEGAL_VAT_STATUS: ${{ vars.LEGAL_VAT_STATUS }}
+          VITE_LEGAL_REGISTERED_ADDRESS: ${{ vars.LEGAL_REGISTERED_ADDRESS }}
+          VITE_LEGAL_RESTAURANT_ADDRESS: ${{ vars.LEGAL_RESTAURANT_ADDRESS }}
+          VITE_LEGAL_EMAIL: ${{ vars.LEGAL_EMAIL }}
+          VITE_LEGAL_PHONE: ${{ vars.LEGAL_PHONE }}
+        run: |
+          pnpm install --frozen-lockfile
+          VITE_BASE_PATH=/ pnpm --filter @tk-delivery/client build
+          VITE_BASE_PATH=/kitchen/ pnpm --filter @tk-delivery/kitchen build
+          VITE_BASE_PATH=/courier/ pnpm --filter @tk-delivery/courier build
+          VITE_BASE_PATH=/admin/ pnpm --filter @tk-delivery/admin build
+          mkdir -p test-pages/main test-pages/kitchen test-pages/courier test-pages/admin
+          cp -R apps/client/dist/. test-pages/
+          cp test-pages/index.html test-pages/main/index.html
+          cp -R apps/kitchen/dist/. test-pages/kitchen/
+          cp -R apps/courier/dist/. test-pages/courier/
+          cp -R apps/admin/dist/. test-pages/admin/
+
+      - name: Install SSH key
+        if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/tk_deploy_key
+          chmod 600 ~/.ssh/tk_deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Sync isolated test stand
+        if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
+        env:
+          TEST_DEPLOY_PATH: ${{ steps.deploy_config.outputs.test_deploy_path }}
+        run: |
+          ssh -i ~/.ssh/tk_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" "install -d -m 750 '$TEST_DEPLOY_PATH' '$TEST_DEPLOY_PATH/frontend'"
+          rsync -az \
+            --exclude .git \
+            --exclude node_modules \
+            --exclude 'apps/*/dist' \
+            --exclude test-pages \
+            -e "ssh -i ~/.ssh/tk_deploy_key" \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:$TEST_DEPLOY_PATH/"
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/tk_deploy_key" \
+            test-pages/ "$DEPLOY_USER@$DEPLOY_HOST:$TEST_DEPLOY_PATH/frontend/"
+
+      - name: Initialize secrets and deploy test backend
+        if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
+        env:
+          TEST_DEPLOY_PATH: ${{ steps.deploy_config.outputs.test_deploy_path }}
+          TEST_BOT_USERNAME: ${{ steps.test_bot.outputs.username }}
+          TEST_BOT_TOKEN: ${{ secrets.TK_TEST_CLIENT_BOT_TOKEN }}
+        run: |
+          printf '%s\n' "$TEST_BOT_TOKEN" | ssh -i ~/.ssh/tk_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd '$TEST_DEPLOY_PATH/deploy' && TEST_BASE_URL='$TEST_BASE_URL' TEST_BOT_USERNAME='$TEST_BOT_USERNAME' TEST_DEPLOY_PATH='$TEST_DEPLOY_PATH' sh ./init-test-env.sh"
+          ssh -i ~/.ssh/tk_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd '$TEST_DEPLOY_PATH/deploy' && APP_BUILD_SHA='${{ github.sha }}' docker compose --env-file .env.test -p takolako-test -f docker-compose.test.yml up -d --build --remove-orphans && docker compose --env-file .env.test -p takolako-test -f docker-compose.test.yml exec -T app wget -qO- http://127.0.0.1:8080/ready >/dev/null"
+
+      - name: Verify public test stand and configure webhook
+        if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
+        env:
+          TEST_DEPLOY_PATH: ${{ steps.deploy_config.outputs.test_deploy_path }}
+        run: |
+          curl --fail --silent --show-error "$TEST_BASE_URL/ready" >/dev/null
+          ssh -i ~/.ssh/tk_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd '$TEST_DEPLOY_PATH/deploy' && sh ./configure-test-webhook.sh .env.test"

@@ -15,6 +15,9 @@ Production Mini App URL:
 Production API/webhook host:
 `https://api.takolako.site/`.
 
+Изолированный тестовый стенд обновляется из ветки `test`:
+`https://test.takolako.site/`. Инструкция: [docs/test-environment.md](docs/test-environment.md).
+
 Client Mini App локально:
 
 ```text
