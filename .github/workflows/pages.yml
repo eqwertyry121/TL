@@ -1,4 +1,4 @@
-name: Deploy GitHub Pages preview
+name: Deploy GitHub Pages
 
 on:
   workflow_run:
@@ -6,6 +6,7 @@ on:
       - Backend CI
     branches:
       - main
+      - test
     types:
       - completed
   workflow_dispatch:
@@ -21,16 +22,25 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_sha == github.sha) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout production branch
+        id: production_checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: main
+          path: production-source
+
+      - name: Checkout test branch
+        id: test_checkout
+        uses: actions/checkout@v4
+        with:
+          ref: test
+          path: test-source
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -41,27 +51,30 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
 
-      - name: Install dependencies
+      - name: Install production dependencies
+        working-directory: production-source
         run: pnpm install --frozen-lockfile
 
-      - name: Optimization contract checks
-        run: pnpm check
+      - name: Install test dependencies
+        working-directory: test-source
+        run: pnpm install --frozen-lockfile
 
-      - name: API deployment diagnostics
+      - name: Production contract checks
+        working-directory: production-source
         env:
           PERF_BASE_URL: https://api.takolako.site
-        run: pnpm perf:deployment-diagnostics
+        run: |
+          pnpm check
+          pnpm perf:deployment-diagnostics
 
-      - name: Build client Mini App
-        run: pnpm --filter @tk-delivery/client build
+      - name: Build production Mini Apps
+        working-directory: production-source
         env:
           VITE_APP_ENV: production
           VITE_DEMO_MODE: "false"
           VITE_API_BASE_URL: https://api.takolako.site
-          VITE_BASE_PATH: "/"
-          VITE_BUILD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          VITE_BUILD_SHA: ${{ steps.production_checkout.outputs.commit }}
           VITE_LEGAL_BUSINESS_NAME: ${{ vars.LEGAL_BUSINESS_NAME }}
           VITE_LEGAL_REGISTRATION_NUMBER: ${{ vars.LEGAL_REGISTRATION_NUMBER }}
           VITE_LEGAL_TAX_ID: ${{ vars.LEGAL_TAX_ID }}
@@ -70,45 +83,49 @@ jobs:
           VITE_LEGAL_RESTAURANT_ADDRESS: ${{ vars.LEGAL_RESTAURANT_ADDRESS }}
           VITE_LEGAL_EMAIL: ${{ vars.LEGAL_EMAIL }}
           VITE_LEGAL_PHONE: ${{ vars.LEGAL_PHONE }}
+        run: |
+          VITE_BASE_PATH=/ pnpm --filter @tk-delivery/client build
+          VITE_BASE_PATH=/kitchen/ pnpm --filter @tk-delivery/kitchen build
+          VITE_BASE_PATH=/courier/ pnpm --filter @tk-delivery/courier build
+          VITE_BASE_PATH=/admin/ pnpm --filter @tk-delivery/admin build
+          pnpm perf:budgets
 
-      - name: Build kitchen Mini App
-        run: pnpm --filter @tk-delivery/kitchen build
+      - name: Build test Mini Apps
+        working-directory: test-source
         env:
-          VITE_APP_ENV: production
+          VITE_APP_ENV: test
           VITE_DEMO_MODE: "false"
-          VITE_API_BASE_URL: https://api.takolako.site
-          VITE_BASE_PATH: "/kitchen/"
-          VITE_BUILD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          VITE_API_BASE_URL: https://api.takolako.site/testbranch-api
+          VITE_BUILD_SHA: ${{ steps.test_checkout.outputs.commit }}
+          VITE_LEGAL_BUSINESS_NAME: ${{ vars.LEGAL_BUSINESS_NAME }}
+          VITE_LEGAL_REGISTRATION_NUMBER: ${{ vars.LEGAL_REGISTRATION_NUMBER }}
+          VITE_LEGAL_TAX_ID: ${{ vars.LEGAL_TAX_ID }}
+          VITE_LEGAL_VAT_STATUS: ${{ vars.LEGAL_VAT_STATUS }}
+          VITE_LEGAL_REGISTERED_ADDRESS: ${{ vars.LEGAL_REGISTERED_ADDRESS }}
+          VITE_LEGAL_RESTAURANT_ADDRESS: ${{ vars.LEGAL_RESTAURANT_ADDRESS }}
+          VITE_LEGAL_EMAIL: ${{ vars.LEGAL_EMAIL }}
+          VITE_LEGAL_PHONE: ${{ vars.LEGAL_PHONE }}
+        run: |
+          VITE_BASE_PATH=/testbranch/ pnpm --filter @tk-delivery/client build
+          VITE_BASE_PATH=/testbranch/kitchen/ pnpm --filter @tk-delivery/kitchen build
+          VITE_BASE_PATH=/testbranch/courier/ pnpm --filter @tk-delivery/courier build
+          VITE_BASE_PATH=/testbranch/admin/ pnpm --filter @tk-delivery/admin build
+          pnpm perf:budgets
 
-      - name: Build courier Mini App
-        run: pnpm --filter @tk-delivery/courier build
-        env:
-          VITE_APP_ENV: production
-          VITE_DEMO_MODE: "false"
-          VITE_API_BASE_URL: https://api.takolako.site
-          VITE_BASE_PATH: "/courier/"
-          VITE_BUILD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-
-      - name: Build admin Mini App
-        run: pnpm --filter @tk-delivery/admin build
-        env:
-          VITE_APP_ENV: production
-          VITE_DEMO_MODE: "false"
-          VITE_API_BASE_URL: https://api.takolako.site
-          VITE_BASE_PATH: "/admin/"
-          VITE_BUILD_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-
-      - name: Check bundle budgets
-        run: pnpm perf:budgets
-
-      - name: Prepare Pages artifact
+      - name: Prepare combined Pages artifact
         run: |
           mkdir -p pages/main pages/kitchen pages/courier pages/admin
-          cp -R apps/client/dist/. pages/
+          mkdir -p pages/testbranch/main pages/testbranch/kitchen pages/testbranch/courier pages/testbranch/admin
+          cp -R production-source/apps/client/dist/. pages/
           cp pages/index.html pages/main/index.html
-          cp -R apps/kitchen/dist/. pages/kitchen/
-          cp -R apps/courier/dist/. pages/courier/
-          cp -R apps/admin/dist/. pages/admin/
+          cp -R production-source/apps/kitchen/dist/. pages/kitchen/
+          cp -R production-source/apps/courier/dist/. pages/courier/
+          cp -R production-source/apps/admin/dist/. pages/admin/
+          cp -R test-source/apps/client/dist/. pages/testbranch/
+          cp pages/testbranch/index.html pages/testbranch/main/index.html
+          cp -R test-source/apps/kitchen/dist/. pages/testbranch/kitchen/
+          cp -R test-source/apps/courier/dist/. pages/testbranch/courier/
+          cp -R test-source/apps/admin/dist/. pages/testbranch/admin/
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

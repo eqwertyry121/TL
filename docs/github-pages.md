@@ -10,6 +10,12 @@ Production адрес:
 https://takolako.site/
 ```
 
+Тестовая копия из ветки `test` публикуется рядом, не заменяя production:
+
+```text
+https://takolako.site/testbranch/
+```
+
 Этот URL указывается в Telegram/BotFather как Mini App URL.
 
 Backend и Telegram webhooks не живут на GitHub Pages. Для них используется:
@@ -26,13 +32,16 @@ https://api.takolako.site/
   - `/kitchen/` from `apps/kitchen/dist`
   - `/courier/` from `apps/courier/dist`
   - `/admin/` from `apps/admin/dist`
+  - `/testbranch/` and staff/admin subpaths from the same apps in branch `test`
 - Workflow: `.github/workflows/pages.yml`
 - В workflow используется официальный GitHub Pages deploy через Actions.
-- Frontend deploy запускается после успешного workflow `Backend CI` для того же
-  commit. API diagnostics больше не `continue-on-error`, поэтому Pages не
-  публикует frontend поверх неподнятого/устаревшего backend build.
+- Frontend deploy запускается после успешного `Backend CI` для `main` или
+  `test`. Workflow всегда собирает единый artifact: production из `main` и
+  тестовую копию из `test`, поэтому один deploy не удаляет другой.
 - Production frontend собирается с `VITE_API_BASE_URL=https://api.takolako.site`
   и ходит в backend по HTTPS.
+- Test frontend собирается с
+  `VITE_API_BASE_URL=https://api.takolako.site/testbranch-api`.
 
 ## Что нужно включить в GitHub
 
