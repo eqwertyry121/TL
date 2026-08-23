@@ -943,6 +943,32 @@ body.has-day-off-overlay {
   scroll-margin-top: clamp(7rem, 20dvh, 10rem);
 }
 
+.menu-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: clamp(0.75rem, 2vw, 1rem);
+  border-radius: var(--radius-md);
+  padding: 0.3rem;
+  background: #efe3d3;
+}
+
+.menu-mode-tabs button {
+  min-height: 2.75rem;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-md) - 0.25rem);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 850;
+}
+
+.menu-mode-tabs button.active {
+  border-color: rgba(107, 31, 42, 0.12);
+  background: #fffdf8;
+  color: var(--accent);
+}
+
 .menu-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -973,6 +999,20 @@ body.has-day-off-overlay {
     var(--surface-solid);
   isolation: isolate;
   transition: none;
+}
+
+.dish-card.combo-card {
+  grid-column: span 2;
+}
+
+.dish-card.combo-card .dish-art {
+  min-height: clamp(9rem, 25dvh, 13rem);
+}
+
+.dish-card.combo-card .link-title,
+.dish-card.combo-card .dish-body p {
+  min-height: 0;
+  -webkit-line-clamp: 3;
 }
 
 .dish-card::before {

@@ -46,6 +46,7 @@ import type { Api, AppData, Calculation, CashLocationChallenge, CartLine, CartSt
 const api = createApi();
 const clientBotMiniAppURL = "https://t.me/TakoLako_main_bot?startapp";
 const developerTelegramURL = "https://t.me/eqwertyry";
+const comboCategoryID = "66666666-6666-6666-6666-666666666001";
 const recommendedMenuItemIDs = new Set(["44444444-4444-4444-4444-444444444013"]);
 const Terms = lazy(() => import("./legal").then((module) => ({ default: module.Terms })));
 const Returns = lazy(() => import("./legal").then((module) => ({ default: module.Returns })));
@@ -1156,17 +1157,45 @@ function menuDisplayItems(categories: AppData["categories"]) {
 }
 
 function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
-  const flatItems = menuDisplayItems(categories);
+  const [menuMode, setMenuMode] = useState<"menu" | "combo">("menu");
+  const comboCategory = categories.find((category) => category.id === comboCategoryID);
+  const regularCategories = categories.filter((category) => category.id !== comboCategoryID);
+  const flatItems = menuDisplayItems(menuMode === "combo" ? (comboCategory ? [comboCategory] : []) : regularCategories);
+  const labels = locale === "sr"
+    ? { menu: "Meni", combo: "Kombo" }
+    : locale === "en"
+      ? { menu: "Menu", combo: "Combos" }
+      : { menu: "Меню", combo: "Комбо" };
   return (
     <div className="page">
       <section className="menu-section">
+        <div className="menu-mode-tabs" role="tablist" aria-label={labels.menu}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={menuMode === "menu"}
+            className={menuMode === "menu" ? "active" : ""}
+            onClick={() => setMenuMode("menu")}
+          >
+            {labels.menu}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={menuMode === "combo"}
+            className={menuMode === "combo" ? "active" : ""}
+            onClick={() => setMenuMode("combo")}
+          >
+            {labels.combo}
+          </button>
+        </div>
         <div className="menu-grid">
           {flatItems.map(({ item, visualIndex }) => {
             const qty = cart.lines[item.id]?.quantity || 0;
             const minQuantity = itemMinQuantity(item);
             const { description } = splitRecommendationDescription(item.description);
             return (
-              <article className={qty > 0 ? "dish-card in-cart" : "dish-card"} key={item.id}>
+              <article className={`${qty > 0 ? "dish-card in-cart" : "dish-card"}${menuMode === "combo" ? " combo-card" : ""}`} key={item.id}>
                 <DishVisual item={item} visualIndex={visualIndex} locale={locale} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
                 <div className="dish-body">
                   <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
