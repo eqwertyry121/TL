@@ -2875,6 +2875,11 @@ textarea {
 }
 
 @media (max-width: 32rem) {
+  .combo-strip .dish-art {
+    min-height: 0;
+    aspect-ratio: 3 / 2;
+  }
+
   .legal-nav {
     grid-template-columns: 1fr;
   }
