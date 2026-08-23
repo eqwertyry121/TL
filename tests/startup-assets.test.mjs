@@ -89,6 +89,8 @@ test("client shows combos inline without a separate transition control", () => {
   assertIncludes(styles, ".combo-contents li");
   assertIncludes(styles, ".combo-strip .dish-body");
   assertIncludes(styles, "grid-template-rows: auto 1fr auto auto");
+  assertIncludes(styles, ".combo-strip .dish-card");
+  assertNotIncludes(sliceBetween(styles, ".combo-strip .dish-body", ".combo-strip .link-title"), "height: 100%");
   assertIncludes(menuBody, "showBadge={!combo}");
   assertIncludes(menuBody, "{!combo && <span>{item.weight_text}</span>}");
   assertIncludes(styles, ".combo-strip .link-title");

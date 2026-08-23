@@ -997,6 +997,8 @@ body.has-day-off-overlay {
 }
 
 .combo-strip .dish-card {
+  display: grid;
+  grid-template-rows: auto 1fr;
   scroll-snap-align: start;
 }
 
@@ -1006,7 +1008,6 @@ body.has-day-off-overlay {
 
 .combo-strip .dish-body {
   grid-template-rows: auto 1fr auto auto;
-  height: 100%;
 }
 
 .combo-strip .link-title {
