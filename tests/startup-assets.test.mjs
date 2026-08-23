@@ -78,6 +78,11 @@ test("client shows combos inline without a separate transition control", () => {
   assertIncludes(menuBody, 'combo ? " combo-card" : ""');
   assertIncludes(menuBody, "combo-swipe-hint");
   assertIncludes(menuBody, "items.length");
+  assertIncludes(menuBody, "combo-nav");
+  assertIncludes(menuBody, "combo-pages");
+  assertIncludes(menuBody, "scrollTo");
+  assertIncludes(menuBody, "showBadge={!combo}");
+  assertIncludes(menuBody, "{!combo && <span>{item.weight_text}</span>}");
   assertIncludes(styles, ".combo-strip .link-title");
   assertIncludes(styles, ".combo-strip .dish-body p");
 

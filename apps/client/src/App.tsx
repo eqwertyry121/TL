@@ -1156,12 +1156,22 @@ function menuDisplayItems(categories: AppData["categories"]) {
     .map(({ item }, visualIndex) => ({ item, visualIndex }));
 }
 
+function scrollCombo(direction: -1 | 1) {
+  const strip = document.getElementById("combo-strip");
+  const firstCard = strip?.firstElementChild as HTMLElement | null;
+  if (!strip || !firstCard) return;
+  const step = firstCard.offsetWidth + parseFloat(getComputedStyle(strip).columnGap || "0");
+  const index = Math.round(strip.scrollLeft / step) + direction;
+  const card = strip.children[Math.max(0, Math.min(strip.children.length - 1, index))] as HTMLElement;
+  strip.scrollTo({ left: card.offsetLeft, behavior: "smooth" });
+}
+
 function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
   const comboCategory = categories.find((category) => category.id === comboCategoryID);
   const regularCategories = categories.filter((category) => category.id !== comboCategoryID);
   const regularItems = menuDisplayItems(regularCategories);
   const menuTitle = locale === "sr" ? "Meni" : locale === "en" ? "Menu" : "Меню";
-  const swipeLabel = locale === "sr" ? "prevucite" : locale === "en" ? "swipe" : "листайте";
+  const swipeLabel = locale === "sr" ? "prevucite kartice" : locale === "en" ? "swipe cards" : "листайте карточки";
   const groups = [
     ...(comboCategory?.items.length ? [{ key: "combo", title: comboCategory.title, items: menuDisplayItems([comboCategory]), combo: true }] : []),
     { key: "menu", title: menuTitle, items: regularItems, combo: false },
@@ -1173,39 +1183,59 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
           <section className="menu-group" key={key}>
             <div className="menu-group-head">
               <h2>{title}</h2>
-              {combo && <span className="combo-swipe-hint">{items.length} · {swipeLabel} →</span>}
+              {combo && <span className="combo-swipe-hint">← {swipeLabel} →</span>}
             </div>
-            <div className={combo ? "combo-strip" : "menu-grid"}>
-              {items.map(({ item, visualIndex }) => {
-                const qty = cart.lines[item.id]?.quantity || 0;
-                const minQuantity = itemMinQuantity(item);
-                const { description } = splitRecommendationDescription(item.description);
-                return (
-                  <article className={`${qty > 0 ? "dish-card in-cart" : "dish-card"}${combo ? " combo-card" : ""}`} key={item.id}>
-                    <DishVisual item={item} visualIndex={visualIndex} locale={locale} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
-                    <div className="dish-body">
-                      <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
-                        {item.title}
-                      </button>
-                      <p>{description}</p>
-                      <div className="meta-row">
-                        <span>{item.weight_text}</span>
-                        <strong>{money(item.price_minor)}</strong>
+            <div className={combo ? "combo-carousel" : undefined}>
+              {combo && <button className="combo-nav prev" type="button" aria-label="Предыдущее комбо" onClick={() => scrollCombo(-1)}>‹</button>}
+              <div id={combo ? "combo-strip" : undefined} className={combo ? "combo-strip" : "menu-grid"}>
+                {items.map(({ item, visualIndex }) => {
+                  const qty = cart.lines[item.id]?.quantity || 0;
+                  const minQuantity = itemMinQuantity(item);
+                  const { description } = splitRecommendationDescription(item.description);
+                  return (
+                    <article className={`${qty > 0 ? "dish-card in-cart" : "dish-card"}${combo ? " combo-card" : ""}`} key={item.id}>
+                      <DishVisual item={item} visualIndex={visualIndex} locale={locale} showBadge={!combo} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
+                      <div className="dish-body">
+                        <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
+                          {item.title}
+                        </button>
+                        <p>{description}</p>
+                        <div className="meta-row">
+                          {!combo && <span>{item.weight_text}</span>}
+                          <strong>{money(item.price_minor)}</strong>
+                        </div>
+                        <div className="row-actions">
+                          {qty > 0 ? (
+                            <Qty value={qty} onMinus={() => onSetLine(item, qty <= minQuantity ? 0 : qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />
+                          ) : (
+                            <button className="primary add-only" onClick={() => onSetLine(item, minQuantity)}>
+                              В корзину{minQuantity > 1 ? ` · ${minQuantity} шт` : ""}
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="row-actions">
-                        {qty > 0 ? (
-                          <Qty value={qty} onMinus={() => onSetLine(item, qty <= minQuantity ? 0 : qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />
-                        ) : (
-                          <button className="primary add-only" onClick={() => onSetLine(item, minQuantity)}>
-                            В корзину{minQuantity > 1 ? ` · ${minQuantity} шт` : ""}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
+                    </article>
+                  );
+                })}
+              </div>
+              {combo && <button className="combo-nav next" type="button" aria-label="Следующее комбо" onClick={() => scrollCombo(1)}>›</button>}
             </div>
+            {combo && (
+              <div className="combo-pages">
+                {items.map(({ item }, index) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-label={`Комбо ${index + 1}`}
+                    onClick={() => {
+                      const strip = document.getElementById("combo-strip");
+                      const card = strip?.children[index] as HTMLElement | undefined;
+                      if (strip && card) strip.scrollTo({ left: card.offsetLeft, behavior: "smooth" });
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </section>
         ))}
       </section>
@@ -1340,6 +1370,7 @@ function DishVisual({
   visualIndex,
   locale,
   hero = false,
+  showBadge = true,
   asButton = false,
   onClick,
 }: {
@@ -1347,6 +1378,7 @@ function DishVisual({
   visualIndex: number;
   locale: Locale;
   hero?: boolean;
+  showBadge?: boolean;
   asButton?: boolean;
   onClick?: () => void;
 }) {
@@ -1378,7 +1410,7 @@ function DishVisual({
         />
       )}
       <span className="dish-emoji">{foodVisual(item.title)}</span>
-      {item.weight_text && <small className="dish-badge">{item.weight_text}</small>}
+      {showBadge && item.weight_text && <small className="dish-badge">{item.weight_text}</small>}
     </>
   );
   if (asButton) {

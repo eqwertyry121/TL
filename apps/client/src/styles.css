@@ -964,6 +964,45 @@ body.has-day-off-overlay {
   white-space: nowrap;
 }
 
+.combo-carousel {
+  position: relative;
+  min-width: 0;
+}
+
+.combo-nav {
+  position: absolute;
+  top: 34%;
+  z-index: 5;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--color-primary-dark);
+  box-shadow: 0 0.35rem 1rem rgba(67, 20, 27, 0.3);
+  font-size: 2rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.combo-nav.prev { left: 0.35rem; }
+.combo-nav.next { right: 0.35rem; }
+
+.combo-pages {
+  display: flex;
+  justify-content: center;
+  gap: 0.42rem;
+}
+
+.combo-pages button {
+  width: 0.48rem;
+  height: 0.48rem;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: var(--accent);
+}
+
 .combo-strip {
   display: grid;
   grid-auto-flow: column;
@@ -998,14 +1037,6 @@ body.has-day-off-overlay {
   font-weight: 650;
   line-height: 1.45;
   -webkit-line-clamp: 5;
-}
-
-.combo-strip .meta-row span {
-  padding: 0.28rem 0.5rem;
-  border-radius: 999px;
-  background: rgba(200, 155, 60, 0.18);
-  color: var(--color-primary-dark);
-  font-weight: 800;
 }
 
 .combo-strip .meta-row strong {
