@@ -1239,7 +1239,19 @@ function ReservationsTab({ reservations, focusDate, onCancel }: { reservations: 
                 <article className="reservation-admin-row" key={reservation.id}>
                   <div className="reservation-admin-time"><strong>{reservation.start_hour}:00</strong><span>{reservation.end_hour}:00</span></div>
                   <div className="reservation-admin-main">
-                    <strong>{username ? <a href={`https://t.me/${username}`} target="_blank" rel="noreferrer">{client}</a> : client}</strong>
+                    <strong>{username ? (
+                      <a
+                        href={`https://t.me/${username}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          openTelegramLink(`https://t.me/${username}`);
+                        }}
+                      >
+                        {client}
+                      </a>
+                    ) : client}</strong>
                     <span>{reservation.guests} гостей · {reservation.table_label}</span>
                   </div>
                   <button className="danger-outline" type="button" onClick={() => onCancel(reservation)}>Освободить</button>
@@ -1536,7 +1548,7 @@ function OrderRow({ order, selected, onSelect }: { order: OrderSummary; selected
           <strong>#{order.public_number}</strong>
           <span>{createdText(order.created_at)}</span>
         </span>
-        <span className="order-row-client">{orderClientLabel(order)}</span>
+        <OrderSummaryClientLink order={order} />
         <span className="order-row-items">{fulfillmentText(order)}{order.fulfillment_type === "pickup" && order.pickup_at ? ` ${pickupDateTime(order.pickup_at)}` : ""} · {adminPaymentText(order)}</span>
       </span>
       <span className="order-row-side">
@@ -2515,6 +2527,33 @@ function OrderClientLink({ order }: { order: Order }) {
     >
       {label}
     </a>
+  );
+}
+
+function OrderSummaryClientLink({ order }: { order: OrderSummary }) {
+  const label = orderClientLabel(order);
+  const href = telegramUserLink(order);
+  if (!href) return <span className="order-row-client">{label}</span>;
+  return (
+    <span
+      className="order-row-client telegram-link"
+      role="link"
+      tabIndex={0}
+      title={`Открыть ЛС ${label}`}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        openTelegramLink(href);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        event.stopPropagation();
+        openTelegramLink(href);
+      }}
+    >
+      {label}
+    </span>
   );
 }
 

@@ -521,6 +521,7 @@ h1 {
 
 .customer-badge.is-link {
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .customer-badge b {

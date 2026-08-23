@@ -485,6 +485,7 @@ function CustomerBadge({ order }: { order: Order }) {
       target="_blank"
       rel="noreferrer"
       title={`Открыть ЛС ${clientLabel(order)}`}
+      onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();

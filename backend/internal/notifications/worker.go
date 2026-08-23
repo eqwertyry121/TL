@@ -10,10 +10,12 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	cryptobox "github.com/eqwertyry121/TL/backend/internal/crypto"
 	"github.com/google/uuid"
@@ -22,6 +24,18 @@ import (
 )
 
 var errOperationalStaffUnavailable = errors.New("operational_staff_unavailable")
+
+var (
+	telegramMentionRegexp  = regexp.MustCompile(`@[A-Za-z0-9_]{5,32}`)
+	telegramUsernameRegexp = regexp.MustCompile(`^[A-Za-z0-9_]{5,32}$`)
+)
+
+type telegramMessageEntity struct {
+	Type   string `json:"type"`
+	Offset int    `json:"offset"`
+	Length int    `json:"length"`
+	URL    string `json:"url"`
+}
 
 type Worker struct {
 	pool             *pgxpool.Pool
@@ -560,13 +574,15 @@ func (w *Worker) staffTarget(ctx context.Context, role string) (int64, error) {
 
 func (w *Worker) kitchenText(ctx context.Context, orderID uuid.UUID, template string) (string, error) {
 	var publicNumber, total int
-	var paymentMethod, comment, fulfillmentType, pickupTime string
+	var paymentMethod, comment, fulfillmentType, pickupTime, username string
 	err := w.pool.QueryRow(ctx, `
-		SELECT public_number, total_minor, payment_method, customer_comment, fulfillment_type,
+		SELECT o.public_number, o.total_minor, o.payment_method, o.customer_comment, o.fulfillment_type,
+			COALESCE(u.username, ''),
 			COALESCE(to_char(pickup_at AT TIME ZONE 'Europe/Belgrade', 'HH24:MI'), '')
-		FROM orders
-		WHERE id=$1
-	`, orderID).Scan(&publicNumber, &total, &paymentMethod, &comment, &fulfillmentType, &pickupTime)
+		FROM orders o
+		JOIN users u ON u.id=o.client_user_id
+		WHERE o.id=$1
+	`, orderID).Scan(&publicNumber, &total, &paymentMethod, &comment, &fulfillmentType, &username, &pickupTime)
 	if err != nil {
 		return "", err
 	}
@@ -578,6 +594,9 @@ func (w *Worker) kitchenText(ctx context.Context, orderID uuid.UUID, template st
 		title,
 		"Тип: " + fulfillmentText(fulfillmentType),
 		fmt.Sprintf("Оплата: %s", paymentText(paymentMethod, total)),
+	}
+	if label := telegramUsernameLabel(username); label != "" {
+		lines = append(lines, "Клиент: "+label)
 	}
 	if fulfillmentType == "pickup" && pickupTime != "" {
 		lines = append(lines, "Заберут в: "+pickupTime)
@@ -595,12 +614,13 @@ func (w *Worker) kitchenText(ctx context.Context, orderID uuid.UUID, template st
 
 func (w *Worker) ownerDeliveryAlertText(ctx context.Context, orderID uuid.UUID, template string) (string, error) {
 	var publicNumber, total int
-	var paymentMethod, fulfillmentType string
+	var paymentMethod, fulfillmentType, username string
 	err := w.pool.QueryRow(ctx, `
-		SELECT public_number, total_minor, payment_method, fulfillment_type
-		FROM orders
-		WHERE id=$1
-	`, orderID).Scan(&publicNumber, &total, &paymentMethod, &fulfillmentType)
+		SELECT o.public_number, o.total_minor, o.payment_method, o.fulfillment_type, COALESCE(u.username, '')
+		FROM orders o
+		JOIN users u ON u.id=o.client_user_id
+		WHERE o.id=$1
+	`, orderID).Scan(&publicNumber, &total, &paymentMethod, &fulfillmentType, &username)
 	if err != nil {
 		return "", err
 	}
@@ -622,8 +642,11 @@ func (w *Worker) ownerDeliveryAlertText(ctx context.Context, orderID uuid.UUID, 
 		title,
 		fmt.Sprintf("ЗАКАЗ #%d", publicNumber),
 		fmt.Sprintf("Оплата: %s", paymentText(paymentMethod, total)),
-		"Состав:",
 	}
+	if label := telegramUsernameLabel(username); label != "" {
+		lines = append(lines, "Клиент: "+label)
+	}
+	lines = append(lines, "Состав:")
 	lines = append(lines, items...)
 	lines = append(lines, "", callToAction)
 	return strings.Join(lines, "\n"), nil
@@ -651,12 +674,14 @@ func (w *Worker) pickupReadyText(ctx context.Context, orderID uuid.UUID, publicN
 
 func (w *Worker) courierText(ctx context.Context, orderID uuid.UUID) (string, error) {
 	var publicNumber, total int
-	var paymentMethod, phoneCipher, addressCipher string
+	var paymentMethod, phoneCipher, addressCipher, username string
 	err := w.pool.QueryRow(ctx, `
-		SELECT public_number, total_minor, payment_method, phone_ciphertext, address_ciphertext
-		FROM orders
-		WHERE id=$1 AND fulfillment_type='delivery'
-	`, orderID).Scan(&publicNumber, &total, &paymentMethod, &phoneCipher, &addressCipher)
+		SELECT o.public_number, o.total_minor, o.payment_method, o.phone_ciphertext, o.address_ciphertext,
+			COALESCE(u.username, '')
+		FROM orders o
+		JOIN users u ON u.id=o.client_user_id
+		WHERE o.id=$1 AND o.fulfillment_type='delivery'
+	`, orderID).Scan(&publicNumber, &total, &paymentMethod, &phoneCipher, &addressCipher, &username)
 	if err != nil {
 		return "", err
 	}
@@ -673,6 +698,9 @@ func (w *Worker) courierText(ctx context.Context, orderID uuid.UUID) (string, er
 		"Адрес: " + address,
 		"Телефон: " + phone,
 		fmt.Sprintf("Оплата: %s", paymentText(paymentMethod, total)),
+	}
+	if label := telegramUsernameLabel(username); label != "" {
+		lines = append(lines, "Клиент: "+label)
 	}
 	items, err := w.orderItems(ctx, orderID)
 	if err != nil {
@@ -709,10 +737,14 @@ func (w *Worker) orderItems(ctx context.Context, orderID uuid.UUID) ([]string, e
 }
 
 func (w *Worker) sendMessage(ctx context.Context, token string, chatID int64, text string) error {
-	payload, err := json.Marshal(map[string]any{
+	requestPayload := map[string]any{
 		"chat_id": chatID,
 		"text":    text,
-	})
+	}
+	if entities := telegramUsernameEntities(text); len(entities) > 0 {
+		requestPayload["entities"] = entities
+	}
+	payload, err := json.Marshal(requestPayload)
 	if err != nil {
 		return err
 	}
@@ -730,6 +762,43 @@ func (w *Worker) sendMessage(ctx context.Context, token string, chatID int64, te
 		return fmt.Errorf("telegram_http_%d", response.StatusCode)
 	}
 	return nil
+}
+
+func telegramUsernameLabel(value string) string {
+	username := strings.TrimLeft(strings.TrimSpace(value), "@")
+	if !telegramUsernameRegexp.MatchString(username) {
+		return ""
+	}
+	return "@" + username
+}
+
+func telegramUsernameEntities(text string) []telegramMessageEntity {
+	matches := telegramMentionRegexp.FindAllStringIndex(text, -1)
+	entities := make([]telegramMessageEntity, 0, len(matches))
+	for _, match := range matches {
+		if match[0] > 0 && telegramUsernameByte(text[match[0]-1]) {
+			continue
+		}
+		if match[1] < len(text) && telegramUsernameByte(text[match[1]]) {
+			continue
+		}
+		mention := text[match[0]:match[1]]
+		entities = append(entities, telegramMessageEntity{
+			Type:   "text_link",
+			Offset: utf16Length(text[:match[0]]),
+			Length: utf16Length(mention),
+			URL:    "https://t.me/" + mention[1:],
+		})
+	}
+	return entities
+}
+
+func telegramUsernameByte(value byte) bool {
+	return value == '_' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+}
+
+func utf16Length(value string) int {
+	return len(utf16.Encode([]rune(value)))
 }
 
 func (w *Worker) markFailed(ctx context.Context, current job, cause error) {

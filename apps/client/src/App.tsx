@@ -1101,14 +1101,30 @@ function ProfileBadge({ session }: { session?: Session | null }) {
   if (!session?.telegram_user_id) return null;
   const label = profileLabel(session);
   const initials = profileInitials(session);
-  return (
-    <div className="profile-badge" title={label}>
+  const content = (
+    <>
       <span className="profile-avatar">
         <span>{initials}</span>
         {session.photo_url && <img src={session.photo_url} alt="" loading="lazy" referrerPolicy="no-referrer" />}
       </span>
       <span>{label}</span>
-    </div>
+    </>
+  );
+  const username = (session.username || "").trim().replace(/^@+/, "");
+  if (!/^[A-Za-z0-9_]{5,32}$/.test(username)) return <div className="profile-badge" title={label}>{content}</div>;
+  const href = `https://t.me/${username}`;
+  return (
+    <a
+      className="profile-badge"
+      href={href}
+      title={label}
+      onClick={(event) => {
+        event.preventDefault();
+        openTelegramLink(href);
+      }}
+    >
+      {content}
+    </a>
   );
 }
 
@@ -2107,7 +2123,18 @@ function Support({ support, locale }: { support: string; locale: Locale }) {
         <span className="support-kicker">Tako Lako</span>
         <h1>{copy.title}</h1>
         <p>{copy.intro}</p>
-        <a className="primary full as-link" href={`https://t.me/${handle}`} target="_blank" rel="noreferrer">{copy.telegram}: @{handle}</a>
+        <a
+          className="primary full as-link"
+          href={`https://t.me/${handle}`}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(event) => {
+            event.preventDefault();
+            openTelegramLink(`https://t.me/${handle}`);
+          }}
+        >
+          {copy.telegram}: @{handle}
+        </a>
       </section>
       <section className="support-card">
         <h2>{copy.stepsTitle}</h2>

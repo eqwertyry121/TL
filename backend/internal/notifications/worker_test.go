@@ -44,6 +44,31 @@ func TestNewTelegramHTTPClientHasBoundedTransport(t *testing.T) {
 	}
 }
 
+func TestTelegramUsernameEntitiesCreateExplicitLinksWithUTF16Offsets(t *testing.T) {
+	text := "🚨 Клиент: @eqwertyry\nЕщё: @test_user"
+	entities := telegramUsernameEntities(text)
+	if len(entities) != 2 {
+		t.Fatalf("entities count = %d, want 2: %+v", len(entities), entities)
+	}
+	if entities[0].Type != "text_link" || entities[0].Offset != utf16Length("🚨 Клиент: ") ||
+		entities[0].Length != utf16Length("@eqwertyry") || entities[0].URL != "https://t.me/eqwertyry" {
+		t.Fatalf("first username entity = %+v", entities[0])
+	}
+	if entities[1].URL != "https://t.me/test_user" {
+		t.Fatalf("second username entity = %+v", entities[1])
+	}
+}
+
+func TestTelegramUsernameEntitiesRejectInvalidAndEmbeddedHandles(t *testing.T) {
+	text := "Короткий @abcd, встроенный mail@eqwertyry и слишком_длинный @abcdefghijklmnopqrstuvwxyz_1234567890"
+	if entities := telegramUsernameEntities(text); len(entities) != 0 {
+		t.Fatalf("invalid usernames became links: %+v", entities)
+	}
+	if got := telegramUsernameLabel("@@eqwertyry"); got != "@eqwertyry" {
+		t.Fatalf("username label = %q, want @eqwertyry", got)
+	}
+}
+
 func TestProcessTelegramUsesBoundedConcurrencyAndContinuesPastBlockedJob(t *testing.T) {
 	firstJobID := uuid.New()
 	jobs := []job{
