@@ -1004,6 +1004,11 @@ body.has-day-off-overlay {
   min-height: clamp(8rem, 25dvh, 12rem);
 }
 
+.combo-strip .dish-body {
+  grid-template-rows: auto 1fr auto auto;
+  height: 100%;
+}
+
 .combo-strip .link-title {
   font-size: 1.35rem;
   line-height: 1.15;
