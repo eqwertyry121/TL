@@ -1185,7 +1185,7 @@ function seedMenu(): AdminMenuResponse {
     itemSeed(
       "77777777-7777-7777-7777-777777777002",
       "66666666-6666-6666-6666-666666666001",
-      "SOLO XL", "SOLO XL", "SOLO XL",
+      "ONE & DONE", "ONE & DONE", "ONE & DONE",
       "5 × хинкали с мясом • 1 × хачапури по-аджарски • 1 × Натахтари 0,5 л",
       "5 × hinkalija sa mesom • 1 × adžarski hačapuri • 1 × Natakhtari 0,5 l",
       "5 × beef khinkali • 1 × Adjarian khachapuri • 1 × Natakhtari 0.5 L",
@@ -1203,7 +1203,7 @@ function seedMenu(): AdminMenuResponse {
     itemSeed(
       "77777777-7777-7777-7777-777777777004",
       "66666666-6666-6666-6666-666666666001",
-      "SWEET FOUR", "SWEET FOUR", "SWEET FOUR",
+      "SWEET DUO", "SWEET DUO", "SWEET DUO",
       "2 × медовик • 2 × десерт «Шоколад-вишня»",
       "2 × medovik • 2 × desert čokolada-višnja",
       "2 × honey cake • 2 × chocolate-cherry dessert",

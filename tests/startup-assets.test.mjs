@@ -102,7 +102,7 @@ test("client shows combos inline without a separate transition control", () => {
   assertIncludes(fixtures, 'title: "Комбо"');
   assertIncludes(fixtures, "хачапури по-мегрельски");
   assertIncludes(fixtures, "хачапури по-аджарски");
-  for (const title of ["FAMILY BOX", "SOLO XL", "DOUBLE", "SWEET FOUR", "VEGGIE"]) assertIncludes(fixtures, title);
+  for (const title of ["FAMILY BOX", "ONE & DONE", "DOUBLE", "SWEET DUO", "VEGGIE"]) assertIncludes(fixtures, title);
   for (const singleItem of ["1 × хачапури по-мегрельски", "1 × грузинский салат", "1 × Borjomi 0,5 л"]) assertIncludes(fixtures, singleItem);
   for (const price of ["6890", "2490", "5690", "2290", "2110"]) assertIncludes(fixtures, price);
   assertIncludes(fixtures, 'staticMedia("family-box-card")');
