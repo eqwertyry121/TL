@@ -1343,6 +1343,7 @@ function OrdersTab({
   const selectedOrder = detail;
   const onLoadRef = useRef(onLoad);
   const onLoadOrderRef = useRef(onLoadOrder);
+  const newestOrderIDRef = useRef("");
 
   useEffect(() => {
     onLoadRef.current = onLoad;
@@ -1365,6 +1366,18 @@ function OrdersTab({
       if (!signal.aborted) setDetail(loaded || null);
     }, 5000);
   }, [date, limit, offset, query, selectedID, view]);
+
+  useEffect(() => {
+    if (view === "history") return;
+    const newestOrder = orders[0];
+    if (!newestOrder) {
+      newestOrderIDRef.current = "";
+      return;
+    }
+    const isNewArrival = newestOrderIDRef.current !== newestOrder.id;
+    newestOrderIDRef.current = newestOrder.id;
+    if (!selectedID && isNewArrival) void selectOrder(newestOrder);
+  }, [orders, selectedID, view]);
 
   async function applyFilter(nextOffset = 0) {
     setSelectedID("");
@@ -1644,9 +1657,10 @@ function OrderDetailPanel({
         </div>
       </div>
 
-      <div className="detail-total">
-        <span>Сумма</span>
-        <strong>{money(order.total_minor)}</strong>
+      <div className="detail-money-grid">
+        <div><span>Блюда</span><strong>{money(order.subtotal_minor)}</strong></div>
+        <div><span>Доставка</span><strong>{order.delivery_fee_minor ? money(order.delivery_fee_minor) : "Бесплатно"}</strong></div>
+        <div className="is-total"><span>Итого</span><strong>{money(order.total_minor)}</strong></div>
       </div>
 
       <div className="detail-section">
@@ -1655,13 +1669,23 @@ function OrderDetailPanel({
           <span>Telegram</span>
           <strong><OrderClientLink order={order} /></strong>
         </div>
+        {order.client_first_name && (
+          <div className="detail-row">
+            <span>Имя</span>
+            <strong>{order.client_first_name}</strong>
+          </div>
+        )}
         <div className="detail-row">
           <span>Телефон</span>
           <strong>{order.phone ? <a className="telegram-link" href={`tel:${order.phone}`}>{order.phone}</a> : "не указан"}</strong>
         </div>
         <div className="detail-row">
-          <span>Оплата</span>
-          <strong>{adminPaymentText(order)}</strong>
+          <span>Способ оплаты</span>
+          <strong>{adminPaymentMethodText(order.payment_method, order.fulfillment_type)}</strong>
+        </div>
+        <div className="detail-row">
+          <span>Статус оплаты</span>
+          <strong>{adminPaymentStatusText(order.payment_status)}</strong>
         </div>
         <div className="detail-row">
           <span>Получение</span>
@@ -1674,10 +1698,18 @@ function OrderDetailPanel({
           </div>
         )}
         {order.payment_method === "cash" && (
-          <div className="detail-row">
-            <span>Гео</span>
-            <strong>{order.cash_location_verified_at ? `проверено${typeof order.cash_location_distance_meters === "number" ? ` · ${formatMeters(order.cash_location_distance_meters)}` : ""}` : "не проверено"}</strong>
-          </div>
+          <>
+            <div className="detail-row">
+              <span>Геолокация</span>
+              <strong>{order.cash_location_verified_at ? `проверена${typeof order.cash_location_distance_meters === "number" ? ` · ${formatMeters(order.cash_location_distance_meters)}` : ""}` : "не проверена"}</strong>
+            </div>
+            {order.cash_location_verified_at && (
+              <div className="detail-row">
+                <span>Проверена в</span>
+                <strong>{orderDateTime(order.cash_location_verified_at)}</strong>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -1690,18 +1722,38 @@ function OrderDetailPanel({
         {!deliveryOrder && order.pickup_instructions && <p className="muted">{order.pickup_instructions}</p>}
       </div>
 
-      {order.customer_comment && <div className="warn"><AlertTriangle size={16} /> {order.customer_comment}</div>}
+      {order.customer_comment && (
+        <div className="order-customer-comment">
+          <span><AlertTriangle size={16} /> Комментарий клиента</span>
+          <strong>{order.customer_comment}</strong>
+        </div>
+      )}
 
       <div className="detail-section">
         <h3>Состав</h3>
         <ul className="order-items-list">
           {order.items.map((item, index) => (
             <li key={`${item.menu_item_id}-${index}`}>
-              <span>{item.quantity} × {item.snapshot_title}</span>
+              <span>
+                <strong>{item.quantity} × {item.snapshot_title}</strong>
+                <small>{money(item.unit_price_minor)} за штуку{item.addition_id ? ` · дозаказ №${item.addition_revision || 1}` : ""}</small>
+              </span>
               <strong>{money(item.line_total_minor)}</strong>
             </li>
           ))}
         </ul>
+      </div>
+
+      <div className="detail-section">
+        <h3>Время заказа</h3>
+        <OrderTimeRow label="Создан" value={order.created_at} />
+        <OrderTimeRow label="Начали готовить" value={order.kitchen_started_at} />
+        {!deliveryOrder && <OrderTimeRow label="Готовить к" value={order.pickup_cook_at} />}
+        {!deliveryOrder && <OrderTimeRow label="Клиент заберёт" value={order.pickup_at} />}
+        <OrderTimeRow label={deliveryOrder ? "Передан курьеру" : "Готов к самовывозу"} value={order.ready_at} />
+        {deliveryOrder && <OrderTimeRow label="Курьер начал доставку" value={order.courier_started_at} />}
+        <OrderTimeRow label={deliveryOrder ? "Доставлен" : "Выдан"} value={order.delivered_at} />
+        <OrderTimeRow label="Отменён" value={order.cancelled_at} />
       </div>
 
       <button className="events-toggle" type="button" onClick={() => setEventsOpen((value) => !value)}>
@@ -1728,6 +1780,16 @@ function OrderDetailPanel({
 function OrderActionDialog({ dialog, onClose }: { dialog: OrderDialogState; onClose(): void }) {
   if (dialog.kind === "contact") return <OrderContactDialog dialog={dialog} onClose={onClose} />;
   return <OrderReasonDialog dialog={dialog} onClose={onClose} />;
+}
+
+function OrderTimeRow({ label, value }: { label: string; value?: string }) {
+  if (!value) return null;
+  return (
+    <div className="detail-row">
+      <span>{label}</span>
+      <strong>{orderDateTime(value)}</strong>
+    </div>
+  );
 }
 
 function OrderReasonDialog({ dialog, onClose }: { dialog: Extract<OrderDialogState, { kind: "reason" }>; onClose(): void }) {
@@ -2570,6 +2632,22 @@ function adminPaymentText(order: OrderSummary): string {
   return order.payment_status === "PAID" ? "Наличные · PAID" : "Наличные";
 }
 
+function adminPaymentMethodText(method: OrderSummary["payment_method"], fulfillmentType: OrderSummary["fulfillment_type"]): string {
+  if (method === "card") return "Банковская карта";
+  if (method === "crypto") return "Crypto TEST";
+  return fulfillmentType === "pickup" ? "Наличные при самовывозе" : "Наличные курьеру";
+}
+
+function adminPaymentStatusText(status: OrderSummary["payment_status"]): string {
+  const labels: Record<OrderSummary["payment_status"], string> = {
+    CASH_PENDING: "Ожидаются наличные",
+    PAID: "Оплачено",
+    FAILED: "Не оплачено",
+    REFUNDED: "Возвращено",
+  };
+  return labels[status];
+}
+
 function telegramUsername(order: OrderSummary): string {
   const username = (order.client_username || "").trim().replace(/^@+/, "");
   return /^[A-Za-z0-9_]{5,32}$/.test(username) ? username : "";
@@ -2593,6 +2671,18 @@ function openTelegramLink(url: string): void {
 
 function createdText(value: string): string {
   return new Date(value).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function orderDateTime(value: string): string {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "Europe/Belgrade",
+  }).format(new Date(value));
 }
 
 function formatMeters(meters: number): string {
