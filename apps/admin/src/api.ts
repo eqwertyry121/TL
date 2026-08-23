@@ -1176,11 +1176,11 @@ function seedMenu(): AdminMenuResponse {
     itemSeed(
       "77777777-7777-7777-7777-777777777001",
       "66666666-6666-6666-6666-666666666001",
-      "SUPRA 24", "SUPRA 24", "SUPRA 24",
+      "FULL HOUSE", "FULL HOUSE", "FULL HOUSE",
       "12 × хинкали с мясом • 12 × хинкали с сыром • 1 × хачапури по-мегрельски • 1 × Натахтари виноград 1 л",
       "12 × hinkalija sa mesom • 12 × hinkalija sa sirom • 1 × megrelijski hačapuri • 1 × Natakhtari grožđe 1 l",
       "12 × beef khinkali • 12 × cheese khinkali • 1 × Megrelian khachapuri • 1 × grape Natakhtari 1 L",
-      "6890", "на 4–5 человек", 1, 10, media("supra-24-card"),
+      "6890", "на 4–5 человек", 1, 10, media("full-house-card"),
     ),
     itemSeed(
       "77777777-7777-7777-7777-777777777002",
