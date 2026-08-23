@@ -30,7 +30,7 @@ export interface CachedPublicData {
 
 interface StoredCheckoutDraft {
   version: 1;
-  draft: Partial<CheckoutDraft> & { details?: string };
+  draft: Partial<CheckoutDraft> & { details?: string; floor?: string; apartment?: string };
   savedAt: string;
 }
 
@@ -65,8 +65,6 @@ const emptyCheckoutDraft = (): CheckoutDraft => ({
   street: "",
   houseNumber: "",
   entrance: "",
-  floor: "",
-  apartment: "",
   comment: "",
   fulfillmentType: "delivery",
   pickupAt: "",
@@ -132,7 +130,7 @@ export function saveCheckoutDraft(draft: CheckoutDraft): void {
   }
 }
 
-function normalizeCheckoutDraft(draft: Partial<CheckoutDraft> & { details?: string }): CheckoutDraft {
+function normalizeCheckoutDraft(draft: Partial<CheckoutDraft> & { details?: string; floor?: string; apartment?: string }): CheckoutDraft {
   const next = { ...emptyCheckoutDraft(), ...draft };
   if (!next.houseNumber && next.street) {
     const match = next.street.trim().match(/^(.+?)\s+([0-9][0-9A-Za-zА-Яа-я./-]*)$/u);
@@ -142,21 +140,12 @@ function normalizeCheckoutDraft(draft: Partial<CheckoutDraft> & { details?: stri
     }
   }
 
-  if (draft.details && !next.entrance && !next.floor && !next.apartment) {
+  if (draft.details && !next.entrance) {
     const parts = draft.details
       .split(/[,;]+/)
       .map((part) => part.trim())
       .filter(Boolean);
-    if (parts.length >= 3) {
-      next.entrance = parts[0];
-      next.floor = parts[1];
-      next.apartment = parts.slice(2).join(", ");
-    } else if (parts.length === 2) {
-      next.entrance = parts[0];
-      next.apartment = parts[1];
-    } else if (parts.length === 1) {
-      next.apartment = parts[0];
-    }
+    if (parts.length >= 1) next.entrance = parts[0];
   }
 
   return next;

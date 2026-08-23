@@ -1525,7 +1525,22 @@ body.has-day-off-overlay {
 }
 
 .details-address-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(7rem, 0.34fr) minmax(0, 1fr);
+  align-items: end;
+}
+
+.entrance-delivery-note {
+  display: flex;
+  align-items: center;
+  min-height: 3.15rem;
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(107, 31, 42, 0.14);
+  border-radius: 0.9rem;
+  background: rgba(107, 31, 42, 0.045);
+  color: var(--muted);
+  font-size: clamp(0.78rem, 2.25vw, 0.9rem);
+  line-height: 1.35;
 }
 
 .details-address-grid input,

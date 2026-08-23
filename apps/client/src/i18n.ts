@@ -22,8 +22,6 @@ type Key =
   | "street"
   | "houseNumber"
   | "entrance"
-  | "floor"
-  | "apartment"
   | "comment"
   | "cash"
   | "placeOrder"
@@ -58,8 +56,6 @@ const dict: Record<Locale, Record<Key, string>> = {
     street: "Улица",
     houseNumber: "Дом",
     entrance: "Подъезд",
-    floor: "Этаж",
-    apartment: "Квартира",
     comment: "Комментарий к заказу",
     cash: "Наличными",
     placeOrder: "ОФОРМИТЬ",
@@ -93,8 +89,6 @@ const dict: Record<Locale, Record<Key, string>> = {
     street: "Ulica",
     houseNumber: "Broj",
     entrance: "Ulaz",
-    floor: "Sprat",
-    apartment: "Stan",
     comment: "Komentar uz porudžbinu",
     cash: "Gotovina",
     placeOrder: "NARUČI",
@@ -128,8 +122,6 @@ const dict: Record<Locale, Record<Key, string>> = {
     street: "Street",
     houseNumber: "No.",
     entrance: "Entrance",
-    floor: "Floor",
-    apartment: "Apartment",
     comment: "Order comment",
     cash: "Cash",
     placeOrder: "PLACE ORDER",
