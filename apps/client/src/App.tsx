@@ -1157,59 +1157,53 @@ function menuDisplayItems(categories: AppData["categories"]) {
 }
 
 function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
-  const [showCombos, setShowCombos] = useState(false);
   const comboCategory = categories.find((category) => category.id === comboCategoryID);
   const regularCategories = categories.filter((category) => category.id !== comboCategoryID);
-  const flatItems = menuDisplayItems(showCombos ? (comboCategory ? [comboCategory] : []) : regularCategories);
-  const comboActions = locale === "sr" ? ["Otvori →", "← Nazad"] : locale === "en" ? ["Open →", "← Back"] : ["Открыть →", "← Назад"];
+  const regularItems = menuDisplayItems(regularCategories);
+  const menuTitle = locale === "sr" ? "Meni" : locale === "en" ? "Menu" : "Меню";
+  const groups = [
+    ...(comboCategory?.items.length ? [{ key: "combo", title: comboCategory.title, items: menuDisplayItems([comboCategory]), combo: true }] : []),
+    { key: "menu", title: menuTitle, items: regularItems, combo: false },
+  ];
   return (
     <div className="page">
       <section className="menu-section">
-        {!showCombos && comboCategory && comboCategory.items.length > 0 && (
-          <button className="combo-promo" type="button" onClick={() => setShowCombos(true)}>
-            <h2>{comboCategory.title}</h2>
-            <b>{comboActions[0]}</b>
-          </button>
-        )}
-        {showCombos && (
-          <div className="combo-view-head">
-            <button type="button" onClick={() => setShowCombos(false)}>{comboActions[1]}</button>
-            <div>
-              <h1>{comboCategory?.title}</h1>
-            </div>
-          </div>
-        )}
-        <div className="menu-grid">
-          {flatItems.map(({ item, visualIndex }) => {
-            const qty = cart.lines[item.id]?.quantity || 0;
-            const minQuantity = itemMinQuantity(item);
-            const { description } = splitRecommendationDescription(item.description);
-            return (
-              <article className={`${qty > 0 ? "dish-card in-cart" : "dish-card"}${showCombos ? " combo-card" : ""}`} key={item.id}>
-                <DishVisual item={item} visualIndex={visualIndex} locale={locale} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
-                <div className="dish-body">
-                  <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
-                    {item.title}
-                  </button>
-                  <p>{description}</p>
-                  <div className="meta-row">
-                    <span>{item.weight_text}</span>
-                    <strong>{money(item.price_minor)}</strong>
-                  </div>
-                  <div className="row-actions">
-                    {qty > 0 ? (
-                      <Qty value={qty} onMinus={() => onSetLine(item, qty <= minQuantity ? 0 : qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />
-                    ) : (
-                      <button className="primary add-only" onClick={() => onSetLine(item, minQuantity)}>
-                        В корзину{minQuantity > 1 ? ` · ${minQuantity} шт` : ""}
+        {groups.map(({ key, title, items, combo }) => (
+          <section className="menu-group" key={key}>
+            <div className="menu-group-head"><h2>{title}</h2></div>
+            <div className={combo ? "combo-strip" : "menu-grid"}>
+              {items.map(({ item, visualIndex }) => {
+                const qty = cart.lines[item.id]?.quantity || 0;
+                const minQuantity = itemMinQuantity(item);
+                const { description } = splitRecommendationDescription(item.description);
+                return (
+                  <article className={`${qty > 0 ? "dish-card in-cart" : "dish-card"}${combo ? " combo-card" : ""}`} key={item.id}>
+                    <DishVisual item={item} visualIndex={visualIndex} locale={locale} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
+                    <div className="dish-body">
+                      <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
+                        {item.title}
                       </button>
-                    )}
-                  </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+                      <p>{description}</p>
+                      <div className="meta-row">
+                        <span>{item.weight_text}</span>
+                        <strong>{money(item.price_minor)}</strong>
+                      </div>
+                      <div className="row-actions">
+                        {qty > 0 ? (
+                          <Qty value={qty} onMinus={() => onSetLine(item, qty <= minQuantity ? 0 : qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />
+                        ) : (
+                          <button className="primary add-only" onClick={() => onSetLine(item, minQuantity)}>
+                            В корзину{minQuantity > 1 ? ` · ${minQuantity} шт` : ""}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </section>
     </div>
   );

@@ -66,6 +66,18 @@ test("client Main Mini App deep link can open table booking directly", () => {
   assertIncludes(routeSource, 'return { name: "booking" }');
 });
 
+test("client shows combos inline without a separate transition control", () => {
+  const source = readSource("apps/client/src/App.tsx");
+  const styles = readSource("apps/client/src/styles.css");
+  const menuBody = sliceBetween(source, "function Menu(", "function AddToOrder(");
+
+  assertNotIncludes(menuBody, "showCombos");
+  assertNotIncludes(menuBody, "combo-promo");
+  assertNotIncludes(styles, ".combo-promo");
+  assertIncludes(menuBody, 'className="menu-group-head"');
+  assertIncludes(menuBody, 'combo ? " combo-card" : ""');
+});
+
 test("client legal pages stay available without Telegram authentication", () => {
   const appSource = readSource("apps/client/src/App.tsx");
   const routeSource = readSource("apps/client/src/route.ts");

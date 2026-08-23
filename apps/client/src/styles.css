@@ -940,16 +940,38 @@ body.has-day-off-overlay {
 }
 
 .menu-section {
+  display: grid;
+  gap: 1.25rem;
   scroll-margin-top: clamp(7rem, 20dvh, 10rem);
 }
 
-.combo-promo {
+.menu-group {
   display: grid;
-  grid-template-columns: 1fr auto;
-  margin-bottom: 0.75rem;
-  padding: 1rem;
-  background: #6b1f2a;
-  color: #fffdf8;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.combo-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc(100% - 0.75rem);
+  gap: clamp(0.6rem, 1.7vw, 1rem);
+  padding-bottom: 0.25rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.combo-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.combo-strip .dish-card {
+  scroll-snap-align: start;
+}
+
+.combo-strip .dish-art {
+  min-height: clamp(8rem, 25dvh, 12rem);
 }
 
 .menu-grid {
@@ -978,10 +1000,6 @@ body.has-day-off-overlay {
   background:
     linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(248, 241, 229, 0.88)),
     var(--surface-solid);
-}
-
-.dish-card.combo-card {
-  grid-column: span 2;
 }
 
 .dish-art,
