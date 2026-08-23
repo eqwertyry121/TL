@@ -31,3 +31,19 @@ case "$response" in
     exit 1
     ;;
 esac
+
+menu_button=$(printf '{"type":"web_app","text":"Open test","web_app":{"url":"%s"}}' "$TELEGRAM_CLIENT_MINI_APP_URL")
+response=$(curl --fail --silent --show-error \
+  --request POST \
+  --data-urlencode "menu_button=${menu_button}" \
+  "https://api.telegram.org/bot${TELEGRAM_CLIENT_BOT_TOKEN}/setChatMenuButton")
+
+case "$response" in
+  *'"ok":true'*)
+    echo "Test bot Mini App menu button configured."
+    ;;
+  *)
+    echo "Telegram rejected the test Mini App menu button." >&2
+    exit 1
+    ;;
+esac

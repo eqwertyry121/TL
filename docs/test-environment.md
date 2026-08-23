@@ -1,72 +1,65 @@
 # Изолированный тестовый стенд
 
-Тестовый стенд автоматически обновляется из ветки `test` после успешного
-`Backend CI`. Production продолжает обновляться только из `main`.
+Ветка `test` регулярно синхронизируется с `main`, после чего в неё добавляются
+новые функции для проверки. Production продолжает собираться только из `main`.
 
 ## Адреса
 
-- Client: `https://test.takolako.site/`
-- Client alias: `https://test.takolako.site/main/`
-- Kitchen: `https://test.takolako.site/kitchen/`
-- Courier: `https://test.takolako.site/courier/`
-- Admin: `https://test.takolako.site/admin/`
-- API и Telegram webhook: `https://test.takolako.site/api/`
+- Client: `https://takolako.site/testbranch/`
+- Client alias для Telegram: `https://takolako.site/testbranch/main/`
+- Kitchen: `https://takolako.site/testbranch/kitchen/`
+- Courier: `https://takolako.site/testbranch/courier/`
+- Admin: `https://takolako.site/testbranch/admin/`
+- Test API и webhook: `https://api.takolako.site/testbranch-api/`
 
-Один тестовый hostname выбран специально: он требует только одной DNS-записи и
-одного TLS-сертификата, но данные и процессы остаются изолированными.
+GitHub Pages публикует единый artifact: production из `main` остаётся в корне,
+а сборка `test` помещается в `/testbranch/`. Поэтому deploy любой из двух веток
+не удаляет соседний контур.
 
 ## Изоляция от production
 
-Тестовый контур использует:
+Тестовый backend использует:
 
 - Compose project `takolako-test`;
-- backend port `127.0.0.1:18081`;
+- порт `127.0.0.1:18081`;
 - отдельный PostgreSQL volume;
-- отдельный deploy path `<TK_DEPLOY_PATH>-test`;
-- отдельный uploads directory;
-- отдельный Telegram bot token и webhook secret;
-- отдельный frontend build из ветки `test`.
+- deploy path `<TK_DEPLOY_PATH>-test`;
+- uploads `/srv/tk-delivery-test/uploads`;
+- отдельный Telegram bot token, webhook secret и session keys.
 
-Production database, uploads, bot token, webhook и frontend не используются.
+Production database, uploads, bot token и webhook не используются.
 
 ## Однократная настройка
 
-1. Создать DNS `A`/`AAAA` для `test.takolako.site` на тот же VPS.
-2. Установить `deploy/nginx.test.host.example.conf` как отдельный Nginx site,
-   сверить его `root` с фактическим `<TK_DEPLOY_PATH>-test`, проверить
-   `nginx -t`, reload и выпустить TLS-сертификат.
-3. В GitHub Actions создать repository secret
+1. Добавить содержимое `deploy/nginx.test-path.example.conf` внутрь
+   существующего server block `api.takolako.site`, затем выполнить `nginx -t`
+   и reload. Новая DNS-запись и новый сертификат не нужны.
+2. В GitHub Actions создать repository secret
    `TK_TEST_CLIENT_BOT_TOKEN`. Токен нельзя добавлять в variables или git.
-4. При нестандартном hostname создать repository variable
-   `TK_TEST_BASE_URL` с полным HTTPS URL.
-5. В BotFather установить Mini App URL `https://test.takolako.site/main/`.
-6. Push в `test` запускает проверки, сборку четырёх Mini Apps, отдельный
-   backend deploy, public healthcheck и установку Telegram webhook.
+3. Push в `test` запускает CI, отдельный backend deploy, combined GitHub Pages
+   deploy, public healthcheck, Telegram webhook и test Mini App menu button.
 
-Workflow переиспользует существующие production SSH secrets только для входа
-на тот же VPS. Сам test deploy выполняется в отдельный sibling path и Compose
-project. Runtime secrets, пароль тестовой PostgreSQL и webhook secret
-генерируются на VPS при первом deploy и затем сохраняются в `.env.test` с
-правами `0600`.
+Workflow сам получает username тестового бота через `getMe`. Runtime secrets,
+пароль тестовой PostgreSQL и webhook secret генерируются на VPS при первом
+deploy и сохраняются в `.env.test` с правами `0600`.
 
 ## Продвижение изменений
 
-1. Разработка и UAT идут в `test`.
-2. После проверки открыть PR `test -> main`.
-3. В production попадает тот же проверенный commit либо merge commit после CI.
-4. Нельзя копировать тестовую БД, uploads или `.env.test` в production.
+1. Обновить `test` из актуального `main`.
+2. Реализовать функцию только в `test` и провести UAT.
+3. После подтверждения открыть PR `test -> main`.
+4. Не переносить тестовую БД, uploads или `.env.test` в production.
 
 ## Проверка
 
-После deploy проверить:
-
 ```text
-https://test.takolako.site/ready
-https://test.takolako.site/
-https://test.takolako.site/kitchen/
-https://test.takolako.site/courier/
-https://test.takolako.site/admin/
+https://api.takolako.site/testbranch-api/ready
+https://takolako.site/testbranch/
+https://takolako.site/testbranch/kitchen/
+https://takolako.site/testbranch/courier/
+https://takolako.site/testbranch/admin/
 ```
 
-Затем создать один тестовый заказ и провести его через Kitchen и Courier до
-`DELIVERED`.
+После первого deploy открыть тестового бота: его menu button должен вести на
+`https://takolako.site/testbranch/main/`. Затем создать тестовый заказ и
+провести его через Kitchen и Courier до `DELIVERED`.
