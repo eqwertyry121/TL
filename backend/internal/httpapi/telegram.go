@@ -317,11 +317,16 @@ func (s *Server) clientMiniAppURL(route string) string {
 	if base == "" {
 		base = "https://takolako.site/main"
 	}
+	version := safeVersionToken(s.cfg.BuildSHA)
+	versionQuery := ""
+	if version != "" && version != "dev" && version != "unknown" {
+		versionQuery = "?v=" + version
+	}
 	route = "/" + strings.Trim(strings.TrimSpace(route), "/")
 	if route == "/" {
-		return base + "/#/"
+		return base + "/" + versionQuery + "#/"
 	}
-	return base + "/#" + route
+	return base + "/" + versionQuery + "#" + route
 }
 
 func (s *Server) sendClientBotMessage(ctx context.Context, chatID int64, text string, replyMarkup any) (int64, error) {

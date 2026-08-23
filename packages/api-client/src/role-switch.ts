@@ -47,9 +47,9 @@ export function roleLinks(activeRole: Role): RoleLink[] {
 
 export function roleUrl(role: Role): string {
   if (typeof window === "undefined") return "#";
-  const { protocol, hostname, origin } = window.location;
+  const { protocol, hostname, origin, search } = window.location;
   if (hostname === "127.0.0.1" || hostname === "localhost") {
     return `${protocol}//${hostname}:${localPorts[role]}/`;
   }
-  return `${origin}/${paths[role]}`;
+  return `${origin}/${paths[role]}${search}`;
 }
