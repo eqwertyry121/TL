@@ -868,6 +868,7 @@ function HomeTab({
 }
 
 type MenuMode = "items" | "categories";
+const comboCategoryID = "66666666-6666-6666-6666-666666666001";
 
 function MenuTab({ menu, onAction }: { menu: AdminMenuResponse; onAction: AdminActionRunner }) {
   const [mode, setMode] = useState<MenuMode>("items");
@@ -936,19 +937,27 @@ function MenuTab({ menu, onAction }: { menu: AdminMenuResponse; onAction: AdminA
       </div>
 
       {mode === "items" && (
-        <div className="category-chips" aria-label="Фильтр по категории">
-          <button className={categoryFilter === "all" ? "active" : ""} type="button" onClick={() => setCategoryFilter("all")}>Все</button>
-          {activeCategories.map((category) => (
-            <button
-              className={categoryFilter === category.id ? "active" : ""}
-              type="button"
-              key={category.id}
-              onClick={() => setCategoryFilter(category.id)}
-            >
-              {category.title_ru || "Без названия"}
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="category-chips" aria-label="Фильтр по категории">
+            <button className={categoryFilter === "all" ? "active" : ""} type="button" onClick={() => setCategoryFilter("all")}>Все</button>
+            {activeCategories.map((category) => (
+              <button
+                className={categoryFilter === category.id ? "active" : ""}
+                type="button"
+                key={category.id}
+                onClick={() => setCategoryFilter(category.id)}
+              >
+                {category.title_ru || "Без названия"}
+              </button>
+            ))}
+          </div>
+          {categoryFilter === comboCategoryID && (
+            <div className="panel attention-card">
+              <strong>Настройка комбо</strong>
+              <p>Каждая позиция здесь показывается клиенту большой карточкой. Состав укажите в названии и описании; цену, фото, порядок и видимость можно менять как у обычного блюда.</p>
+            </div>
+          )}
+        </>
       )}
 
       {cat && (

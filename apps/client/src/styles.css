@@ -943,30 +943,13 @@ body.has-day-off-overlay {
   scroll-margin-top: clamp(7rem, 20dvh, 10rem);
 }
 
-.menu-mode-tabs {
+.combo-promo {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
-  margin-bottom: clamp(0.75rem, 2vw, 1rem);
-  border-radius: var(--radius-md);
-  padding: 0.3rem;
-  background: #efe3d3;
-}
-
-.menu-mode-tabs button {
-  min-height: 2.75rem;
-  border: 1px solid transparent;
-  border-radius: calc(var(--radius-md) - 0.25rem);
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.92rem;
-  font-weight: 850;
-}
-
-.menu-mode-tabs button.active {
-  border-color: rgba(107, 31, 42, 0.12);
-  background: #fffdf8;
-  color: var(--accent);
+  grid-template-columns: 1fr auto;
+  margin-bottom: 0.75rem;
+  padding: 1rem;
+  background: #6b1f2a;
+  color: #fffdf8;
 }
 
 .menu-grid {
@@ -986,8 +969,6 @@ body.has-day-off-overlay {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface);
-  box-shadow: none;
-  backdrop-filter: none;
 }
 
 .dish-card {
@@ -997,54 +978,10 @@ body.has-day-off-overlay {
   background:
     linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(248, 241, 229, 0.88)),
     var(--surface-solid);
-  isolation: isolate;
-  transition: none;
 }
 
 .dish-card.combo-card {
   grid-column: span 2;
-}
-
-.dish-card.combo-card .dish-art {
-  min-height: clamp(9rem, 25dvh, 13rem);
-}
-
-.dish-card.combo-card .link-title,
-.dish-card.combo-card .dish-body p {
-  min-height: 0;
-  -webkit-line-clamp: 3;
-}
-
-.dish-card::before {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  border-radius: inherit;
-  content: "";
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.72), transparent 35%, rgba(185, 85, 50, 0.08));
-  opacity: 0.78;
-}
-
-.dish-card::after {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  content: "";
-  z-index: 2;
-  background: linear-gradient(145deg, transparent 0 40%, rgba(200, 155, 60, 0.2));
-  opacity: 0;
-  transition: opacity 220ms ease;
-}
-
-.dish-card:hover {
-  border-color: rgba(107, 31, 42, 0.24);
-  transform: none;
-  box-shadow: none;
-}
-
-.dish-card:hover::after {
-  opacity: 1;
 }
 
 .dish-art,

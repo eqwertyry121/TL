@@ -1157,45 +1157,35 @@ function menuDisplayItems(categories: AppData["categories"]) {
 }
 
 function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
-  const [menuMode, setMenuMode] = useState<"menu" | "combo">("menu");
+  const [showCombos, setShowCombos] = useState(false);
   const comboCategory = categories.find((category) => category.id === comboCategoryID);
   const regularCategories = categories.filter((category) => category.id !== comboCategoryID);
-  const flatItems = menuDisplayItems(menuMode === "combo" ? (comboCategory ? [comboCategory] : []) : regularCategories);
-  const labels = locale === "sr"
-    ? { menu: "Meni", combo: "Kombo" }
-    : locale === "en"
-      ? { menu: "Menu", combo: "Combos" }
-      : { menu: "Меню", combo: "Комбо" };
+  const flatItems = menuDisplayItems(showCombos ? (comboCategory ? [comboCategory] : []) : regularCategories);
+  const comboActions = locale === "sr" ? ["Pogledaj →", "← Sva jela"] : locale === "en" ? ["View →", "← All dishes"] : ["Смотреть →", "← Все блюда"];
   return (
     <div className="page">
       <section className="menu-section">
-        <div className="menu-mode-tabs" role="tablist" aria-label={labels.menu}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={menuMode === "menu"}
-            className={menuMode === "menu" ? "active" : ""}
-            onClick={() => setMenuMode("menu")}
-          >
-            {labels.menu}
+        {!showCombos && comboCategory && comboCategory.items.length > 0 && (
+          <button className="combo-promo" type="button" onClick={() => setShowCombos(true)}>
+            <h2>{comboCategory.title}</h2>
+            <b>{comboActions[0]}</b>
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={menuMode === "combo"}
-            className={menuMode === "combo" ? "active" : ""}
-            onClick={() => setMenuMode("combo")}
-          >
-            {labels.combo}
-          </button>
-        </div>
+        )}
+        {showCombos && (
+          <div className="combo-view-head">
+            <button type="button" onClick={() => setShowCombos(false)}>{comboActions[1]}</button>
+            <div>
+              <h1>{comboCategory?.title}</h1>
+            </div>
+          </div>
+        )}
         <div className="menu-grid">
           {flatItems.map(({ item, visualIndex }) => {
             const qty = cart.lines[item.id]?.quantity || 0;
             const minQuantity = itemMinQuantity(item);
             const { description } = splitRecommendationDescription(item.description);
             return (
-              <article className={`${qty > 0 ? "dish-card in-cart" : "dish-card"}${menuMode === "combo" ? " combo-card" : ""}`} key={item.id}>
+              <article className={`${qty > 0 ? "dish-card in-cart" : "dish-card"}${showCombos ? " combo-card" : ""}`} key={item.id}>
                 <DishVisual item={item} visualIndex={visualIndex} locale={locale} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
                 <div className="dish-body">
                   <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
