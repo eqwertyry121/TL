@@ -1069,6 +1069,21 @@ function seedMenu(): AdminMenuResponse {
       media("rosa-still-water"),
     ),
     itemSeed(
+      "44444444-4444-4444-4444-444444444021",
+      categories[5].id,
+      "Натакхари с грушей 1 л",
+      "Natakhtari sa kruskom 1 l",
+      "Natakhtari pear 1 l",
+      "Грузинский газированный лимонад со вкусом груши.",
+      "Gruzijsko gazirano pice sa ukusom kruske.",
+      "Georgian sparkling lemonade with pear flavor.",
+      "910",
+      "1 л",
+      1,
+      15,
+      media("natakhtari-pear-1l"),
+    ),
+    itemSeed(
       "44444444-4444-4444-4444-444444444015",
       categories[5].id,
       "Вода Knjaz Milos газированная",
@@ -1165,7 +1180,7 @@ function seedMenu(): AdminMenuResponse {
       "12 × хинкали с мясом • 12 × хинкали с сыром • 1 × хачапури по-мегрельски • 1 × Натахтари 1 л",
       "12 × hinkalija sa mesom • 12 × hinkalija sa sirom • 1 × megrelijski hačapuri • 1 × Natakhtari 1 l",
       "12 × beef khinkali • 12 × cheese khinkali • 1 × Megrelian khachapuri • 1 × Natakhtari 1 L",
-      "6790", "на 4–5 человек", 1, 10,
+      "6890", "на 4–5 человек", 1, 10,
     ),
     itemSeed(
       "77777777-7777-7777-7777-777777777002",
@@ -1174,7 +1189,7 @@ function seedMenu(): AdminMenuResponse {
       "5 × хинкали с мясом • 1 × хачапури по-аджарски • 1 × Натахтари 0,5 л",
       "5 × hinkalija sa mesom • 1 × adžarski hačapuri • 1 × Natakhtari 0,5 l",
       "5 × beef khinkali • 1 × Adjarian khachapuri • 1 × Natakhtari 0.5 L",
-      "2390", "на 1 человека", 1, 20,
+      "2490", "на 1 человека", 1, 20,
     ),
     itemSeed(
       "77777777-7777-7777-7777-777777777003",
@@ -1183,7 +1198,7 @@ function seedMenu(): AdminMenuResponse {
       "5 × хинкали с мясом • 5 × хинкали с сыром • 2 × оджахури • 1 × грузинский салат • 2 × Coca-Cola 0,5 л",
       "5 × hinkalija sa mesom • 5 × hinkalija sa sirom • 2 × odžahuri • 1 × gruzijska salata • 2 × Coca-Cola 0,5 l",
       "5 × beef khinkali • 5 × cheese khinkali • 2 × ojakhuri • 1 × Georgian salad • 2 × Coca-Cola 0.5 L",
-      "5590", "на 2–3 человек", 1, 30, "", "грецкий орех", "orah", "walnut",
+      "5690", "на 2–3 человек", 1, 30, "", "грецкий орех", "orah", "walnut",
     ),
     itemSeed(
       "77777777-7777-7777-7777-777777777004",
@@ -1192,7 +1207,7 @@ function seedMenu(): AdminMenuResponse {
       "2 × медовик • 2 × десерт «Шоколад-вишня»",
       "2 × medovik • 2 × desert čokolada-višnja",
       "2 × honey cake • 2 × chocolate-cherry dessert",
-      "2250", "4 десерта", 1, 40,
+      "2290", "4 десерта", 1, 40,
     ),
     itemSeed(
       "77777777-7777-7777-7777-777777777005",
@@ -1201,7 +1216,7 @@ function seedMenu(): AdminMenuResponse {
       "1 × лобио • 1 × рулетики из баклажана • 1 × грузинский салат • 1 × Borjomi 0,5 л",
       "1 × lobio • 1 × rolnice od patlidžana • 1 × gruzijska salata • 1 × Borjomi 0,5 l",
       "1 × lobio • 1 × eggplant rolls • 1 × Georgian salad • 1 × Borjomi 0.5 L",
-      "1890", "без мяса", 1, 50, "", "грецкий орех", "orah", "walnut",
+      "2110", "без мяса", 1, 50, "", "грецкий орех", "orah", "walnut",
     ),
   ].map((item) => ({ ...item, created_at: now, updated_at: now }));
   refreshCategoryCounts({ categories, items });

@@ -1017,12 +1017,14 @@ body.has-day-off-overlay {
 
 .combo-contents {
   display: grid;
+  align-content: start;
   gap: 0.4rem;
 }
 
 .combo-contents ul {
   display: grid;
-  gap: 0.38rem;
+  align-content: start;
+  row-gap: 0.62rem;
   margin: 0;
   padding: 0;
   list-style: none;

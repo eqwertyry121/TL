@@ -88,6 +88,8 @@ test("client shows combos inline without a separate transition control", () => {
   assertNotIncludes(menuBody, "contentsLabel");
   assertNotIncludes(menuBody, "В составе");
   assertIncludes(styles, ".combo-contents li");
+  assertIncludes(styles, "align-content: start");
+  assertIncludes(styles, "row-gap: 0.62rem");
   assertIncludes(styles, ".combo-strip .dish-body");
   assertIncludes(styles, "grid-template-rows: auto 1fr auto auto");
   assertIncludes(styles, ".combo-strip .dish-card");
@@ -102,6 +104,9 @@ test("client shows combos inline without a separate transition control", () => {
   assertIncludes(fixtures, "хачапури по-аджарски");
   for (const title of ["FAMILY BOX", "SOLO BOX", "DUO BOX", "SWEET BOX", "VEGGIE BOX"]) assertIncludes(fixtures, title);
   for (const singleItem of ["1 × хачапури по-мегрельски", "1 × грузинский салат", "1 × Borjomi 0,5 л"]) assertIncludes(fixtures, singleItem);
+  for (const price of ["6890", "2490", "5690", "2290", "2110"]) assertIncludes(fixtures, price);
+  assertIncludes(fixtures, '"Натакхари с грушей 1 л"');
+  assertIncludes(fixtures, "910");
   assertNotIncludes(fixtures, '"24 хинкали + хачапури + напиток"');
 });
 
