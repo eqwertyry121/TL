@@ -95,8 +95,10 @@ test("production frontend workflows stamp builds with the commit sha", () => {
   const pagesWorkflow = readSource(".github/workflows/pages.yml");
   const performanceWorkflow = readSource(".github/workflows/performance.yml");
 
+  const productionBuild = sliceWorkflowStep(pagesWorkflow, "Build production Mini Apps");
+  assertBuildStepHasCommitSHA(pagesWorkflow, "Build production Mini Apps", "steps.production_checkout.outputs.commit");
   for (const appName of ["client", "kitchen", "courier", "admin"]) {
-    assertBuildStepHasCommitSHA(pagesWorkflow, `Build ${appName} Mini App`);
+    assert.match(productionBuild, new RegExp(`pnpm --filter @tk-delivery/${appName} build`));
   }
   assertBuildStepHasCommitSHA(performanceWorkflow, "Production build");
 });
@@ -104,7 +106,7 @@ test("production frontend workflows stamp builds with the commit sha", () => {
 test("client production build exposes the public merchant identity contract", () => {
   const rootExample = readSource(".env.example");
   const pagesWorkflow = readSource(".github/workflows/pages.yml");
-  const clientStep = sliceWorkflowStep(pagesWorkflow, "Build client Mini App");
+  const clientStep = sliceWorkflowStep(pagesWorkflow, "Build production Mini Apps");
 
   for (const key of publicLegalEnvKeys) {
     assertEnvKey(rootExample, key, ".env.example");
@@ -144,20 +146,22 @@ test("frontend deploy and performance CI run root optimization gates", () => {
   const pagesWorkflow = readSource(".github/workflows/pages.yml");
   const performanceWorkflow = readSource(".github/workflows/performance.yml");
 
-  assert.match(
-    pagesWorkflow,
-    /github\.event\.workflow_run\.head_sha == github\.sha/,
-    "a stale backend workflow must not replace the current frontend release",
-  );
-  assertWorkflowStepRuns(pagesWorkflow, "Optimization contract checks", "pnpm check");
-  assertWorkflowStepRuns(pagesWorkflow, "API deployment diagnostics", "pnpm perf:deployment-diagnostics");
-  assertWorkflowStepEnv(pagesWorkflow, "API deployment diagnostics", "PERF_BASE_URL", "https://api.takolako.site");
+  const productionCheckout = sliceWorkflowStep(pagesWorkflow, "Checkout production branch");
+  const testCheckout = sliceWorkflowStep(pagesWorkflow, "Checkout test branch");
+  const productionChecks = sliceWorkflowStep(pagesWorkflow, "Production contract checks");
+  assert.match(productionCheckout, /^          ref: main$/m);
+  assert.match(productionCheckout, /^          path: production-source$/m);
+  assert.match(testCheckout, /^          ref: test$/m);
+  assert.match(testCheckout, /^          path: test-source$/m);
+  assert.match(productionChecks, /\bpnpm check\b/);
+  assert.match(productionChecks, /\bpnpm perf:deployment-diagnostics\b/);
+  assertWorkflowStepEnv(pagesWorkflow, "Production contract checks", "PERF_BASE_URL", "https://api.takolako.site");
   assert.doesNotMatch(
-    sliceWorkflowStep(pagesWorkflow, "API deployment diagnostics"),
+    productionChecks,
     /PERF_EXPECTED_BUILD_SHA/,
     "frontend deploy must allow a compatible API release with a different build sha",
   );
-  assertWorkflowStepBefore(pagesWorkflow, "API deployment diagnostics", "Build client Mini App");
+  assertWorkflowStepBefore(pagesWorkflow, "Production contract checks", "Build production Mini Apps");
   for (const [stepName, command] of [
     ["OpenAPI generated contract tests", "pnpm openapi:check"],
     ["Media reference check", "pnpm media:check"],
@@ -183,12 +187,12 @@ function assertEnvKey(source, key, label) {
   assert.match(source, new RegExp(`^${key}=`, "m"), `${label} must document ${key}`);
 }
 
-function assertBuildStepHasCommitSHA(source, stepName) {
+function assertBuildStepHasCommitSHA(source, stepName, expression = "github.sha") {
   const stepBlock = sliceWorkflowStep(source, stepName);
   assert.match(stepBlock, /^        env:$/m, `${stepName} must define env`);
   assert.match(
     stepBlock,
-    /^          VITE_BUILD_SHA: \$\{\{ (github\.sha|github\.event_name == 'workflow_run' && github\.event\.workflow_run\.head_sha \|\| github\.sha) \}\}$/m,
+    new RegExp(`^          VITE_BUILD_SHA: \\$\\{\\{ ${escapeRegExp(expression)} \\}\\}$`, "m"),
     `${stepName} must set VITE_BUILD_SHA from the deployed commit sha`,
   );
 }
