@@ -1561,7 +1561,7 @@ function Checkout({
                 <span>{t(locale, "entrance")}</span>
                 <input value={draft.entrance} maxLength={24} inputMode="text" onChange={(event) => onDraft({ entrance: event.target.value })} />
               </label>
-              <p className="entrance-delivery-note">{copy.entranceDeliveryNote}</p>
+              <p className="notice compact">{copy.entranceDeliveryNote}</p>
             </div>
           </>
         )}
