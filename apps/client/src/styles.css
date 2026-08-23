@@ -1029,21 +1029,19 @@ body.has-day-off-overlay {
 }
 
 .combo-contents li {
-  position: relative;
-  padding-left: 1rem;
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  gap: 0.4rem;
   color: var(--text);
   font-size: 1rem;
   font-weight: 650;
   line-height: 1.32;
 }
 
-.combo-contents li::before {
-  position: absolute;
-  left: 0;
+.combo-contents li b {
   color: var(--accent);
-  content: "•";
-  font-size: 1.2rem;
-  line-height: 1.05;
+  font-weight: 900;
+  text-align: right;
 }
 
 .combo-strip .meta-row strong {

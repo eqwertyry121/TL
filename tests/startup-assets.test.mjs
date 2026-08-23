@@ -84,6 +84,7 @@ test("client shows combos inline without a separate transition control", () => {
   assertNotIncludes(menuBody, "листайте карточки");
   assertIncludes(menuBody, "combo-contents");
   assertIncludes(menuBody, 'description.split(" • ")');
+  assertIncludes(menuBody, 'part.split(" × ")');
   assertNotIncludes(menuBody, "contentsLabel");
   assertNotIncludes(menuBody, "В составе");
   assertIncludes(styles, ".combo-contents li");
@@ -100,6 +101,7 @@ test("client shows combos inline without a separate transition control", () => {
   assertIncludes(fixtures, "хачапури по-мегрельски");
   assertIncludes(fixtures, "хачапури по-аджарски");
   for (const title of ["FAMILY BOX", "SOLO BOX", "DUO BOX", "SWEET BOX", "VEGGIE BOX"]) assertIncludes(fixtures, title);
+  for (const singleItem of ["1 × хачапури по-мегрельски", "1 × грузинский салат", "1 × Borjomi 0,5 л"]) assertIncludes(fixtures, singleItem);
   assertNotIncludes(fixtures, '"24 хинкали + хачапури + напиток"');
 });
 

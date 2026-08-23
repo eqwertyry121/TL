@@ -1195,7 +1195,10 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
                         </button>
                         {combo ? (
                           <div className="combo-contents">
-                            <ul>{description.split(" • ").map((part) => <li key={part}>{part}</li>)}</ul>
+                            <ul>{description.split(" • ").map((part) => {
+                              const [quantity, name] = part.split(" × ");
+                              return <li key={part}><b>{quantity}×</b><span>{name}</span></li>;
+                            })}</ul>
                           </div>
                         ) : <p>{description}</p>}
                         <div className="meta-row">
