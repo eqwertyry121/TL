@@ -184,6 +184,10 @@ func (s *Server) clientTelegramWebhook(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
+	if !s.isTelegramUserAllowed(message.From.ID) {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
 	if message.Contact != nil {
 		if err := s.store.VerifyTelegramContact(r.Context(), message.From.ID, message.Contact.UserID, message.Contact.PhoneNumber); err == nil {
 			_, _ = s.sendClientBotMessage(r.Context(), message.Chat.ID, "Телефон подтверждён. Вернитесь к оформлению заказа.", replyKeyboardRemove())

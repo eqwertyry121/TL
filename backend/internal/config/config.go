@@ -28,6 +28,7 @@ type Config struct {
 	ClientBotUsername         string
 	ClientBotToken            string
 	ClientMiniAppURL          string
+	TelegramAllowedUserIDs    []int64
 	StaffBotUsername          string
 	StaffBotToken             string
 	TelegramWebhookSecret     string
@@ -82,6 +83,7 @@ func Load() (Config, error) {
 		ClientBotUsername:        get("TELEGRAM_CLIENT_BOT_USERNAME", "TakoLako_main_bot"),
 		ClientBotToken:           os.Getenv("TELEGRAM_CLIENT_BOT_TOKEN"),
 		ClientMiniAppURL:         get("TELEGRAM_CLIENT_MINI_APP_URL", "https://takolako.site/main/"),
+		TelegramAllowedUserIDs:   positiveInt64CSV(os.Getenv("TELEGRAM_ALLOWED_USER_IDS")),
 		StaffBotUsername:         os.Getenv("TELEGRAM_STAFF_BOT_USERNAME"),
 		StaffBotToken:            os.Getenv("TELEGRAM_STAFF_BOT_TOKEN"),
 		TelegramWebhookSecret:    os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
@@ -237,6 +239,25 @@ func bootstrapOwnerTelegramIDs() []int64 {
 		}
 	}
 	parts := strings.Split(raw, ",")
+	out := make([]int64, 0, len(parts))
+	seen := map[int64]bool{}
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		id := mustInt64(value)
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+func positiveInt64CSV(raw string) []int64 {
+	parts := strings.Split(strings.TrimSpace(raw), ",")
 	out := make([]int64, 0, len(parts))
 	seen := map[int64]bool{}
 	for _, part := range parts {

@@ -317,6 +317,10 @@ jobs:
           };
           const bot = await api("getMe", {});
           await api("setChatMenuButton", {
+            menu_button: { type: "commands" },
+          });
+          await api("setChatMenuButton", {
+            chat_id: 1048084234,
             menu_button: {
               type: "web_app",
               text: "Открыть Mini App",

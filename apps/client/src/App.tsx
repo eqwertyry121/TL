@@ -1161,7 +1161,7 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
   const comboCategory = categories.find((category) => category.id === comboCategoryID);
   const regularCategories = categories.filter((category) => category.id !== comboCategoryID);
   const flatItems = menuDisplayItems(showCombos ? (comboCategory ? [comboCategory] : []) : regularCategories);
-  const comboActions = locale === "sr" ? ["Pogledaj →", "← Sva jela"] : locale === "en" ? ["View →", "← All dishes"] : ["Смотреть →", "← Все блюда"];
+  const comboActions = locale === "sr" ? ["Otvori →", "← Nazad"] : locale === "en" ? ["Open →", "← Back"] : ["Открыть →", "← Назад"];
   return (
     <div className="page">
       <section className="menu-section">

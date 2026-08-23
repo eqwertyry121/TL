@@ -884,6 +884,9 @@ func (s *Server) telegramSession(ctx context.Context, audience core.Audience, ro
 	if err != nil {
 		return core.Session{}, nil, err
 	}
+	if !s.isTelegramUserAllowed(tgUser.ID) {
+		return core.Session{}, nil, core.ErrForbidden
+	}
 	user, err := s.store.UpsertTelegramUser(ctx, core.User{
 		TelegramUserID: tgUser.ID,
 		Username:       tgUser.Username,
@@ -923,6 +926,21 @@ func (s *Server) isBootstrapOwnerTelegramID(telegramUserID int64) bool {
 		}
 	}
 	return telegramUserID == s.cfg.BootstrapOwnerTelegramID
+}
+
+func (s *Server) isTelegramUserAllowed(telegramUserID int64) bool {
+	if telegramUserID <= 0 {
+		return false
+	}
+	if len(s.cfg.TelegramAllowedUserIDs) == 0 {
+		return true
+	}
+	for _, allowedID := range s.cfg.TelegramAllowedUserIDs {
+		if telegramUserID == allowedID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {

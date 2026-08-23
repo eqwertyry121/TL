@@ -451,6 +451,22 @@ func TestSendClientBotMessageUsesSharedTelegramHTTPClient(t *testing.T) {
 	}
 }
 
+func TestClientTelegramWebhookIgnoresUsersOutsideAllowlist(t *testing.T) {
+	server := New(config.Config{
+		Env:                    "test",
+		TelegramAllowedUserIDs: []int64{1048084234},
+	}, nil, slog.Default())
+	body := strings.NewReader(`{"update_id":1,"message":{"message_id":2,"date":1,"from":{"id":42},"chat":{"id":42,"type":"private"},"text":"/start"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/telegram/client/webhook", body)
+	w := httptest.NewRecorder()
+
+	server.Routes().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("webhook status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
 func TestCachedRuntimePayloadCoalescesConcurrentMisses(t *testing.T) {
 	var calls atomic.Int64
 	release := make(chan struct{})

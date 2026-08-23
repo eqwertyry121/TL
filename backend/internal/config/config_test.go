@@ -55,6 +55,19 @@ func TestLoadAllowsProductionWithoutFiscalAcceptance(t *testing.T) {
 	}
 }
 
+func TestLoadParsesTelegramAllowedUserIDs(t *testing.T) {
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("TELEGRAM_ALLOWED_USER_IDS", "1048084234, 1048084234, 42")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load test config: %v", err)
+	}
+	if len(cfg.TelegramAllowedUserIDs) != 2 || cfg.TelegramAllowedUserIDs[0] != 1048084234 || cfg.TelegramAllowedUserIDs[1] != 42 {
+		t.Fatalf("TelegramAllowedUserIDs = %v", cfg.TelegramAllowedUserIDs)
+	}
+}
+
 func setMinimalProductionEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("APP_ENV", "production")

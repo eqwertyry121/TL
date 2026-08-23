@@ -31,6 +31,11 @@ Production всегда собирается с demo mode выключенным
 - uploads `/srv/tk-delivery-test/uploads`;
 - отдельный Telegram bot token, webhook secret и session keys.
 
+Тестовый бот закрыт для Telegram ID `1048084234`: только этому чату назначается
+кнопка Mini App, test frontend не открывает интерфейсы для других Telegram ID,
+а test backend дополнительно отклоняет чужие Telegram-сессии и webhook updates.
+Production-бот и его доступы это ограничение не затрагивает.
+
 Production database, uploads, bot token и webhook не используются.
 
 ## Однократная настройка

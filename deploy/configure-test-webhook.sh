@@ -32,9 +32,24 @@ case "$response" in
     ;;
 esac
 
-menu_button=$(printf '{"type":"web_app","text":"Open test","web_app":{"url":"%s"}}' "$TELEGRAM_CLIENT_MINI_APP_URL")
+default_menu_button='{"type":"commands"}'
 response=$(curl --fail --silent --show-error \
   --request POST \
+  --data-urlencode "menu_button=${default_menu_button}" \
+  "https://api.telegram.org/bot${TELEGRAM_CLIENT_BOT_TOKEN}/setChatMenuButton")
+
+case "$response" in
+  *'"ok":true'*) ;;
+  *)
+    echo "Telegram rejected the default test bot menu button." >&2
+    exit 1
+    ;;
+esac
+
+menu_button=$(printf '{"type":"web_app","text":"Открыть Mini App","web_app":{"url":"%s"}}' "$TELEGRAM_CLIENT_MINI_APP_URL")
+response=$(curl --fail --silent --show-error \
+  --request POST \
+  --data-urlencode "chat_id=1048084234" \
   --data-urlencode "menu_button=${menu_button}" \
   "https://api.telegram.org/bot${TELEGRAM_CLIENT_BOT_TOKEN}/setChatMenuButton")
 

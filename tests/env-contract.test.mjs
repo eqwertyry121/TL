@@ -179,6 +179,15 @@ test("frontend deploy and performance CI run root optimization gates", () => {
   }
 });
 
+test("test bot button is private to the owner chat", () => {
+  const backendWorkflow = readSource(".github/workflows/backend.yml");
+  const configureStep = sliceWorkflowStep(backendWorkflow, "Configure Telegram test Mini App button");
+
+  assert.match(configureStep, /chat_id: 1048084234/);
+  assert.match(configureStep, /menu_button: \{ type: "commands" \}/);
+  assert.match(configureStep, /TEST_MINI_APP_URL: https:\/\/takolako\.site\/testbranch\/main\//);
+});
+
 function readSource(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 }
