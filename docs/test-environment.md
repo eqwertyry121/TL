@@ -16,6 +16,10 @@ GitHub Pages публикует единый artifact: production из `main` о
 а сборка `test` помещается в `/testbranch/`. Поэтому deploy любой из двух веток
 не удаляет соседний контур.
 
+Пока VPS credentials не добавлены в GitHub Actions, клиентская сборка `test`
+работает в demo mode: меню, корзину и оформление можно проверять без API.
+Production всегда собирается с demo mode выключенным.
+
 ## Изоляция от production
 
 Тестовый backend использует:
