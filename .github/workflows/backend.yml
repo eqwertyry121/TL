@@ -269,3 +269,59 @@ jobs:
           curl --fail --silent --show-error "$TEST_API_BASE_URL/ready" >/dev/null
           ssh -i ~/.ssh/tk_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
             "cd '$TEST_DEPLOY_PATH/deploy' && sh ./configure-test-webhook.sh .env.test"
+
+  configure-test-mini-app:
+    needs: backend
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/test' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check test bot token
+        id: bot_config
+        env:
+          TEST_BOT_TOKEN: ${{ secrets.TK_TEST_CLIENT_BOT_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$TEST_BOT_TOKEN" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Test Mini App configuration skipped: TK_TEST_CLIENT_BOT_TOKEN is not configured."
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        if: ${{ steps.bot_config.outputs.enabled == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Configure Telegram test Mini App button
+        if: ${{ steps.bot_config.outputs.enabled == 'true' }}
+        env:
+          TEST_BOT_TOKEN: ${{ secrets.TK_TEST_CLIENT_BOT_TOKEN }}
+          TEST_MINI_APP_URL: https://takolako.site/testbranch/main/
+        run: |
+          node <<'NODE'
+          const token = process.env.TEST_BOT_TOKEN;
+          const miniAppURL = process.env.TEST_MINI_APP_URL;
+          const api = async (method, body) => {
+            const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || payload.ok !== true) {
+              throw new Error(`Telegram rejected ${method}.`);
+            }
+            return payload.result;
+          };
+          const bot = await api("getMe", {});
+          await api("setChatMenuButton", {
+            menu_button: {
+              type: "web_app",
+              text: "Открыть Mini App",
+              web_app: { url: miniAppURL },
+            },
+          });
+          console.log(`Configured @${bot.username} menu button: ${miniAppURL}`);
+          NODE
