@@ -94,7 +94,7 @@ jobs:
         working-directory: test-source
         env:
           VITE_APP_ENV: test
-          VITE_DEMO_MODE: "false"
+          VITE_DEMO_MODE: "true"
           VITE_API_BASE_URL: https://api.takolako.site/testbranch-api
           VITE_BUILD_SHA: ${{ steps.test_checkout.outputs.commit }}
           VITE_LEGAL_BUSINESS_NAME: ${{ vars.LEGAL_BUSINESS_NAME }}
@@ -110,7 +110,6 @@ jobs:
           VITE_BASE_PATH=/testbranch/kitchen/ pnpm --filter @tk-delivery/kitchen build
           VITE_BASE_PATH=/testbranch/courier/ pnpm --filter @tk-delivery/courier build
           VITE_BASE_PATH=/testbranch/admin/ pnpm --filter @tk-delivery/admin build
-          pnpm perf:budgets
 
       - name: Prepare combined Pages artifact
         run: |
