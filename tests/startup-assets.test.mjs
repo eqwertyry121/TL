@@ -84,14 +84,18 @@ test("client shows combos inline without a separate transition control", () => {
   assertNotIncludes(menuBody, "листайте карточки");
   assertIncludes(menuBody, "combo-contents");
   assertIncludes(menuBody, 'description.split(" • ")');
+  assertNotIncludes(menuBody, "contentsLabel");
+  assertNotIncludes(menuBody, "В составе");
   assertIncludes(styles, ".combo-contents li");
   assertIncludes(menuBody, "showBadge={!combo}");
   assertIncludes(menuBody, "{!combo && <span>{item.weight_text}</span>}");
   assertIncludes(styles, ".combo-strip .link-title");
 
   const fixtures = readSource("apps/client/src/fixtures.ts");
+  assertIncludes(fixtures, 'title: "Комбо"');
   assertIncludes(fixtures, "хачапури по-мегрельски");
   assertIncludes(fixtures, "хачапури по-аджарски");
+  for (const title of ["FAMILY BOX", "SOLO BOX", "DUO BOX", "SWEET BOX", "VEGGIE BOX"]) assertIncludes(fixtures, title);
   assertNotIncludes(fixtures, '"24 хинкали + хачапури + напиток"');
 });
 

@@ -1014,13 +1014,6 @@ body.has-day-off-overlay {
   gap: 0.4rem;
 }
 
-.combo-contents > strong {
-  color: var(--color-primary-dark);
-  font-size: 0.9rem;
-  letter-spacing: 0.025em;
-  text-transform: uppercase;
-}
-
 .combo-contents ul {
   display: grid;
   gap: 0.38rem;
