@@ -1180,7 +1180,7 @@ function seedMenu(): AdminMenuResponse {
       "12 × хинкали с мясом • 12 × хинкали с сыром • 1 × хачапури по-мегрельски • 1 × Натахтари 1 л",
       "12 × hinkalija sa mesom • 12 × hinkalija sa sirom • 1 × megrelijski hačapuri • 1 × Natakhtari 1 l",
       "12 × beef khinkali • 12 × cheese khinkali • 1 × Megrelian khachapuri • 1 × Natakhtari 1 L",
-      "6890", "на 4–5 человек", 1, 10,
+      "6890", "на 4–5 человек", 1, 10, media("family-box"),
     ),
     itemSeed(
       "77777777-7777-7777-7777-777777777002",
