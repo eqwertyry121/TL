@@ -88,8 +88,6 @@ export interface CheckoutDraft {
   street: string;
   houseNumber: string;
   entrance: string;
-  floor: string;
-  apartment: string;
   comment: string;
   fulfillmentType: FulfillmentType;
   pickupAt: string;

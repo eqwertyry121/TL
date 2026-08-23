@@ -860,11 +860,12 @@ func TestClientMiniAppURLUsesFrontendOriginAndBookingHash(t *testing.T) {
 	server := New(config.Config{
 		PublicBaseURL:    "https://api.takolako.site",
 		ClientMiniAppURL: "https://takolako.site/main/",
+		BuildSHA:         "4e819f3897f22ae8175958652d16c4eaae562b04",
 	}, nil, slog.Default())
-	if got := server.clientMiniAppURL("/"); got != "https://takolako.site/main/#/" {
+	if got := server.clientMiniAppURL("/"); got != "https://takolako.site/main/?v=4e819f3897f22ae8175958652d16c4eaae562b04#/" {
 		t.Fatalf("menu Mini App URL = %q", got)
 	}
-	if got := server.clientMiniAppURL("/booking"); got != "https://takolako.site/main/#/booking" {
+	if got := server.clientMiniAppURL("/booking"); got != "https://takolako.site/main/?v=4e819f3897f22ae8175958652d16c4eaae562b04#/booking" {
 		t.Fatalf("booking Mini App URL = %q", got)
 	}
 }

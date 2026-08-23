@@ -1524,10 +1524,6 @@ body.has-day-off-overlay {
   grid-template-columns: minmax(0, 1fr) minmax(5.4rem, 0.34fr);
 }
 
-.details-address-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
 .details-address-grid input,
 .main-address-grid input {
   padding-inline: clamp(0.65rem, 2vw, 0.9rem);

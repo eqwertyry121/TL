@@ -1561,14 +1561,7 @@ function Checkout({
                 <span>{t(locale, "entrance")}</span>
                 <input value={draft.entrance} maxLength={24} inputMode="text" onChange={(event) => onDraft({ entrance: event.target.value })} />
               </label>
-              <label>
-                <span>{t(locale, "floor")}</span>
-                <input value={draft.floor} maxLength={16} inputMode="text" onChange={(event) => onDraft({ floor: event.target.value })} />
-              </label>
-              <label>
-                <span>{t(locale, "apartment")}</span>
-                <input value={draft.apartment} maxLength={24} inputMode="text" onChange={(event) => onDraft({ apartment: event.target.value })} />
-              </label>
+              <p className="notice compact">{copy.entranceDeliveryNote}</p>
             </div>
           </>
         )}
@@ -1700,7 +1693,8 @@ function checkoutCopy(locale: Locale) {
     ru: {
       fulfillmentTitle: "Как получить заказ",
       deliveryTitle: "Доставка",
-      deliveryDescription: "привезём курьером",
+      deliveryDescription: "курьер привезёт к подъезду",
+      entranceDeliveryNote: "Доставка до подъезда — пожалуйста, встретьте курьера у входа.",
       pickupTitle: "Самовывоз",
       pickupDescription: "забрать в ресторане",
       pickupSelected: "Приготовим заказ к выбранному времени. Курьер этот заказ не получает.",
@@ -1734,8 +1728,6 @@ function checkoutCopy(locale: Locale) {
       confirmLocation: "📍 Подтвердить геолокацию",
       placeCryptoTestOrder: "ОПЛАТИТЬ TEST CRYPTO",
       addressPartEntrance: "подъезд",
-      addressPartFloor: "этаж",
-      addressPartApartment: "кв.",
       cashTitle: "Наличными",
       cryptoDescription: "sandbox · без реальных денег",
       cashPickupDescription: "при получении в ресторане",
@@ -1762,7 +1754,8 @@ function checkoutCopy(locale: Locale) {
     sr: {
       fulfillmentTitle: "Kako želite da preuzmete porudžbinu",
       deliveryTitle: "Dostava",
-      deliveryDescription: "kurir donosi porudžbinu",
+      deliveryDescription: "kurir donosi do ulaza",
+      entranceDeliveryNote: "Dostava je do ulaza — molimo vas da sačekate kurira ispred.",
       pickupTitle: "Lično preuzimanje",
       pickupDescription: "preuzimanje u restoranu",
       pickupSelected: "Porudžbinu pripremamo za izabrano vreme. Kurir ne dobija ovu porudžbinu.",
@@ -1796,8 +1789,6 @@ function checkoutCopy(locale: Locale) {
       confirmLocation: "📍 Potvrdi geolokaciju",
       placeCryptoTestOrder: "PLATI TEST CRYPTO",
       addressPartEntrance: "ulaz",
-      addressPartFloor: "sprat",
-      addressPartApartment: "stan",
       cashTitle: "Gotovina",
       cryptoDescription: "sandbox · bez pravog plaćanja",
       cashPickupDescription: "pri preuzimanju u restoranu",
@@ -1824,7 +1815,8 @@ function checkoutCopy(locale: Locale) {
     en: {
       fulfillmentTitle: "How to receive the order",
       deliveryTitle: "Delivery",
-      deliveryDescription: "courier delivery",
+      deliveryDescription: "courier delivers to the entrance",
+      entranceDeliveryNote: "Delivery is to the building entrance — please meet the courier outside.",
       pickupTitle: "Pickup",
       pickupDescription: "collect at the restaurant",
       pickupSelected: "We prepare the order for your selected time. The courier will not receive it.",
@@ -1858,8 +1850,6 @@ function checkoutCopy(locale: Locale) {
       confirmLocation: "📍 Confirm geolocation",
       placeCryptoTestOrder: "PAY TEST CRYPTO",
       addressPartEntrance: "entrance",
-      addressPartFloor: "floor",
-      addressPartApartment: "apt.",
       cashTitle: "Cash",
       cryptoDescription: "sandbox · no real payment",
       cashPickupDescription: "at pickup in the restaurant",
@@ -1917,8 +1907,6 @@ function buildCheckoutAddress(draft: CheckoutDraft, locale: Locale): string {
   const main = [draft.street.trim(), draft.houseNumber.trim()].filter(Boolean).join(" ");
   const details = [
     addressPart(copy.addressPartEntrance, draft.entrance),
-    addressPart(copy.addressPartFloor, draft.floor),
-    addressPart(copy.addressPartApartment, draft.apartment),
   ].filter(Boolean);
   return [main, ...details].filter(Boolean).join(", ");
 }
