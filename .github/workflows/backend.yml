@@ -168,7 +168,7 @@ jobs:
 
   deploy-test:
     needs: backend
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/test' }}
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/test' }}
     runs-on: ubuntu-latest
     environment:
       name: test

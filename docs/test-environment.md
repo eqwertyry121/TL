@@ -38,6 +38,8 @@ Production database, uploads, bot token и webhook не используются
    `TK_TEST_CLIENT_BOT_TOKEN`. Токен нельзя добавлять в variables или git.
 3. Push в `test` запускает CI, отдельный backend deploy, combined GitHub Pages
    deploy, public healthcheck, Telegram webhook и test Mini App menu button.
+   После первичного добавления секрета тот же deploy можно запустить вручную:
+   Actions → Backend CI → Run workflow → ветка `test`.
 
 Workflow сам получает username тестового бота через `getMe`. Runtime secrets,
 пароль тестовой PostgreSQL и webhook secret генерируются на VPS при первом
