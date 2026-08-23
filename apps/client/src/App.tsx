@@ -1162,6 +1162,7 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
   const regularCategories = categories.filter((category) => category.id !== comboCategoryID);
   const regularItems = menuDisplayItems(regularCategories);
   const menuTitle = locale === "sr" ? "Meni" : locale === "en" ? "Menu" : "Меню";
+  const contentsLabel = locale === "sr" ? "Sadrži" : locale === "en" ? "Includes" : "В составе";
   const groups = [
     ...(comboCategory?.items.length ? [{ key: "combo", title: comboCategory.title, items: menuDisplayItems([comboCategory]), combo: true }] : []),
     { key: "menu", title: menuTitle, items: regularItems, combo: false },
@@ -1193,7 +1194,12 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
                         <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
                           {item.title}
                         </button>
-                        <p>{description}</p>
+                        {combo ? (
+                          <div className="combo-contents">
+                            <strong>{contentsLabel}</strong>
+                            <ul>{description.split(" • ").map((part) => <li key={part}>{part}</li>)}</ul>
+                          </div>
+                        ) : <p>{description}</p>}
                         <div className="meta-row">
                           {!combo && <span>{item.weight_text}</span>}
                           <strong>{money(item.price_minor)}</strong>

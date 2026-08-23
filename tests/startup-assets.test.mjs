@@ -82,10 +82,12 @@ test("client shows combos inline without a separate transition control", () => {
   assertIncludes(menuBody, 'index === comboIndex ? "active" : ""');
   assertNotIncludes(menuBody, "combo-nav");
   assertNotIncludes(menuBody, "листайте карточки");
+  assertIncludes(menuBody, "combo-contents");
+  assertIncludes(menuBody, 'description.split(" • ")');
+  assertIncludes(styles, ".combo-contents li");
   assertIncludes(menuBody, "showBadge={!combo}");
   assertIncludes(menuBody, "{!combo && <span>{item.weight_text}</span>}");
   assertIncludes(styles, ".combo-strip .link-title");
-  assertIncludes(styles, ".combo-strip .dish-body p");
 
   const fixtures = readSource("apps/client/src/fixtures.ts");
   assertIncludes(fixtures, "хачапури по-мегрельски");

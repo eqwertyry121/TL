@@ -1009,12 +1009,42 @@ body.has-day-off-overlay {
   line-height: 1.15;
 }
 
-.combo-strip .dish-body p {
+.combo-contents {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.combo-contents > strong {
+  color: var(--color-primary-dark);
+  font-size: 0.9rem;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.combo-contents ul {
+  display: grid;
+  gap: 0.38rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.combo-contents li {
+  position: relative;
+  padding-left: 1rem;
   color: var(--text);
   font-size: 1rem;
   font-weight: 650;
-  line-height: 1.45;
-  -webkit-line-clamp: 5;
+  line-height: 1.32;
+}
+
+.combo-contents li::before {
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  content: "•";
+  font-size: 1.2rem;
+  line-height: 1.05;
 }
 
 .combo-strip .meta-row strong {
