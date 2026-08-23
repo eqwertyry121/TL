@@ -1156,22 +1156,12 @@ function menuDisplayItems(categories: AppData["categories"]) {
     .map(({ item }, visualIndex) => ({ item, visualIndex }));
 }
 
-function scrollCombo(direction: -1 | 1) {
-  const strip = document.getElementById("combo-strip");
-  const firstCard = strip?.firstElementChild as HTMLElement | null;
-  if (!strip || !firstCard) return;
-  const step = firstCard.offsetWidth + parseFloat(getComputedStyle(strip).columnGap || "0");
-  const index = Math.round(strip.scrollLeft / step) + direction;
-  const card = strip.children[Math.max(0, Math.min(strip.children.length - 1, index))] as HTMLElement;
-  strip.scrollTo({ left: card.offsetLeft, behavior: "smooth" });
-}
-
 function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
+  const [comboIndex, setComboIndex] = useState(0);
   const comboCategory = categories.find((category) => category.id === comboCategoryID);
   const regularCategories = categories.filter((category) => category.id !== comboCategoryID);
   const regularItems = menuDisplayItems(regularCategories);
   const menuTitle = locale === "sr" ? "Meni" : locale === "en" ? "Menu" : "Меню";
-  const swipeLabel = locale === "sr" ? "prevucite kartice" : locale === "en" ? "swipe cards" : "листайте карточки";
   const groups = [
     ...(comboCategory?.items.length ? [{ key: "combo", title: comboCategory.title, items: menuDisplayItems([comboCategory]), combo: true }] : []),
     { key: "menu", title: menuTitle, items: regularItems, combo: false },
@@ -1181,13 +1171,17 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
       <section className="menu-section">
         {groups.map(({ key, title, items, combo }) => (
           <section className="menu-group" key={key}>
-            <div className="menu-group-head">
-              <h2>{title}</h2>
-              {combo && <span className="combo-swipe-hint">← {swipeLabel} →</span>}
-            </div>
-            <div className={combo ? "combo-carousel" : undefined}>
-              {combo && <button className="combo-nav prev" type="button" aria-label="Предыдущее комбо" onClick={() => scrollCombo(-1)}>‹</button>}
-              <div id={combo ? "combo-strip" : undefined} className={combo ? "combo-strip" : "menu-grid"}>
+            <div className="menu-group-head"><h2>{title}</h2></div>
+            <div
+              id={combo ? "combo-strip" : undefined}
+              className={combo ? "combo-strip" : "menu-grid"}
+              onScroll={combo ? (event) => {
+                const strip = event.currentTarget;
+                const card = strip.firstElementChild as HTMLElement | null;
+                const step = card ? card.offsetWidth + parseFloat(getComputedStyle(strip).columnGap || "0") : strip.clientWidth;
+                setComboIndex(Math.min(items.length - 1, Math.max(0, Math.round(strip.scrollLeft / step))));
+              } : undefined}
+            >
                 {items.map(({ item, visualIndex }) => {
                   const qty = cart.lines[item.id]?.quantity || 0;
                   const minQuantity = itemMinQuantity(item);
@@ -1217,14 +1211,13 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
                     </article>
                   );
                 })}
-              </div>
-              {combo && <button className="combo-nav next" type="button" aria-label="Следующее комбо" onClick={() => scrollCombo(1)}>›</button>}
             </div>
             {combo && (
               <div className="combo-pages">
                 {items.map(({ item }, index) => (
                   <button
                     key={item.id}
+                    className={index === comboIndex ? "active" : ""}
                     type="button"
                     aria-label={`Комбо ${index + 1}`}
                     onClick={() => {
