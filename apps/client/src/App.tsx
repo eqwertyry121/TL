@@ -1161,6 +1161,7 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
   const regularCategories = categories.filter((category) => category.id !== comboCategoryID);
   const regularItems = menuDisplayItems(regularCategories);
   const menuTitle = locale === "sr" ? "Meni" : locale === "en" ? "Menu" : "Меню";
+  const swipeLabel = locale === "sr" ? "prevucite" : locale === "en" ? "swipe" : "листайте";
   const groups = [
     ...(comboCategory?.items.length ? [{ key: "combo", title: comboCategory.title, items: menuDisplayItems([comboCategory]), combo: true }] : []),
     { key: "menu", title: menuTitle, items: regularItems, combo: false },
@@ -1170,7 +1171,10 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
       <section className="menu-section">
         {groups.map(({ key, title, items, combo }) => (
           <section className="menu-group" key={key}>
-            <div className="menu-group-head"><h2>{title}</h2></div>
+            <div className="menu-group-head">
+              <h2>{title}</h2>
+              {combo && <span className="combo-swipe-hint">{items.length} · {swipeLabel} →</span>}
+            </div>
             <div className={combo ? "combo-strip" : "menu-grid"}>
               {items.map(({ item, visualIndex }) => {
                 const qty = cart.lines[item.id]?.quantity || 0;

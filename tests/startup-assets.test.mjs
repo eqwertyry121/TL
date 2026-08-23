@@ -76,6 +76,15 @@ test("client shows combos inline without a separate transition control", () => {
   assertNotIncludes(styles, ".combo-promo");
   assertIncludes(menuBody, 'className="menu-group-head"');
   assertIncludes(menuBody, 'combo ? " combo-card" : ""');
+  assertIncludes(menuBody, "combo-swipe-hint");
+  assertIncludes(menuBody, "items.length");
+  assertIncludes(styles, ".combo-strip .link-title");
+  assertIncludes(styles, ".combo-strip .dish-body p");
+
+  const fixtures = readSource("apps/client/src/fixtures.ts");
+  assertIncludes(fixtures, "хачапури по-мегрельски");
+  assertIncludes(fixtures, "хачапури по-аджарски");
+  assertNotIncludes(fixtures, '"24 хинкали + хачапури + напиток"');
 });
 
 test("client legal pages stay available without Telegram authentication", () => {

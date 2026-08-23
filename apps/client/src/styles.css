@@ -951,6 +951,19 @@ body.has-day-off-overlay {
   min-width: 0;
 }
 
+.menu-group-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.combo-swipe-hint {
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .combo-strip {
   display: grid;
   grid-auto-flow: column;
@@ -972,6 +985,36 @@ body.has-day-off-overlay {
 
 .combo-strip .dish-art {
   min-height: clamp(8rem, 25dvh, 12rem);
+}
+
+.combo-strip .link-title {
+  font-size: 1.35rem;
+  line-height: 1.15;
+}
+
+.combo-strip .dish-body p {
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.45;
+  -webkit-line-clamp: 5;
+}
+
+.combo-strip .meta-row span {
+  padding: 0.28rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(200, 155, 60, 0.18);
+  color: var(--color-primary-dark);
+  font-weight: 800;
+}
+
+.combo-strip .meta-row strong {
+  font-size: 1.35rem;
+}
+
+.combo-strip .add-only {
+  font-size: 1rem;
+  font-weight: 900;
 }
 
 .menu-grid {
