@@ -569,9 +569,8 @@ function CustomerBadge({ order }: { order: Order }) {
       title={`Открыть ЛС ${clientLabel(order)}`}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
-        event.preventDefault();
         event.stopPropagation();
-        openTelegramLink(href);
+        if (openTelegramLink(href)) event.preventDefault();
       }}
     >
       {content}

@@ -19,6 +19,7 @@ import {
   type MenuItemInput,
   type SettingsInput,
 } from "./api";
+import { parseNumberDraft } from "./number-draft";
 import { AlertTriangle, Archive, ArrowLeft, Ban, BarChart3, BellRing, CalendarCheck, CalendarDays, ChevronDown, ChevronRight, ClipboardList, Copy, Home, Menu as MenuIcon, MessageCircle, MoreHorizontal, Phone, RefreshCw, RotateCcw, Save, Search, Send, Settings as SettingsIcon, Shield, SlidersHorizontal, StickyNote, Trash2, Upload, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type FormEvent, type ReactNode } from "react";
@@ -1342,6 +1343,7 @@ function OrdersTab({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedID, setSelectedID] = useState("");
   const [detail, setDetail] = useState<Order | null>(null);
+  const [rowDetails, setRowDetails] = useState<Record<string, Order>>({});
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionMenuID, setActionMenuID] = useState("");
   const [dialog, setDialog] = useState<OrderDialogState | null>(null);
@@ -1353,6 +1355,8 @@ function OrdersTab({
   const onLoadRef = useRef(onLoad);
   const onLoadOrderRef = useRef(onLoadOrder);
   const newestOrderIDRef = useRef("");
+  const rowDetailsRef = useRef<Record<string, Order>>({});
+  const rowDetailRequestsRef = useRef(new Set<string>());
 
   useEffect(() => {
     onLoadRef.current = onLoad;
@@ -1372,9 +1376,41 @@ function OrdersTab({
       await onLoadRef.current(ordersLoadFilter(view, query, date, limit, offset), signal);
       if (signal.aborted || !selectedID) return;
       const loaded = await onLoadOrderRef.current(selectedID);
-      if (!signal.aborted) setDetail(loaded || null);
+      if (!signal.aborted) {
+        setDetail(loaded || null);
+        if (loaded) rememberRowDetail(loaded);
+      }
     }, 5000);
   }, [date, limit, offset, query, selectedID, view]);
+
+  useEffect(() => {
+    if (view === "history" || orders.length === 0) return;
+    let cancelled = false;
+    const missing = orders.filter((order) => {
+      const cached = rowDetailsRef.current[order.id];
+      const requestKey = `${order.id}:${order.version}`;
+      return (!cached || cached.version !== order.version) && !rowDetailRequestsRef.current.has(requestKey);
+    });
+    if (!missing.length) return;
+
+    void (async () => {
+      for (const summary of missing) {
+        if (cancelled) return;
+        const requestKey = `${summary.id}:${summary.version}`;
+        rowDetailRequestsRef.current.add(requestKey);
+        try {
+          const loaded = await onLoadOrderRef.current(summary.id);
+          if (!cancelled && loaded) rememberRowDetail(loaded);
+        } finally {
+          rowDetailRequestsRef.current.delete(requestKey);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orders, view]);
 
   useEffect(() => {
     if (view === "history") return;
@@ -1414,6 +1450,7 @@ function OrdersTab({
     try {
       const loaded = await onLoadOrder(order.id);
       setDetail(loaded || null);
+      if (loaded) rememberRowDetail(loaded);
     } finally {
       setDetailLoading(false);
     }
@@ -1424,6 +1461,7 @@ function OrdersTab({
     if (isOrderResponse(result)) {
       setDetail(result);
       setSelectedID(result.id);
+      rememberRowDetail(result);
     }
     await onLoad(ordersLoadFilter(view, query, date, limit, offset));
     setActionMenuID("");
@@ -1441,6 +1479,12 @@ function OrdersTab({
       onSubmit: (input) => executeOrderAction((authToken) => api.updateOrderContact(authToken, order.id, input)).then(() => undefined),
     });
     setActionMenuID("");
+  }
+
+  function rememberRowDetail(order: Order) {
+    const next = { ...rowDetailsRef.current, [order.id]: order };
+    rowDetailsRef.current = next;
+    setRowDetails(next);
   }
 
   return (
@@ -1495,6 +1539,7 @@ function OrdersTab({
             <OrderRow
               key={order.id}
               order={order}
+              detail={rowDetails[order.id]}
               selected={selectedID === order.id}
               onSelect={() => void selectOrder(order)}
             />
@@ -1559,7 +1604,12 @@ function OrdersTab({
   );
 }
 
-function OrderRow({ order, selected, onSelect }: { order: OrderSummary; selected: boolean; onSelect(): void }) {
+function OrderRow({ order, detail, selected, onSelect }: { order: OrderSummary; detail?: Order; selected: boolean; onSelect(): void }) {
+  const destination = detail
+    ? order.fulfillment_type === "pickup"
+      ? detail.pickup_address || "Самовывоз"
+      : detail.address || "Адрес не указан"
+    : "";
   return (
     <button className={`order-row ${selected ? "is-selected" : ""} ${order.fulfillment_status === "NEW" ? "is-new" : ""}`} type="button" onClick={onSelect}>
       <span className="order-avatar" aria-hidden="true">
@@ -1572,6 +1622,14 @@ function OrderRow({ order, selected, onSelect }: { order: OrderSummary; selected
         </span>
         <OrderSummaryClientLink order={order} />
         <span className="order-row-items">{fulfillmentText(order)}{order.fulfillment_type === "pickup" && order.pickup_at ? ` ${pickupDateTime(order.pickup_at)}` : ""} · {adminPaymentText(order)}</span>
+        {detail && (
+          <span className="order-row-preview">
+            <span><b>Адрес:</b> {destination}</span>
+            {detail.phone && <span><b>Телефон:</b> {detail.phone}</span>}
+            <span className="order-row-composition"><b>Состав:</b> {detail.items.map((item) => `${item.quantity}× ${item.snapshot_title}`).join(" · ")}</span>
+            {detail.customer_comment && <span className="order-row-comment"><b>Комментарий:</b> {detail.customer_comment}</span>}
+          </span>
+        )}
       </span>
       <span className="order-row-side">
         <StatusBadge order={order} />
@@ -2256,7 +2314,30 @@ function Textarea({ label, value, onChange }: { label: string; value: string; on
 }
 
 function NumberInput({ label, value, onChange }: { label: string; value: number; onChange(value: number): void }) {
-  return <label><span>{label}</span><input type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} /></label>;
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+
+  return (
+    <label>
+      <span>{label}</span>
+      <input
+        type="number"
+        value={draft}
+        autoComplete="off"
+        onFocus={(event) => event.currentTarget.select()}
+        onChange={(event) => {
+          const nextDraft = event.target.value;
+          setDraft(nextDraft);
+          const parsed = parseNumberDraft(nextDraft);
+          if (parsed !== undefined) onChange(parsed);
+        }}
+        onBlur={() => {
+          const parsed = parseNumberDraft(draft);
+          if (parsed === undefined) setDraft(String(value));
+        }}
+      />
+    </label>
+  );
 }
 
 function navItems(ids: AdminTab[]): AdminNavItem[] {

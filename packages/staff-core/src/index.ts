@@ -126,13 +126,13 @@ export function courierEtaLink(order: Order, minutes: number): string | undefine
   return telegramUserLink(order, courierEtaText(minutes));
 }
 
-export function openTelegramLink(url: string): void {
+export function openTelegramLink(url: string): boolean {
   const webApp = window.Telegram?.WebApp;
   if (webApp?.openTelegramLink) {
     webApp.openTelegramLink(url);
-    return;
+    return true;
   }
-  window.open(url, "_blank", "noopener,noreferrer");
+  return window.open(url, "_blank", "noopener,noreferrer") !== null;
 }
 
 export function isAuthError(error: unknown): boolean {
