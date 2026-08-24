@@ -940,7 +940,119 @@ body.has-day-off-overlay {
 }
 
 .menu-section {
+  display: grid;
+  gap: 1.25rem;
   scroll-margin-top: clamp(7rem, 20dvh, 10rem);
+}
+
+.menu-group {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.combo-pages {
+  display: flex;
+  justify-content: center;
+  gap: 0.08rem;
+}
+
+.combo-pages button {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.4rem;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.combo-pages button::after {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: rgba(107, 31, 42, 0.28);
+  content: "";
+  transition: width 180ms ease, background 180ms ease;
+}
+
+.combo-pages button.active::after {
+  width: 1.15rem;
+  background: var(--color-primary);
+}
+
+.combo-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 88%;
+  gap: clamp(0.6rem, 1.7vw, 1rem);
+  padding-bottom: 0.25rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.combo-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.combo-strip .dish-card {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  scroll-snap-align: start;
+}
+
+.combo-strip .dish-art {
+  min-height: clamp(8rem, 25dvh, 12rem);
+}
+
+.combo-strip .dish-body {
+  grid-template-rows: auto 1fr auto auto;
+}
+
+.combo-strip .link-title {
+  font-size: 1.35rem;
+  line-height: 1.15;
+}
+
+.combo-contents {
+  display: grid;
+  align-content: start;
+  gap: 0.4rem;
+}
+
+.combo-contents ul {
+  display: grid;
+  align-content: start;
+  row-gap: 0.62rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.combo-contents li {
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  gap: 0.4rem;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.32;
+}
+
+.combo-contents li b {
+  color: var(--accent);
+  font-weight: 900;
+  text-align: right;
+}
+
+.combo-strip .meta-row strong {
+  font-size: 1.35rem;
+}
+
+.combo-strip .add-only {
+  font-size: 1rem;
+  font-weight: 900;
 }
 
 .menu-grid {
@@ -960,8 +1072,6 @@ body.has-day-off-overlay {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface);
-  box-shadow: none;
-  backdrop-filter: none;
 }
 
 .dish-card {
@@ -971,40 +1081,6 @@ body.has-day-off-overlay {
   background:
     linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(248, 241, 229, 0.88)),
     var(--surface-solid);
-  isolation: isolate;
-  transition: none;
-}
-
-.dish-card::before {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  border-radius: inherit;
-  content: "";
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.72), transparent 35%, rgba(185, 85, 50, 0.08));
-  opacity: 0.78;
-}
-
-.dish-card::after {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  content: "";
-  z-index: 2;
-  background: linear-gradient(145deg, transparent 0 40%, rgba(200, 155, 60, 0.2));
-  opacity: 0;
-  transition: opacity 220ms ease;
-}
-
-.dish-card:hover {
-  border-color: rgba(107, 31, 42, 0.24);
-  transform: none;
-  box-shadow: none;
-}
-
-.dish-card:hover::after {
-  opacity: 1;
 }
 
 .dish-art,
@@ -2799,6 +2875,11 @@ textarea {
 }
 
 @media (max-width: 32rem) {
+  .combo-strip .dish-art {
+    min-height: 0;
+    aspect-ratio: 3 / 2;
+  }
+
   .legal-nav {
     grid-template-columns: 1fr;
   }

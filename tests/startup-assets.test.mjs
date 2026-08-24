@@ -66,6 +66,53 @@ test("client Main Mini App deep link can open table booking directly", () => {
   assertIncludes(routeSource, 'return { name: "booking" }');
 });
 
+test("client shows combos inline without a separate transition control", () => {
+  const source = readSource("apps/client/src/App.tsx");
+  const styles = readSource("apps/client/src/styles.css");
+  const menuBody = sliceBetween(source, "function Menu(", "function AddToOrder(");
+
+  assertNotIncludes(menuBody, "showCombos");
+  assertNotIncludes(menuBody, "combo-promo");
+  assertNotIncludes(styles, ".combo-promo");
+  assertIncludes(menuBody, 'className="menu-group-head"');
+  assertIncludes(menuBody, 'combo ? " combo-card" : ""');
+  assertIncludes(menuBody, "items.length");
+  assertIncludes(menuBody, "combo-pages");
+  assertIncludes(menuBody, "scrollTo");
+  assertIncludes(menuBody, 'index === comboIndex ? "active" : ""');
+  assertNotIncludes(menuBody, "combo-nav");
+  assertNotIncludes(menuBody, "листайте карточки");
+  assertIncludes(menuBody, "combo-contents");
+  assertIncludes(menuBody, 'description.split(" • ")');
+  assertIncludes(menuBody, 'part.split(" × ")');
+  assertNotIncludes(menuBody, "contentsLabel");
+  assertNotIncludes(menuBody, "В составе");
+  assertIncludes(styles, ".combo-contents li");
+  assertIncludes(styles, "align-content: start");
+  assertIncludes(styles, "row-gap: 0.62rem");
+  assertIncludes(styles, ".combo-strip .dish-body");
+  assertIncludes(styles, "grid-template-rows: auto 1fr auto auto");
+  assertIncludes(styles, ".combo-strip .dish-card");
+  assertNotIncludes(sliceBetween(styles, ".combo-strip .dish-body", ".combo-strip .link-title"), "height: 100%");
+  assertIncludes(menuBody, "showBadge={!combo}");
+  assertIncludes(menuBody, "{!combo && <span>{item.weight_text}</span>}");
+  assertIncludes(styles, ".combo-strip .link-title");
+
+  const fixtures = readSource("apps/client/src/fixtures.ts");
+  assertIncludes(fixtures, 'title: "Комбо"');
+  assertIncludes(fixtures, "хачапури по-мегрельски");
+  assertIncludes(fixtures, "хачапури по-аджарски");
+  for (const title of ["FULL HOUSE", "ONE & DONE", "DOUBLE", "SWEET DUO", "VEGGIE"]) assertIncludes(fixtures, title);
+  for (const singleItem of ["1 × хачапури по-мегрельски", "1 × грузинский салат", "1 × Borjomi 0,5 л"]) assertIncludes(fixtures, singleItem);
+  for (const price of ["6890", "2490", "5690", "2290", "2110"]) assertIncludes(fixtures, price);
+  assertIncludes(fixtures, 'staticMedia("full-house-card")');
+  for (const photo of ["one-and-done-card", "double-card", "sweet-duo-card", "veggie-card"]) assertIncludes(fixtures, `staticMedia("${photo}")`);
+  assertIncludes(fixtures, "import.meta.env.BASE_URL");
+  assertIncludes(fixtures, '"Натакхари с грушей 1 л"');
+  assertIncludes(fixtures, "910");
+  assertNotIncludes(fixtures, '"24 хинкали + хачапури + напиток"');
+});
+
 test("client legal pages stay available without Telegram authentication", () => {
   const appSource = readSource("apps/client/src/App.tsx");
   const routeSource = readSource("apps/client/src/route.ts");

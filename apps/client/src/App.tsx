@@ -46,6 +46,7 @@ import type { Api, AppData, Calculation, CashLocationChallenge, CartLine, CartSt
 const api = createApi();
 const clientBotMiniAppURL = "https://t.me/TakoLako_main_bot?startapp";
 const developerTelegramURL = "https://t.me/eqwertyry";
+const comboCategoryID = "66666666-6666-6666-6666-666666666001";
 const recommendedMenuItemIDs = new Set(["44444444-4444-4444-4444-444444444013"]);
 const Terms = lazy(() => import("./legal").then((module) => ({ default: module.Terms })));
 const Returns = lazy(() => import("./legal").then((module) => ({ default: module.Returns })));
@@ -1156,41 +1157,87 @@ function menuDisplayItems(categories: AppData["categories"]) {
 }
 
 function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
-  const flatItems = menuDisplayItems(categories);
+  const [comboIndex, setComboIndex] = useState(0);
+  const comboCategory = categories.find((category) => category.id === comboCategoryID);
+  const regularCategories = categories.filter((category) => category.id !== comboCategoryID);
+  const regularItems = menuDisplayItems(regularCategories);
+  const menuTitle = locale === "sr" ? "Meni" : locale === "en" ? "Menu" : "Меню";
+  const groups = [
+    ...(comboCategory?.items.length ? [{ key: "combo", title: comboCategory.title, items: menuDisplayItems([comboCategory]), combo: true }] : []),
+    { key: "menu", title: menuTitle, items: regularItems, combo: false },
+  ];
   return (
     <div className="page">
       <section className="menu-section">
-        <div className="menu-grid">
-          {flatItems.map(({ item, visualIndex }) => {
-            const qty = cart.lines[item.id]?.quantity || 0;
-            const minQuantity = itemMinQuantity(item);
-            const { description } = splitRecommendationDescription(item.description);
-            return (
-              <article className={qty > 0 ? "dish-card in-cart" : "dish-card"} key={item.id}>
-                <DishVisual item={item} visualIndex={visualIndex} locale={locale} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
-                <div className="dish-body">
-                  <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
-                    {item.title}
-                  </button>
-                  <p>{description}</p>
-                  <div className="meta-row">
-                    <span>{item.weight_text}</span>
-                    <strong>{money(item.price_minor)}</strong>
-                  </div>
-                  <div className="row-actions">
-                    {qty > 0 ? (
-                      <Qty value={qty} onMinus={() => onSetLine(item, qty <= minQuantity ? 0 : qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />
-                    ) : (
-                      <button className="primary add-only" onClick={() => onSetLine(item, minQuantity)}>
-                        В корзину{minQuantity > 1 ? ` · ${minQuantity} шт` : ""}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+        {groups.map(({ key, title, items, combo }) => (
+          <section className="menu-group" key={key}>
+            <div className="menu-group-head"><h2>{title}</h2></div>
+            <div
+              id={combo ? "combo-strip" : undefined}
+              className={combo ? "combo-strip" : "menu-grid"}
+              onScroll={combo ? (event) => {
+                const strip = event.currentTarget;
+                const card = strip.firstElementChild as HTMLElement | null;
+                const step = card ? card.offsetWidth + parseFloat(getComputedStyle(strip).columnGap || "0") : strip.clientWidth;
+                setComboIndex(Math.min(items.length - 1, Math.max(0, Math.round(strip.scrollLeft / step))));
+              } : undefined}
+            >
+                {items.map(({ item, visualIndex }) => {
+                  const qty = cart.lines[item.id]?.quantity || 0;
+                  const minQuantity = itemMinQuantity(item);
+                  const { description } = splitRecommendationDescription(item.description);
+                  return (
+                    <article className={`${qty > 0 ? "dish-card in-cart" : "dish-card"}${combo ? " combo-card" : ""}`} key={item.id}>
+                      <DishVisual item={item} visualIndex={visualIndex} locale={locale} showBadge={!combo} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
+                      <div className="dish-body">
+                        <button className="link-title" onClick={() => navigate({ name: "dish", id: item.id })}>
+                          {item.title}
+                        </button>
+                        {combo ? (
+                          <div className="combo-contents">
+                            <ul>{description.split(" • ").map((part) => {
+                              const [quantity, name] = part.split(" × ");
+                              return <li key={part}><b>{quantity}×</b><span>{name}</span></li>;
+                            })}</ul>
+                          </div>
+                        ) : <p>{description}</p>}
+                        <div className="meta-row">
+                          {!combo && <span>{item.weight_text}</span>}
+                          <strong>{money(item.price_minor)}</strong>
+                        </div>
+                        <div className="row-actions">
+                          {qty > 0 ? (
+                            <Qty value={qty} onMinus={() => onSetLine(item, qty <= minQuantity ? 0 : qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />
+                          ) : (
+                            <button className="primary add-only" onClick={() => onSetLine(item, minQuantity)}>
+                              В корзину{minQuantity > 1 ? ` · ${minQuantity} шт` : ""}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+            </div>
+            {combo && (
+              <div className="combo-pages">
+                {items.map(({ item }, index) => (
+                  <button
+                    key={item.id}
+                    className={index === comboIndex ? "active" : ""}
+                    type="button"
+                    aria-label={`Комбо ${index + 1}`}
+                    onClick={() => {
+                      const strip = document.getElementById("combo-strip");
+                      const card = strip?.children[index] as HTMLElement | undefined;
+                      if (strip && card) strip.scrollTo({ left: card.offsetLeft, behavior: "smooth" });
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        ))}
       </section>
     </div>
   );
@@ -1323,6 +1370,7 @@ function DishVisual({
   visualIndex,
   locale,
   hero = false,
+  showBadge = true,
   asButton = false,
   onClick,
 }: {
@@ -1330,6 +1378,7 @@ function DishVisual({
   visualIndex: number;
   locale: Locale;
   hero?: boolean;
+  showBadge?: boolean;
   asButton?: boolean;
   onClick?: () => void;
 }) {
@@ -1361,7 +1410,7 @@ function DishVisual({
         />
       )}
       <span className="dish-emoji">{foodVisual(item.title)}</span>
-      {item.weight_text && <small className="dish-badge">{item.weight_text}</small>}
+      {showBadge && item.weight_text && <small className="dish-badge">{item.weight_text}</small>}
     </>
   );
   if (asButton) {

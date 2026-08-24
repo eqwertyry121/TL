@@ -17,6 +17,7 @@ import type {
 
 const demoOrdersKey = "tk-client-demo-orders-v1";
 const demoMenuKey = "tk-admin-demo-menu-v6";
+const demoComboMenuMigrationKey = "tk-admin-demo-combo-menu-v1";
 const demoSettingsKey = "tk-admin-demo-settings-v1";
 const demoStaffKey = "tk-admin-demo-staff-v1";
 const demoAuditKey = "tk-admin-demo-audit-v1";
@@ -817,8 +818,19 @@ declare global {
 }
 
 function ensureDemoSeed(): void {
-  if (!localStorage.getItem(demoMenuKey)) saveMenu(seedMenu());
-  else saveMenu(normalizeDemoMenu(loadMenu()));
+  const menu = localStorage.getItem(demoMenuKey) ? normalizeDemoMenu(loadMenu()) : seedMenu();
+  if (!localStorage.getItem(demoComboMenuMigrationKey)) {
+    const defaults = seedMenu();
+    const comboCategory = defaults.categories.find((category) => category.id === "66666666-6666-6666-6666-666666666001");
+    if (comboCategory && !menu.categories.some((category) => category.id === comboCategory.id)) menu.categories.push(comboCategory);
+    defaults.items
+      .filter((item) => item.category_id === comboCategory?.id)
+      .forEach((item) => {
+        if (!menu.items.some((entry) => entry.id === item.id)) menu.items.push(item);
+      });
+    localStorage.setItem(demoComboMenuMigrationKey, "1");
+  }
+  saveMenu(menu);
   if (!localStorage.getItem(demoSettingsKey)) saveSettings(seedSettings());
   if (!localStorage.getItem(demoStaffKey)) saveStaff(seedStaff());
   if (!localStorage.getItem(demoAuditKey)) saveAudit([]);
@@ -834,6 +846,7 @@ function seedMenu(): AdminMenuResponse {
     categorySeed("33333333-3333-3333-3333-333333333004", "Салаты и закуски", "Salate i predjela", "Salads and appetizers", 40),
     categorySeed("33333333-3333-3333-3333-333333333005", "Десерты", "Deserti", "Desserts", 50),
     categorySeed("33333333-3333-3333-3333-333333333006", "Напитки", "Pica", "Drinks", 60),
+    categorySeed("66666666-6666-6666-6666-666666666001", "Комбо", "Kombo", "Combos", 1),
   ];
   const items: AdminMenuItem[] = [
     itemSeed(
@@ -1056,6 +1069,21 @@ function seedMenu(): AdminMenuResponse {
       media("rosa-still-water"),
     ),
     itemSeed(
+      "44444444-4444-4444-4444-444444444021",
+      categories[5].id,
+      "Натакхари с грушей 1 л",
+      "Natakhtari sa kruskom 1 l",
+      "Natakhtari pear 1 l",
+      "Грузинский газированный лимонад со вкусом груши.",
+      "Gruzijsko gazirano pice sa ukusom kruske.",
+      "Georgian sparkling lemonade with pear flavor.",
+      "910",
+      "1 л",
+      1,
+      15,
+      media("natakhtari-pear-1l"),
+    ),
+    itemSeed(
       "44444444-4444-4444-4444-444444444015",
       categories[5].id,
       "Вода Knjaz Milos газированная",
@@ -1144,6 +1172,51 @@ function seedMenu(): AdminMenuResponse {
       1,
       80,
       media("coca-cola-1l"),
+    ),
+    itemSeed(
+      "77777777-7777-7777-7777-777777777001",
+      "66666666-6666-6666-6666-666666666001",
+      "FULL HOUSE", "FULL HOUSE", "FULL HOUSE",
+      "12 × хинкали с мясом • 12 × хинкали с сыром • 1 × хачапури по-мегрельски • 1 × Натахтари виноград 1 л",
+      "12 × hinkalija sa mesom • 12 × hinkalija sa sirom • 1 × megrelijski hačapuri • 1 × Natakhtari grožđe 1 l",
+      "12 × beef khinkali • 12 × cheese khinkali • 1 × Megrelian khachapuri • 1 × grape Natakhtari 1 L",
+      "6890", "на 4–5 человек", 1, 10, media("full-house-card"),
+    ),
+    itemSeed(
+      "77777777-7777-7777-7777-777777777002",
+      "66666666-6666-6666-6666-666666666001",
+      "ONE & DONE", "ONE & DONE", "ONE & DONE",
+      "5 × хинкали с мясом • 1 × хачапури по-аджарски • 1 × Натахтари 0,5 л",
+      "5 × hinkalija sa mesom • 1 × adžarski hačapuri • 1 × Natakhtari 0,5 l",
+      "5 × beef khinkali • 1 × Adjarian khachapuri • 1 × Natakhtari 0.5 L",
+      "2490", "на 1 человека", 1, 20, media("one-and-done-card"),
+    ),
+    itemSeed(
+      "77777777-7777-7777-7777-777777777003",
+      "66666666-6666-6666-6666-666666666001",
+      "DOUBLE", "DOUBLE", "DOUBLE",
+      "5 × хинкали с мясом • 5 × хинкали с сыром • 2 × оджахури • 1 × грузинский салат • 2 × Coca-Cola 0,5 л",
+      "5 × hinkalija sa mesom • 5 × hinkalija sa sirom • 2 × odžahuri • 1 × gruzijska salata • 2 × Coca-Cola 0,5 l",
+      "5 × beef khinkali • 5 × cheese khinkali • 2 × ojakhuri • 1 × Georgian salad • 2 × Coca-Cola 0.5 L",
+      "5690", "на 2–3 человек", 1, 30, media("double-card"), "грецкий орех", "orah", "walnut",
+    ),
+    itemSeed(
+      "77777777-7777-7777-7777-777777777004",
+      "66666666-6666-6666-6666-666666666001",
+      "SWEET DUO", "SWEET DUO", "SWEET DUO",
+      "2 × медовик • 2 × десерт «Шоколад-вишня»",
+      "2 × medovik • 2 × desert čokolada-višnja",
+      "2 × honey cake • 2 × chocolate-cherry dessert",
+      "2290", "4 десерта", 1, 40, media("sweet-duo-card"),
+    ),
+    itemSeed(
+      "77777777-7777-7777-7777-777777777005",
+      "66666666-6666-6666-6666-666666666001",
+      "VEGGIE", "VEGGIE", "VEGGIE",
+      "1 × лобио • 1 × рулетики из баклажана • 1 × грузинский салат • 1 × Borjomi 0,5 л",
+      "1 × lobio • 1 × rolnice od patlidžana • 1 × gruzijska salata • 1 × Borjomi 0,5 l",
+      "1 × lobio • 1 × eggplant rolls • 1 × Georgian salad • 1 × Borjomi 0.5 L",
+      "2110", "без мяса", 1, 50, media("veggie-card"), "грецкий орех", "orah", "walnut",
     ),
   ].map((item) => ({ ...item, created_at: now, updated_at: now }));
   refreshCategoryCounts({ categories, items });
