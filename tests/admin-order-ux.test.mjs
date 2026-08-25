@@ -12,9 +12,9 @@ test("number draft stays empty while the admin replaces a price", () => {
 
 test("admin active order rows render cached address and item composition", async () => {
   const source = await readFile(new URL("../apps/admin/src/App.tsx", import.meta.url), "utf8");
-  assert.match(source, /function OrderRow\(\{ order, detail,/);
-  assert.match(source, /detail\.address/);
-  assert.match(source, /detail\.items\.map/);
+  assert.match(source, /function OrderRow\(\{ order, selected, onSelect \}/);
+  assert.match(source, /order\.address \|\| "Адрес не указан"/);
+  assert.match(source, /order\.items\.map/);
 });
 
 test("kitchen keeps a native Telegram link fallback", async () => {

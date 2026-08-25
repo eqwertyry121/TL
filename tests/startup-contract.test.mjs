@@ -54,11 +54,12 @@ test("admin audit log stays paginated and bounded across backend, frontend, fall
   const serverSource = readSource("backend/internal/httpapi/server.go");
   const storeSource = readSource("backend/internal/store/store.go");
   const adminAppSource = readSource("apps/admin/src/App.tsx");
+  const lazyAdminSource = readSource("apps/admin/src/LazyAdminSections.tsx");
   const adminApiSource = readSource("apps/admin/src/api.ts");
   const openAPISource = readSource("docs/openapi.yaml");
   const adminAuditHandler = sliceBetween(serverSource, "func (s *Server) adminAudit", "func (s *Server) adminUploadMenuPhoto");
   const auditLogStore = sliceBetween(storeSource, "func (s *Store) AuditLog", "func (s *Store) MarkReady");
-  const auditTab = sliceBetween(adminAppSource, "function AuditTab", "function Metric");
+  const auditTab = sliceBetween(lazyAdminSource, "export function AuditSection", "function Metric");
   const auditPageMeta = sliceBetween(adminAppSource, "function auditPageMeta", "function bootstrapOptions");
   const fallbackBody = sliceBetween(adminApiSource, "const sectionFromToken", "  return {");
   const demoAuditPage = sliceBetween(adminApiSource, "function demoAuditPage", "function saveAudit");
@@ -86,11 +87,11 @@ test("admin audit log stays paginated and bounded across backend, frontend, fall
 test("admin analytics stays bounded to presets and limited top dishes", () => {
   const serverSource = readSource("backend/internal/httpapi/server.go");
   const storeSource = readSource("backend/internal/store/store.go");
-  const adminAppSource = readSource("apps/admin/src/App.tsx");
+  const lazyAdminSource = readSource("apps/admin/src/LazyAdminSections.tsx");
   const adminApiSource = readSource("apps/admin/src/api.ts");
   const analyticsRange = sliceBetween(serverSource, "func (s *Server) analyticsPresetRange", "func decodeJSON");
   const analyticsStore = sliceBetween(storeSource, "func (s *Store) AdminAnalytics", "func (s *Store) AuditLog");
-  const analyticsTab = sliceBetween(adminAppSource, "function AnalyticsTab", "function AuditTab");
+  const analyticsTab = sliceBetween(lazyAdminSource, "export function AnalyticsSection", "export function AuditSection");
   const demoAnalytics = sliceBetween(adminApiSource, "function calculateAnalytics", "function groupOrders");
 
   assertIncludes(adminApiSource, "export type AnalyticsRange = \"today\" | \"7d\" | \"month\"");
@@ -145,19 +146,19 @@ test("admin orders date filter stays sargable", () => {
   assertNotIncludes(adminOrdersStore, "created_at::date");
 });
 
-test("order summary endpoints avoid PII and detail tables", () => {
+test("client order summaries avoid PII while admin pages load details in bulk", () => {
   const storeSource = readSource("backend/internal/store/store.go");
   const clientOrdersStore = sliceBetween(storeSource, "func (s *Store) ClientOrders", "func (s *Store) ClientBootstrapOrders");
   const adminOrdersStore = sliceBetween(storeSource, "func (s *Store) AdminOrders", "func (s *Store) AdminOrderByID");
 
-  for (const [name, source] of [["ClientOrders", clientOrdersStore], ["AdminOrders", adminOrdersStore]]) {
-    assertNotIncludes(source, "phone_ciphertext");
-    assertNotIncludes(source, "address_ciphertext");
-    assertNotIncludes(source, "order_items");
-    assertNotIncludes(source, "order_events");
-    assertIncludes(source, "scanOrderSummaries(rows)");
-    assert.ok(!source.includes("OrderByID("), `${name} must not load detail orders`);
-  }
+  assertNotIncludes(clientOrdersStore, "phone_ciphertext");
+  assertNotIncludes(clientOrdersStore, "address_ciphertext");
+  assertNotIncludes(clientOrdersStore, "order_items");
+  assertNotIncludes(clientOrdersStore, "order_events");
+  assertIncludes(clientOrdersStore, "scanOrderSummaries(rows)");
+  assertNotIncludes(clientOrdersStore, "OrderByID(");
+  assertIncludes(adminOrdersStore, "ordersByIDs(ctx, ids, true)");
+  assertNotIncludes(adminOrdersStore, "AdminOrderByID(");
 });
 
 test("client order endpoints stay scoped to the session user", () => {

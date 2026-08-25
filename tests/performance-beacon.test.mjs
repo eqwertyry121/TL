@@ -6,7 +6,7 @@ import {
   sanitizePerformanceBeaconText,
 } from "../packages/api-client/src/performance.ts";
 
-test("performance beacon sample rate is clamped to at most five percent", () => {
+test("performance beacon sample rate supports full beta sampling and remains bounded", () => {
   assert.equal(normalizePerformanceBeaconSampleRate(undefined), 1);
   assert.equal(normalizePerformanceBeaconSampleRate("not-a-number"), 1);
   assert.equal(normalizePerformanceBeaconSampleRate("1"), 1);
