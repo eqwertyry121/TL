@@ -2001,7 +2001,6 @@ p {
   *::before,
   *::after {
     animation: none !important;
-    transition: none !important;
   }
 
   body::before {
@@ -2043,6 +2042,7 @@ p {
   .order-detail,
   .schedule-card {
     animation: none;
+    transition: none;
     box-shadow: none;
     content-visibility: visible;
     contain: none;
@@ -2062,6 +2062,12 @@ p {
 
   .primary::after {
     display: none;
+  }
+
+  button,
+  .bottom-nav a,
+  .order-segments button {
+    transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease, transform 160ms ease;
   }
 }
 

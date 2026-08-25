@@ -174,11 +174,11 @@ type AdminOrderCounts struct {
 }
 
 type AdminOrdersPage struct {
-	Orders  []core.OrderSummary `json:"orders"`
-	Limit   int                 `json:"limit"`
-	Offset  int                 `json:"offset"`
-	HasMore bool                `json:"has_more"`
-	Counts  AdminOrderCounts    `json:"counts"`
+	Orders  []core.Order     `json:"orders"`
+	Limit   int              `json:"limit"`
+	Offset  int              `json:"offset"`
+	HasMore bool             `json:"has_more"`
+	Counts  AdminOrderCounts `json:"counts"`
 }
 
 type AuditLogPage struct {
@@ -2718,7 +2718,7 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 		SELECT
 			COUNT(*) FILTER (WHERE o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP'))::int,
 			COUNT(*) FILTER (WHERE o.fulfillment_status='NEW')::int,
-			COUNT(*) FILTER (WHERE o.fulfillment_status='OUT_FOR_DELIVERY')::int,
+			COUNT(*) FILTER (WHERE o.fulfillment_status IN ('OUT_FOR_DELIVERY', 'READY_FOR_PICKUP'))::int,
 			COUNT(*) FILTER (WHERE o.fulfillment_status IN ('DELIVERED', 'CANCELLED'))::int
 		FROM orders o
 		JOIN users u ON u.id=o.client_user_id
@@ -2739,12 +2739,7 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 	}
 	args = append(args, limit+1, offset)
 	sqlQuery := fmt.Sprintf(
-		`SELECT o.id, o.public_number, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
-			COALESCE(u.photo_url, ''),
-			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
-			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
-			o.locale, o.version, o.created_at, o.pickup_at, o.ready_at, o.delivered_at, o.cancelled_at,
-			o.cash_location_verified_at, o.cash_location_distance_meters
+		`SELECT o.id
 		FROM orders o
 		JOIN users u ON u.id=o.client_user_id
 		WHERE %s
@@ -2758,14 +2753,26 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 	if err != nil {
 		return AdminOrdersPage{}, err
 	}
-	defer rows.Close()
-	orders, err := scanOrderSummaries(rows)
-	if err != nil {
+	ids := make([]uuid.UUID, 0, limit+1)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return AdminOrdersPage{}, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
 		return AdminOrdersPage{}, err
 	}
-	hasMore := len(orders) > limit
+	hasMore := len(ids) > limit
 	if hasMore {
-		orders = orders[:limit]
+		ids = ids[:limit]
+	}
+	orders, err := s.ordersByIDs(ctx, ids, true)
+	if err != nil {
+		return AdminOrdersPage{}, err
 	}
 	return AdminOrdersPage{
 		Orders:  orders,

@@ -119,28 +119,40 @@ func (w *Worker) Run(ctx context.Context) {
 	if w.interval <= 0 {
 		w.interval = 5 * time.Second
 	}
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
+	jobTicker := time.NewTicker(w.interval)
+	defer jobTicker.Stop()
+	maintenanceTicker := time.NewTicker(time.Minute)
+	defer maintenanceTicker.Stop()
 	cleanupTicker := time.NewTicker(24 * time.Hour)
 	defer cleanupTicker.Stop()
 	if err := w.cleanupExpired(ctx); err != nil {
 		w.logger.Warn("cleanup failed", "error", err)
 	}
+	if err := w.ProcessOnce(ctx); err != nil {
+		w.logger.Warn("notification worker error", "error", err)
+	}
+	if err := w.warnIfBacklogIsStale(ctx); err != nil {
+		w.logger.Warn("notification backlog check failed", "error", err)
+	}
 	for {
-		if err := w.ProcessOnce(ctx); err != nil {
-			w.logger.Warn("notification worker error", "error", err)
-		}
-		if err := w.warnIfBacklogIsStale(ctx); err != nil {
-			w.logger.Warn("notification backlog check failed", "error", err)
-		}
 		select {
 		case <-ctx.Done():
 			return
+		case <-jobTicker.C:
+			if err := w.processPending(ctx); err != nil {
+				w.logger.Warn("notification worker error", "error", err)
+			}
+		case <-maintenanceTicker.C:
+			if err := w.enqueueReservationReminders(ctx); err != nil {
+				w.logger.Warn("reservation reminder enqueue failed", "error", err)
+			}
+			if err := w.warnIfBacklogIsStale(ctx); err != nil {
+				w.logger.Warn("notification backlog check failed", "error", err)
+			}
 		case <-cleanupTicker.C:
 			if err := w.cleanupExpired(ctx); err != nil {
 				w.logger.Warn("cleanup failed", "error", err)
 			}
-		case <-ticker.C:
 		}
 	}
 }
@@ -149,6 +161,10 @@ func (w *Worker) ProcessOnce(ctx context.Context) error {
 	if err := w.enqueueReservationReminders(ctx); err != nil {
 		return err
 	}
+	return w.processPending(ctx)
+}
+
+func (w *Worker) processPending(ctx context.Context) error {
 	if !w.dryRun {
 		return w.processTelegram(ctx)
 	}

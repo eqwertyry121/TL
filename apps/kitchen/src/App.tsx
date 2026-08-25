@@ -2,10 +2,10 @@ import type { Order, Role } from "@tk-delivery/api-client/generated";
 import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
-import { clientLabel, createStaffApi, isAuthError, kitchenTimeText, money, openTelegramLink, paymentText, problemLink, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
+import { clientLabel, createStaffApi, isAuthError, kitchenTimeText, money, openTelegramLink, paymentText, problemLink, sameOrderSnapshot, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
 import { AlertTriangle, Check, MoreVertical, RefreshCw, WifiOff } from "lucide-react";
 import { useDrag } from "@use-gesture/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 const api = createStaffApi("KITCHEN");
 const kitchenSeenOrdersKey = "tk-kitchen-seen-orders-v2";
@@ -25,14 +25,13 @@ export function App() {
   const [token, setToken] = useState("");
   const [telegramUserId, setTelegramUserId] = useState<number | undefined>();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const lastUpdatedRef = useRef<Date | null>(null);
   const [offline, setOffline] = useState(false);
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [activeWindow, setActiveWindow] = useState<"delivery" | "pickup">("delivery");
   const [activeLane, setActiveLane] = useState<"new" | "in_progress" | "ready">("new");
-  const [clock, setClock] = useState(() => Date.now());
   const seenIdsRef = useRef(loadSeenOrderIds(kitchenSeenOrdersKey));
   const notifiedIds = useRef(new Set<string>());
   const dueAlertedIds = useRef(new Set<string>());
@@ -47,18 +46,22 @@ export function App() {
   const pickupReadyOrders = useMemo(() => orders.filter(isPickupReady), [orders]);
   const sortedDeliveryOrders = useMemo(() => [...deliveryOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [deliveryOrders]);
   const sortedPickupOrders = useMemo(() => [...pickupOrders].sort((a, b) => pickupTimestamp(a) - pickupTimestamp(b)), [pickupOrders]);
-  const pickupDueOrders = useMemo(() => sortedPickupOrders.filter((order) => pickupCookTimestamp(order) <= clock), [sortedPickupOrders, clock]);
   const sortedPickupReadyOrders = useMemo(() => [...pickupReadyOrders].sort((a, b) => new Date(a.ready_at || a.created_at).getTime() - new Date(b.ready_at || b.created_at).getTime()), [pickupReadyOrders]);
   const visibleNewOrders = useMemo(() => (activeWindow === "delivery" ? sortedDeliveryOrders : sortedPickupOrders).filter((order) => !order.kitchen_started_at), [activeWindow, sortedDeliveryOrders, sortedPickupOrders]);
   const visibleInProgressOrders = useMemo(() => (activeWindow === "delivery" ? sortedDeliveryOrders : sortedPickupOrders).filter((order) => Boolean(order.kitchen_started_at)), [activeWindow, sortedDeliveryOrders, sortedPickupOrders]);
 
   useEffect(() => installPerformanceBeacon("kitchen", () => "orders"), []);
-  useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 15000); return () => window.clearInterval(timer); }, []);
   useEffect(() => {
-    const dueNow = pickupDueOrders.filter((order) => !dueAlertedIds.current.has(order.id));
-    pickupDueOrders.forEach((order) => dueAlertedIds.current.add(order.id));
-    if (dueNow.length) playBeep();
-  }, [pickupDueOrders]);
+    const checkDueOrders = () => {
+      const dueOrders = sortedPickupOrders.filter((order) => pickupCookTimestamp(order) <= Date.now());
+      const dueNow = dueOrders.filter((order) => !dueAlertedIds.current.has(order.id));
+      dueOrders.forEach((order) => dueAlertedIds.current.add(order.id));
+      if (dueNow.length) playBeep();
+    };
+    checkDueOrders();
+    const timer = window.setInterval(checkDueOrders, 15000);
+    return () => window.clearInterval(timer);
+  }, [sortedPickupOrders]);
 
   function markSeen(order: Order) {
     const key = seenKey(order);
@@ -106,8 +109,8 @@ export function App() {
       incoming.filter((order) => order.fulfillment_type === "pickup" && order.fulfillment_status === "NEW" && pickupCookTimestamp(order) <= Date.now())
         .forEach((order) => dueAlertedIds.current.add(order.id));
       if (incoming.length) playBeep();
-      setOrders(response.orders);
-      setLastUpdated(new Date());
+      setOrders((current) => sameOrderSnapshot(current, response.orders) ? current : response.orders);
+      lastUpdatedRef.current = new Date();
       setOffline(false);
     } catch {
       if (signal?.aborted) return;
@@ -121,7 +124,7 @@ export function App() {
       if (stopped) return;
       applySession(response.session);
       setOrders(response.orders);
-      setLastUpdated(new Date());
+      lastUpdatedRef.current = new Date();
     }).catch(() => setOffline(true));
     return () => {
       stopped = true;
@@ -243,7 +246,7 @@ export function App() {
       <header className="header">
         <div>
           <h1>Кухня</h1>
-          <p>{lastUpdated ? `Обновлено ${secondsAgo(lastUpdated)} сек назад` : "Ожидание заказов"}</p>
+          <LastUpdatedText valueRef={lastUpdatedRef} empty="Ожидание заказов" prefix="Обновлено" />
         </div>
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>
       </header>
@@ -380,30 +383,72 @@ function SwipeableOrderCard({
   onResetPreparation(order: Order): void;
 }) {
   const shellRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const revealRef = useRef<HTMLDivElement>(null);
   const commitTimerRef = useRef<number | undefined>(undefined);
-  const [dragX, setDragX] = useState(0);
+  const animationFrameRef = useRef<number | null>(null);
+  const offsetRef = useRef(0);
   const [dragging, setDragging] = useState(false);
   const draggable = canStart && busy !== order.id && order.fulfillment_status === "NEW" && !order.kitchen_started_at;
-  const bindDrag = useDrag(({ active, movement: [movementX], velocity: [velocityX] }) => {
+
+  function renderOffset(value: number) {
+    offsetRef.current = value;
+    if (cardRef.current) cardRef.current.style.transform = `translate3d(${value}px, 0, 0)`;
+    if (revealRef.current) revealRef.current.style.opacity = String(Math.min(1, Math.max(0, value / 72)));
+  }
+
+  function stopAnimation() {
+    if (animationFrameRef.current === null) return;
+    window.cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = null;
+  }
+
+  function animateOffset(target: number, onRest?: () => void) {
+    stopAnimation();
+    let position = offsetRef.current;
+    let velocity = 0;
+    let previousTime = performance.now();
+    const tick = (time: number) => {
+      const delta = Math.min(0.032, Math.max(0.001, (time - previousTime) / 1000));
+      previousTime = time;
+      const acceleration = (-480 * (position - target) - 39 * velocity) / 0.78;
+      velocity += acceleration * delta;
+      position += velocity * delta;
+      renderOffset(position);
+      if (Math.abs(position - target) < 0.45 && Math.abs(velocity) < 4) {
+        renderOffset(target);
+        animationFrameRef.current = null;
+        onRest?.();
+        return;
+      }
+      animationFrameRef.current = window.requestAnimationFrame(tick);
+    };
+    animationFrameRef.current = window.requestAnimationFrame(tick);
+  }
+
+  const bindDrag = useDrag(({ active, first, movement: [movementX], velocity: [velocityX] }) => {
     if (!draggable) return;
     const x = Math.max(0, Math.min(112, movementX));
-    setDragging(active);
     if (active) {
-      setDragX(x);
+      if (first) {
+        stopAnimation();
+        setDragging(true);
+      }
+      renderOffset(x);
       return;
     }
+    setDragging(false);
     const width = shellRef.current?.clientWidth || 320;
     const threshold = Math.min(104, Math.max(68, width * 0.24));
     const committed = x >= threshold || (x >= 42 && velocityX >= 0.62);
     if (!committed) {
-      setDragX(0);
+      animateOffset(0);
       return;
     }
-    setDragX(112);
-    commitTimerRef.current = window.setTimeout(() => {
+    animateOffset(112, () => {
       onStart(order);
-      setDragX(0);
-    }, 150);
+      commitTimerRef.current = window.setTimeout(() => animateOffset(0), 120);
+    });
   }, {
     axis: "x",
     bounds: { left: 0, right: 112 },
@@ -413,6 +458,7 @@ function SwipeableOrderCard({
   });
 
   useEffect(() => () => {
+    stopAnimation();
     if (commitTimerRef.current !== undefined) window.clearTimeout(commitTimerRef.current);
   }, []);
 
@@ -429,11 +475,12 @@ function SwipeableOrderCard({
       ref={shellRef}
       className={`swipe-shell${draggable ? " can-swipe" : ""}`}
     >
-      {draggable && <div className="swipe-reveal" aria-hidden="true"><span>В ПРОЦЕССЕ</span><b>→</b></div>}
+      {draggable && <div ref={revealRef} className="swipe-reveal" aria-hidden="true"><span>В ПРОЦЕССЕ</span><b>→</b></div>}
       <div
+        ref={cardRef}
         {...(draggable ? bindDrag() : {})}
         className={`swipe-card${dragging ? " is-dragging" : ""}`}
-        style={{ touchAction: "pan-y", transform: `translate3d(${dragX}px, 0, 0)` }}
+        style={{ touchAction: "pan-y" }}
       >
         <KitchenOrderCard
           order={order}
@@ -541,7 +588,7 @@ function pickupUrgencyClass(order: Order): string {
 function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {
   return (
     <span className="order-avatar" aria-hidden="true">
-      {order.client_photo_url ? <img src={order.client_photo_url} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span>{clientInitials(order)}</span>}
+      {order.client_photo_url ? <img src={order.client_photo_url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : <span>{clientInitials(order)}</span>}
       <small>#{order.public_number}</small>
       {unread && <i />}
     </span>
@@ -554,7 +601,7 @@ function CustomerBadge({ order }: { order: Order }) {
     <>
       <span className="customer-avatar">
         <span>{clientInitials(order)}</span>
-        {order.client_photo_url && <img src={order.client_photo_url} alt="" loading="lazy" referrerPolicy="no-referrer" />}
+        {order.client_photo_url && <img src={order.client_photo_url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />}
       </span>
       <b>{clientLabel(order)}</b>
     </>
@@ -628,6 +675,16 @@ function Menu({ order, busy, onResetPreparation }: { order: Order; busy: boolean
 
 function secondsAgo(value: Date) {
   return Math.max(0, Math.floor((Date.now() - value.getTime()) / 1000));
+}
+
+function LastUpdatedText({ valueRef, empty, prefix }: { valueRef: RefObject<Date | null>; empty: string; prefix: string }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setTick((value) => value + 1), 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const value = valueRef.current;
+  return <>{value ? `${prefix} ${secondsAgo(value)} сек назад` : empty}</>;
 }
 
 function seenKey(order: Order): string {

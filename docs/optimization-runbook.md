@@ -121,6 +121,8 @@ The default smoke also reads `/api/v1/menu?locale=ru` and verifies every
 published `photo_path`/`photo_variants.*.url` with a `2xx` `image/*` response.
 Use `PERF_VALIDATE_MEDIA=false` only for custom non-menu endpoint experiments,
 not for release acceptance.
+Media checks use a bounded pool of six requests by default. Override it with
+`PERF_MEDIA_CONCURRENCY` only when deliberately testing another network profile.
 
 The default smoke sends `Accept-Encoding: gzip` and requires
 `Content-Encoding: gzip` for fresh JSON responses whose decoded body is at least

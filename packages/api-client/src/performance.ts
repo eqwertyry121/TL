@@ -99,8 +99,8 @@ function rounded(value: number, digits = 1): number {
 }
 
 export function normalizePerformanceBeaconSampleRate(value: string | undefined): number {
-  const configuredSample = Number.parseFloat(value || "0.05");
-  return Math.min(0.05, Math.max(0, Number.isFinite(configuredSample) ? configuredSample : 0.05));
+	const configuredSample = Number.parseFloat(value || "1");
+	return Math.min(1, Math.max(0, Number.isFinite(configuredSample) ? configuredSample : 1));
 }
 
 export function sanitizePerformanceBeaconText(value: string, maxLength: number): string {

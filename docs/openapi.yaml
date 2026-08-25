@@ -536,7 +536,7 @@ paths:
             default: 0
       responses:
         "200":
-          description: Admin order summary page with private ETag, status/date/search filters and has_more pagination metadata; phone, address, items and events are returned only by /admin/orders/{id}
+          description: Admin order page with phone, address and item snapshots, private ETag, status/date/search filters and has_more pagination metadata; events are returned only by /admin/orders/{id}
           headers:
             ETag:
               schema:
@@ -588,7 +588,7 @@ paths:
                   default: 0
       responses:
         "200":
-          description: Admin order summary page with counts and body-based search so phone numbers are not placed in URLs.
+          description: Admin order page with phone, address, item snapshots and counts; body-based search keeps phone numbers out of URLs.
   /admin/orders/{id}:
     get:
       parameters:

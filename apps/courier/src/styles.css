@@ -412,7 +412,6 @@ h1 {
   position: relative;
   z-index: 1;
   min-width: 0;
-  will-change: transform;
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
@@ -421,6 +420,7 @@ h1 {
 
 .swipe-card.is-dragging {
   cursor: grabbing;
+  will-change: transform;
 }
 
 .swipe-shell.is-armed .swipe-reveal {
@@ -1079,7 +1079,6 @@ li {
   *::before,
   *::after {
     animation: none !important;
-    transition: none !important;
   }
 
   body::before {
@@ -1107,6 +1106,7 @@ li {
 
   .card {
     animation: none;
+    transition: none;
     box-shadow: none;
     content-visibility: visible;
     contain: none;
@@ -1124,6 +1124,12 @@ li {
 
   .primary::after {
     display: none;
+  }
+
+  button,
+  .tab,
+  .role-link {
+    transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease, transform 160ms ease;
   }
 }
 

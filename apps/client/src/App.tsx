@@ -1,4 +1,4 @@
-import type { FulfillmentType, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Reservation, ReservationAvailability, Role } from "@tk-delivery/api-client/generated";
+import type { FulfillmentType, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Reservation, ReservationAvailability, Role, Runtime } from "@tk-delivery/api-client/generated";
 import { createSingleFlightAuthRetry, isAuthErrorLike } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { startVisiblePolling } from "@tk-delivery/api-client/polling";
@@ -196,7 +196,7 @@ function ClientMiniApp() {
     if (publicInformationRoute) return;
     return startVisiblePolling(async (signal) => {
       const runtime = await api.runtime(signal);
-      setData((current) => ({ ...current, runtime }));
+      setData((current) => sameRuntime(current.runtime, runtime) ? current : { ...current, runtime });
     }, 10000);
   }, [publicInformationRoute]);
 
@@ -678,10 +678,17 @@ function ClientMiniApp() {
   }
 
   function mergeOrder(order: Order) {
-    setData((current) => ({
-      ...current,
-      orders: [order, ...current.orders.filter((entry) => entry.id !== order.id)],
-    }));
+    setData((current) => {
+      const existing = current.orders.find((entry) => entry.id === order.id);
+      if (existing?.version === order.version
+        && existing.can_add_items === order.can_add_items
+        && existing.add_items_until === order.add_items_until
+        && existing.add_items_reason === order.add_items_reason) return current;
+      return {
+        ...current,
+        orders: [order, ...current.orders.filter((entry) => entry.id !== order.id)],
+      };
+    });
   }
 
   async function loadMoreOrders() {
@@ -1268,7 +1275,6 @@ function AddToOrder({
   onCalculate: (orderId: string) => Promise<Calculation | null>;
   onSubmit: (order: Order) => Promise<void>;
 }) {
-  useSecondTick();
   const signature = lines.map((line) => `${line.itemId}:${line.quantity}:${line.unitPriceMinor}:${line.menuVersion}`).sort().join("|");
   useEffect(() => {
     if (order?.id && lines.length) void onCalculate(order.id).catch(() => undefined);
@@ -1283,7 +1289,7 @@ function AddToOrder({
         <div>
           <span className="eyebrow">Дозаказ</span>
           <h1>К заказу #{order.public_number}</h1>
-          <p>{order.can_add_items ? `Осталось ${timeLeft(order.add_items_until)}` : disabledReason}</p>
+          <p>{order.can_add_items ? <>Осталось <Countdown value={order.add_items_until} /></> : disabledReason}</p>
         </div>
         <button className="secondary" type="button" onClick={() => navigate({ name: "order", id: order.id })}>
           Назад к заказу
@@ -2005,12 +2011,13 @@ function formatDistance(meters: number): string {
   return `${meters} м`;
 }
 
-function useSecondTick(): void {
+function Countdown({ value }: { value?: string }) {
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = window.setInterval(() => setTick((value) => value + 1), 1000);
     return () => window.clearInterval(id);
   }, []);
+  return <>{timeLeft(value)}</>;
 }
 
 function timeLeft(value?: string): string {
@@ -2048,7 +2055,6 @@ function additionBlockedText(order: Order): string {
 }
 
 function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; onAdd: () => void }) {
-  useSecondTick();
   if (!order) return <div className="state">Загружаем заказ...</div>;
   return (
     <div className="page narrow order-page">
@@ -2063,7 +2069,7 @@ function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; 
         <div className={order.can_add_items ? "add-order-cta" : "add-order-cta disabled"}>
           <div>
             <strong>{order.can_add_items ? "Забыли что-то?" : "Дозаказ недоступен"}</strong>
-            <span>{order.can_add_items ? `Можно добавить ещё ${timeLeft(order.add_items_until)}` : additionBlockedText(order)}</span>
+            <span>{order.can_add_items ? <>Можно добавить ещё <Countdown value={order.add_items_until} /></> : additionBlockedText(order)}</span>
           </div>
           <button className="primary" type="button" disabled={!order.can_add_items} onClick={onAdd}>
             Добавить
@@ -2606,6 +2612,28 @@ function activeOrderLockCopy(locale: Locale, order: OrderSummary): { eyebrow: st
     description: "Новый заказ можно оформить после получения текущего.",
     button: `Открыть заказ ${number}`,
   };
+}
+
+function sameRuntime(current: Runtime | null, incoming: Runtime): boolean {
+  if (!current) return false;
+  return current.accepting_orders === incoming.accepting_orders
+    && current.reason === incoming.reason
+    && current.next_opening === incoming.next_opening
+    && current.day_off_banner === incoming.day_off_banner
+    && current.flat_delivery_fee_minor === incoming.flat_delivery_fee_minor
+    && current.currency === incoming.currency
+    && current.enabled_payments.join(",") === incoming.enabled_payments.join(",")
+    && current.supported_locales.join(",") === incoming.supported_locales.join(",")
+    && current.support_text === incoming.support_text
+    && current.terms_url === incoming.terms_url
+    && current.cash_location_required === incoming.cash_location_required
+    && current.cash_location_radius_meters === incoming.cash_location_radius_meters
+    && current.pickup_enabled === incoming.pickup_enabled
+    && current.pickup_address === incoming.pickup_address
+    && current.pickup_map_url === incoming.pickup_map_url
+    && current.pickup_min_lead_minutes === incoming.pickup_min_lead_minutes
+    && current.pickup_slot_minutes === incoming.pickup_slot_minutes
+    && current.pickup_last_time === incoming.pickup_last_time;
 }
 
 function errorText(err: unknown, locale: Locale = "ru"): string {

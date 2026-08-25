@@ -3,9 +3,9 @@ import { useDrag } from "@use-gesture/react";
 import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
-import { clientLabel, courierEtaLink, courierTimeText, createStaffApi, isAuthError, mapLink, money, openTelegramLink, paymentText, problemLink, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
+import { clientLabel, courierEtaLink, courierTimeText, createStaffApi, isAuthError, mapLink, money, openTelegramLink, paymentText, problemLink, sameOrderSnapshot, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
 import { AlertTriangle, Check, ChevronRight, Copy, MapPin, MoreVertical, Phone, RefreshCw, RotateCcw, WifiOff } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const api = createStaffApi("COURIER");
@@ -21,7 +21,7 @@ export function App() {
   const [token, setToken] = useState("");
   const [telegramUserId, setTelegramUserId] = useState<number | undefined>();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const lastUpdatedRef = useRef<Date | null>(null);
   const [offline, setOffline] = useState(false);
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState("");
@@ -81,8 +81,8 @@ export function App() {
   async function refresh(signal?: AbortSignal, authToken = token) {
     try {
       const response = await withAuth((currentToken) => api.listCourierOrders(currentToken, signal), authToken);
-      setOrders(response.orders);
-      setLastUpdated(new Date());
+      setOrders((current) => sameOrderSnapshot(current, response.orders) ? current : response.orders);
+      lastUpdatedRef.current = new Date();
       setOffline(false);
     } catch {
       if (signal?.aborted) return;
@@ -97,7 +97,7 @@ export function App() {
       applySession(response.session);
       setOrders(response.orders);
       if (response.orders.some((order) => order.courier_started_at)) setActiveLane("now");
-      setLastUpdated(new Date());
+      lastUpdatedRef.current = new Date();
     }).catch(() => setOffline(true));
     return () => {
       stopped = true;
@@ -191,7 +191,7 @@ export function App() {
       <header className="header">
         <div>
           <h1>Курьер</h1>
-          <p>{sortedOrders.length} в доставке · {lastUpdated ? `обновлено ${secondsAgo(lastUpdated)} сек назад` : "ожидание"}</p>
+          <p>{sortedOrders.length} в доставке · <LastUpdatedText valueRef={lastUpdatedRef} empty="ожидание" prefix="обновлено" /></p>
         </div>
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>
       </header>
@@ -459,7 +459,7 @@ function ConfirmDialog({ dialog, onClose }: { dialog: ConfirmDialogState; onClos
 function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {
   return (
     <span className="order-avatar" aria-hidden="true">
-      {order.client_photo_url ? <img src={order.client_photo_url} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span>{clientInitials(order)}</span>}
+      {order.client_photo_url ? <img src={order.client_photo_url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : <span>{clientInitials(order)}</span>}
       <small>#{order.public_number}</small>
       {unread && <i />}
     </span>
@@ -472,7 +472,7 @@ function CustomerBadge({ order }: { order: Order }) {
     <>
       <span className="customer-avatar">
         <span>{clientInitials(order)}</span>
-        {order.client_photo_url && <img src={order.client_photo_url} alt="" loading="lazy" referrerPolicy="no-referrer" />}
+        {order.client_photo_url && <img src={order.client_photo_url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />}
       </span>
       <b>{clientLabel(order)}</b>
     </>
@@ -546,6 +546,16 @@ function Menu({ order, busy, onReset }: { order: Order; busy: boolean; onReset?(
 
 function secondsAgo(value: Date) {
   return Math.max(0, Math.floor((Date.now() - value.getTime()) / 1000));
+}
+
+function LastUpdatedText({ valueRef, empty, prefix }: { valueRef: RefObject<Date | null>; empty: string; prefix: string }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setTick((value) => value + 1), 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const value = valueRef.current;
+  return <>{value ? `${prefix} ${secondsAgo(value)} сек назад` : empty}</>;
 }
 
 function staffActionErrorText(err: unknown): string {

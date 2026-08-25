@@ -317,7 +317,8 @@ export interface AdminOrderCounts {
   history: number;
 }
 
-export interface AdminOrdersPage extends OrderSummaryPage {
+export interface AdminOrdersPage extends Omit<OrderSummaryPage, "orders"> {
+  orders: Order[];
   counts?: AdminOrderCounts;
 }
 

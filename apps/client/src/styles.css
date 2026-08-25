@@ -2956,7 +2956,6 @@ body {
 .notice,
 .state {
   animation: none;
-  transition: none;
   content-visibility: visible;
   contain: none;
 }
@@ -3030,7 +3029,7 @@ body {
 .locale button,
 .nav a,
 .role-switch a {
-  transition: none;
+  transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease, transform 160ms ease;
 }
 
 .nav a:hover,

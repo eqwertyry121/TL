@@ -56,6 +56,15 @@ export function money(value: number): string {
   return new Intl.NumberFormat("ru-RU").format(value) + " RSD";
 }
 
+export function sameOrderSnapshot(current: Order[], incoming: Order[]): boolean {
+  if (current === incoming) return true;
+  if (current.length !== incoming.length) return false;
+  return current.every((order, index) => {
+    const next = incoming[index];
+    return Boolean(next) && order.id === next.id && order.version === next.version;
+  });
+}
+
 export function orderAge(order: Order): string {
   return elapsedSince(order.ready_at || order.created_at);
 }

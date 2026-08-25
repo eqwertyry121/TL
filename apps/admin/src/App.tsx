@@ -1,4 +1,4 @@
-import type { AdminAnalytics, AdminCategory, AdminDashboard, AdminMenuItem, AdminOrderCounts, AnalyticsBreakdown, AuditEntry, AuditLogResponse, Order, OrderSummary, Reservation, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
+import type { AdminAnalytics, AdminCategory, AdminDashboard, AdminMenuItem, AdminOrderCounts, AuditEntry, AuditLogResponse, Order, OrderSummary, Reservation, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
 import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { startVisiblePolling } from "@tk-delivery/api-client/polling";
@@ -22,7 +22,10 @@ import {
 import { parseNumberDraft } from "./number-draft";
 import { AlertTriangle, Archive, ArrowLeft, Ban, BarChart3, BellRing, CalendarCheck, CalendarDays, ChevronDown, ChevronRight, ClipboardList, Copy, Home, Menu as MenuIcon, MessageCircle, MoreHorizontal, Phone, RefreshCw, RotateCcw, Save, Search, Send, Settings as SettingsIcon, Shield, SlidersHorizontal, StickyNote, Trash2, Upload, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type FormEvent, type ReactNode } from "react";
+import { Component, Suspense, lazy, useEffect, useMemo, useRef, useState, type ErrorInfo, type FormEvent, type ReactNode } from "react";
+
+const AnalyticsTab = lazy(() => import("./LazyAdminSections").then((module) => ({ default: module.AnalyticsSection })));
+const AuditTab = lazy(() => import("./LazyAdminSections").then((module) => ({ default: module.AuditSection })));
 
 const api = createAdminApi();
 type AdminNavItem = { id: AdminTab; label: string; shortLabel: string; icon: LucideIcon };
@@ -92,7 +95,7 @@ export function App() {
   const [menu, setMenu] = useState<AdminMenuResponse>({ categories: [], items: [] });
   const [settings, setSettings] = useState<Settings | null>(null);
   const [schedule, setSchedule] = useState<ScheduleDay[]>([]);
-  const [orders, setOrders] = useState<OrderSummary[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
 	const [reservations, setReservations] = useState<Reservation[]>([]);
 	const [reservationAlerts, setReservationAlerts] = useState<Reservation[]>([]);
 	const [reservationFocusDate, setReservationFocusDate] = useState("");
@@ -247,7 +250,7 @@ export function App() {
 			}
 		}
 		knownReservationIDsRef.current = new Set(next.map((reservation) => reservation.id));
-		setReservations(next);
+		setReservations((current) => sameReservationVersions(current, next) ? current : next);
 	}
 
   async function loadAdminSections(authToken: string, analyticsRange: AnalyticsRange, targetTab: AdminTab) {
@@ -287,8 +290,8 @@ export function App() {
         withAuth((nextToken) => api.dashboard(nextToken, signal), currentToken),
         withAuth((nextToken) => api.settings(nextToken, signal), currentToken),
       ]);
-      setDashboard(nextDashboard);
-      setSettings(nextSettings);
+      setDashboard((current) => sameDashboardSnapshot(current, nextDashboard) ? current : nextDashboard);
+      setSettings((current) => current?.version === nextSettings.version ? current : nextSettings);
     } catch (err) {
       if (signal?.aborted) return;
       setError(errorText(err));
@@ -304,9 +307,10 @@ export function App() {
         withAuth((nextToken) => api.orders(nextToken, filter, signal), currentToken),
         withAuth((nextToken) => api.dashboard(nextToken, signal), currentToken),
       ]);
-      setOrders(page.orders);
-      setOrdersPage(orderPageMeta(page));
-      setDashboard(nextDashboard);
+      setOrders((current) => sameOrderVersions(current, page.orders) ? current : page.orders);
+      const nextPage = orderPageMeta(page);
+      setOrdersPage((current) => sameOrderPage(current, nextPage) ? current : nextPage);
+      setDashboard((current) => sameDashboardSnapshot(current, nextDashboard) ? current : nextDashboard);
     } catch (err) {
       if (signal?.aborted) return;
       setError(errorText(err));
@@ -370,17 +374,18 @@ export function App() {
     return startVisiblePolling((signal) => refreshHomeSection(signal), 10000);
   }, [tab, token]);
 
-	useEffect(() => {
-		if (!token || (!ownerAccess && tab !== "reservations")) return undefined;
-		return startVisiblePolling(async (signal) => {
-			try {
-				const next = (await withAuth((authToken) => api.reservations(authToken, signal))).reservations;
-				acceptReservationSnapshot(next, ownerAccess);
-			} catch {
-				if (!signal.aborted && tab === "reservations") setError("Не удалось обновить брони");
-			}
-		}, ownerAccess ? 5000 : 10000);
-	}, [ownerAccess, tab, token]);
+  useEffect(() => {
+    if (!token || (!ownerAccess && tab !== "reservations")) return undefined;
+    const intervalMs = tab === "reservations" ? 10000 : 15000;
+    return startVisiblePolling(async (signal) => {
+      try {
+        const next = (await withAuth((authToken) => api.reservations(authToken, signal))).reservations;
+        acceptReservationSnapshot(next, ownerAccess);
+      } catch {
+        if (!signal.aborted && tab === "reservations") setError("Не удалось обновить брони");
+      }
+    }, intervalMs);
+  }, [ownerAccess, tab, token]);
 
   async function run<T>(action: (authToken: string) => Promise<T>, options: AdminActionOptions = {}): Promise<T | undefined> {
     setError("");
@@ -424,11 +429,12 @@ export function App() {
   async function loadOrders(filter: OrderLoadFilter, signal?: AbortSignal) {
     setError("");
     const normalizedFilter = normalizeOrderLoadFilter(filter, ordersPage);
-    setOrdersFilter(normalizedFilter);
+    setOrdersFilter((current) => sameOrderFilter(current, normalizedFilter) ? current : normalizedFilter);
     try {
       const page = await withAuth((authToken) => api.orders(authToken, normalizedFilter, signal));
-      setOrders(page.orders);
-      setOrdersPage(orderPageMeta(page));
+      setOrders((current) => sameOrderVersions(current, page.orders) ? current : page.orders);
+      const nextPage = orderPageMeta(page);
+      setOrdersPage((current) => sameOrderPage(current, nextPage) ? current : nextPage);
       return page;
     } catch (err) {
       if (signal?.aborted) return undefined;
@@ -524,12 +530,12 @@ export function App() {
       ) : <SectionSkeleton title="График" />;
     }
     if (tab === "analytics") {
-      return analytics ? <AnalyticsTab analytics={analytics} range={range} onRange={(next) => { setRange(next); void load(token, next); }} onExport={() => void exportAnalyticsCSV(range)} /> : <SectionSkeleton title="Аналитика" />;
+      return analytics ? <Suspense fallback={<SectionSkeleton title="Аналитика" />}><AnalyticsTab analytics={analytics} range={range} onRange={(next) => { setRange(next); void load(token, next); }} onExport={() => void exportAnalyticsCSV(range)} /></Suspense> : <SectionSkeleton title="Аналитика" />;
     }
     if (tab === "settings") {
       return settings ? <SettingsTab settings={settings} demoMode={api.mode === "demo"} onSave={(input) => run((authToken) => api.updateSettings(authToken, input)).then(() => undefined)} /> : <SectionSkeleton title="Настройки" />;
     }
-    if (tab === "audit") return <AuditTab entries={audit} page={auditPage} onPageChange={loadAuditPage} />;
+    if (tab === "audit") return <Suspense fallback={<SectionSkeleton title="Аудит" />}><AuditTab entries={audit} page={auditPage} onPageChange={loadAuditPage} /></Suspense>;
     return <SectionSkeleton title={activeItem.label} />;
   }
 
@@ -1330,7 +1336,7 @@ function OrdersTab({
   onLoadOrder,
   onAction,
 }: {
-  orders: OrderSummary[];
+  orders: Order[];
   page: AdminOrdersPageState;
   initialView: OrdersView;
   onLoad(filter: OrderLoadFilter, signal?: AbortSignal): Promise<AdminOrdersResponse | undefined>;
@@ -1343,7 +1349,6 @@ function OrdersTab({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedID, setSelectedID] = useState("");
   const [detail, setDetail] = useState<Order | null>(null);
-  const [rowDetails, setRowDetails] = useState<Record<string, Order>>({});
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionMenuID, setActionMenuID] = useState("");
   const [dialog, setDialog] = useState<OrderDialogState | null>(null);
@@ -1353,15 +1358,12 @@ function OrdersTab({
   const visibleOrders = orders;
   const selectedOrder = detail;
   const onLoadRef = useRef(onLoad);
-  const onLoadOrderRef = useRef(onLoadOrder);
   const newestOrderIDRef = useRef("");
-  const rowDetailsRef = useRef<Record<string, Order>>({});
-  const rowDetailRequestsRef = useRef(new Set<string>());
+  const detailRequestRef = useRef(0);
 
   useEffect(() => {
     onLoadRef.current = onLoad;
-    onLoadOrderRef.current = onLoadOrder;
-  }, [onLoad, onLoadOrder]);
+  }, [onLoad]);
 
   useEffect(() => {
     setView(initialView);
@@ -1374,43 +1376,14 @@ function OrdersTab({
   useEffect(() => {
     return startVisiblePolling(async (signal) => {
       await onLoadRef.current(ordersLoadFilter(view, query, date, limit, offset), signal);
-      if (signal.aborted || !selectedID) return;
-      const loaded = await onLoadOrderRef.current(selectedID);
-      if (!signal.aborted) {
-        setDetail(loaded || null);
-        if (loaded) rememberRowDetail(loaded);
-      }
     }, 5000);
   }, [date, limit, offset, query, selectedID, view]);
 
   useEffect(() => {
-    if (view === "history" || orders.length === 0) return;
-    let cancelled = false;
-    const missing = orders.filter((order) => {
-      const cached = rowDetailsRef.current[order.id];
-      const requestKey = `${order.id}:${order.version}`;
-      return (!cached || cached.version !== order.version) && !rowDetailRequestsRef.current.has(requestKey);
-    });
-    if (!missing.length) return;
-
-    void (async () => {
-      for (const summary of missing) {
-        if (cancelled) return;
-        const requestKey = `${summary.id}:${summary.version}`;
-        rowDetailRequestsRef.current.add(requestKey);
-        try {
-          const loaded = await onLoadOrderRef.current(summary.id);
-          if (!cancelled && loaded) rememberRowDetail(loaded);
-        } finally {
-          rowDetailRequestsRef.current.delete(requestKey);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [orders, view]);
+    if (!selectedID) return;
+    const refreshed = orders.find((order) => order.id === selectedID);
+    if (refreshed) setDetail((current) => ({ ...refreshed, events: current?.id === refreshed.id ? current.events : undefined }));
+  }, [orders, selectedID]);
 
   useEffect(() => {
     if (view === "history") return;
@@ -1442,17 +1415,18 @@ function OrdersTab({
     await onLoad(ordersLoadFilter("active", "", "", limit, 0));
   }
 
-  async function selectOrder(order: OrderSummary) {
+  async function selectOrder(order: Order) {
+    const requestID = detailRequestRef.current + 1;
+    detailRequestRef.current = requestID;
     setSelectedID(order.id);
-    setDetail(null);
+    setDetail(order);
     setActionMenuID("");
     setDetailLoading(true);
     try {
       const loaded = await onLoadOrder(order.id);
-      setDetail(loaded || null);
-      if (loaded) rememberRowDetail(loaded);
+      if (loaded && detailRequestRef.current === requestID) setDetail(loaded);
     } finally {
-      setDetailLoading(false);
+      if (detailRequestRef.current === requestID) setDetailLoading(false);
     }
   }
 
@@ -1461,7 +1435,6 @@ function OrdersTab({
     if (isOrderResponse(result)) {
       setDetail(result);
       setSelectedID(result.id);
-      rememberRowDetail(result);
     }
     await onLoad(ordersLoadFilter(view, query, date, limit, offset));
     setActionMenuID("");
@@ -1479,12 +1452,6 @@ function OrdersTab({
       onSubmit: (input) => executeOrderAction((authToken) => api.updateOrderContact(authToken, order.id, input)).then(() => undefined),
     });
     setActionMenuID("");
-  }
-
-  function rememberRowDetail(order: Order) {
-    const next = { ...rowDetailsRef.current, [order.id]: order };
-    rowDetailsRef.current = next;
-    setRowDetails(next);
   }
 
   return (
@@ -1539,7 +1506,6 @@ function OrdersTab({
             <OrderRow
               key={order.id}
               order={order}
-              detail={rowDetails[order.id]}
               selected={selectedID === order.id}
               onSelect={() => void selectOrder(order)}
             />
@@ -1604,16 +1570,14 @@ function OrdersTab({
   );
 }
 
-function OrderRow({ order, detail, selected, onSelect }: { order: OrderSummary; detail?: Order; selected: boolean; onSelect(): void }) {
-  const destination = detail
-    ? order.fulfillment_type === "pickup"
-      ? detail.pickup_address || "Самовывоз"
-      : detail.address || "Адрес не указан"
-    : "";
+function OrderRow({ order, selected, onSelect }: { order: Order; selected: boolean; onSelect(): void }) {
+  const destination = order.fulfillment_type === "pickup"
+    ? order.pickup_address || "Самовывоз"
+    : order.address || "Адрес не указан";
   return (
     <button className={`order-row ${selected ? "is-selected" : ""} ${order.fulfillment_status === "NEW" ? "is-new" : ""}`} type="button" onClick={onSelect}>
       <span className="order-avatar" aria-hidden="true">
-        {order.client_photo_url ? <img src={order.client_photo_url} alt="" /> : orderAvatarLetters(order)}
+        {order.client_photo_url ? <img src={order.client_photo_url} alt="" loading="lazy" decoding="async" /> : orderAvatarLetters(order)}
       </span>
       <span className="order-row-main">
         <span className="order-row-title">
@@ -1622,14 +1586,12 @@ function OrderRow({ order, detail, selected, onSelect }: { order: OrderSummary; 
         </span>
         <OrderSummaryClientLink order={order} />
         <span className="order-row-items">{fulfillmentText(order)}{order.fulfillment_type === "pickup" && order.pickup_at ? ` ${pickupDateTime(order.pickup_at)}` : ""} · {adminPaymentText(order)}</span>
-        {detail && (
-          <span className="order-row-preview">
-            <span><b>Адрес:</b> {destination}</span>
-            {detail.phone && <span><b>Телефон:</b> {detail.phone}</span>}
-            <span className="order-row-composition"><b>Состав:</b> {detail.items.map((item) => `${item.quantity}× ${item.snapshot_title}`).join(" · ")}</span>
-            {detail.customer_comment && <span className="order-row-comment"><b>Комментарий:</b> {detail.customer_comment}</span>}
-          </span>
-        )}
+        <span className="order-row-preview">
+          <span><b>Адрес:</b> {destination}</span>
+          {order.phone && <span><b>Телефон:</b> {order.phone}</span>}
+          <span className="order-row-composition"><b>Состав:</b> {order.items.map((item) => `${item.quantity}× ${item.snapshot_title}`).join(" · ")}</span>
+          {order.customer_comment && <span className="order-row-comment"><b>Комментарий:</b> {order.customer_comment}</span>}
+        </span>
       </span>
       <span className="order-row-side">
         <StatusBadge order={order} />
@@ -2173,103 +2135,6 @@ function SettingsTab({ settings, demoMode, onSave }: { settings: Settings; demoM
   );
 }
 
-function AnalyticsTab({ analytics, range, onRange, onExport }: { analytics: AdminAnalytics; range: AnalyticsRange; onRange(range: AnalyticsRange): void; onExport(): void }) {
-  const labels: Record<AnalyticsRange, string> = { today: "Сегодня", "7d": "7 дней", month: "Месяц" };
-  const topDishes = analytics.top_dishes ?? [];
-  const dailyRows = analytics.daily_rows ?? [];
-  const paymentRows = paymentBreakdownRows(analytics.payments ?? []);
-  return (
-    <section className="stack">
-      <div className="toolbar panel">
-        {(["today", "7d", "month"] as AnalyticsRange[]).map((entry) => <button key={entry} className={range === entry ? "primary" : ""} onClick={() => onRange(entry)}>{labels[entry]}</button>)}
-        <button onClick={onExport}>CSV export</button>
-      </div>
-      <div className="grid">
-        <Metric title="Всего заказов" value={analytics.summary.all_orders} />
-        <Metric title="Доставлены" value={analytics.summary.delivered_orders} />
-        <Metric title="Отменены" value={analytics.summary.cancelled_orders} />
-        <Metric title="Выручка" value={money(analytics.summary.revenue_minor)} />
-        <Metric title="Средний чек" value={money(analytics.summary.average_check_minor)} />
-      </div>
-      <section className="panel analytics-payments">
-        <div>
-          <h2>Оплата</h2>
-          <p className="muted">Разделение по способу оплаты: сколько заказов пришло, сколько доставлено, сколько оплачено и какая выручка закрыта.</p>
-        </div>
-        <div className="payment-breakdown">
-          {paymentRows.map((row) => (
-            <article className={`payment-card payment-kind-${row.key}`} key={row.key}>
-              <div className="payment-card-head">
-                <span>{paymentMethodLabel(row.key)}</span>
-                <strong>{money(row.revenue_minor)}</strong>
-              </div>
-              <div className="payment-card-grid">
-                <span>Всего <b>{row.count}</b></span>
-                <span>Доставлено <b>{row.delivered_count}</b></span>
-                <span>Оплачено <b>{row.paid_count}</b></span>
-                <span>Отменено <b>{row.cancelled_count}</b></span>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-      <div className="two">
-        <SimpleTable title="Популярные блюда" rows={topDishes.map((dish) => [dish.title, `${dish.quantity} шт`, money(dish.revenue_minor)])} />
-        <SimpleTable title="По дням" rows={dailyRows.map((row) => [row.day, `${row.orders} заказов`, money(row.revenue_minor)])} />
-      </div>
-    </section>
-  );
-}
-
-function paymentBreakdownRows(rows: AnalyticsBreakdown[]): AnalyticsBreakdown[] {
-  const empty = (key: string): AnalyticsBreakdown => ({ key, count: 0, delivered_count: 0, paid_count: 0, cancelled_count: 0, revenue_minor: 0 });
-  const byKey = new Map(rows.map((row) => [row.key, row]));
-  const orderedKeys = ["cash", "card", ...rows.map((row) => row.key).filter((key) => key !== "cash" && key !== "card")];
-  return [...new Set(orderedKeys)].map((key) => ({ ...empty(key), ...(byKey.get(key) || {}) }));
-}
-
-function paymentMethodLabel(method: string): string {
-  if (method === "cash") return "Наличные";
-  if (method === "card") return "Карта";
-  if (method === "crypto") return "Crypto";
-  return method;
-}
-
-function AuditTab({
-  entries,
-  page,
-  onPageChange,
-}: {
-  entries: AuditEntry[];
-  page: Pick<AuditLogResponse, "limit" | "offset" | "has_more">;
-  onPageChange(offset: number): Promise<void>;
-}) {
-  const limit = page.limit || 50;
-  const offset = page.offset || 0;
-  return (
-    <section className="panel">
-      {entries.length === 0 ? <p className="muted">Журнал пуст</p> : entries.map((entry) => (
-        <div className="audit" key={entry.id}>
-          <strong>{auditActionText(entry.action)}</strong>
-          <span>{new Date(entry.created_at).toLocaleString("ru-RU")}</span>
-          {entry.reason && <p>{entry.reason}</p>}
-        </div>
-      ))}
-      {(offset > 0 || page.has_more) && (
-        <div className="orders-pagination audit-pagination">
-          <button disabled={offset === 0} onClick={() => void onPageChange(Math.max(0, offset - limit))}>Назад</button>
-          <span>{entries.length ? `${offset + 1}–${offset + entries.length}` : "0"}</span>
-          <button disabled={!page.has_more} onClick={() => void onPageChange(offset + limit)}>Дальше</button>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function Metric({ title, value }: { title: string; value: string | number }) {
-  return <div className="metric"><span>{title}</span><strong>{value}</strong></div>;
-}
-
 function StatusPills({ visible, archived }: { visible: boolean; archived: boolean }) {
   return <span className={archived ? "pill archived" : visible ? "pill visible" : "pill hidden"}>{archived ? "В архиве" : visible ? "Видно" : "Скрыто"}</span>;
 }
@@ -2299,10 +2164,6 @@ function pickupDateTime(value: string): string {
 
 function StatusBadge({ order }: { order: Order | OrderSummary }) {
   return <span className={`status-badge status-${order.fulfillment_status.toLowerCase()} fulfillment-${order.fulfillment_type}`}>{adminOrderStatusText(order)}</span>;
-}
-
-function SimpleTable({ title, rows }: { title: string; rows: string[][] }) {
-  return <div className="panel"><h2>{title}</h2>{rows.length ? rows.map((row) => <div className="row compact" key={row.join(":")}>{row.map((cell) => <span key={cell}>{cell}</span>)}</div>) : <p className="muted">Нет данных</p>}</div>;
 }
 
 function Text({ label, value, onChange }: { label: string; value: string; onChange(value: string): void }) {
@@ -2580,6 +2441,55 @@ function fallbackOrderCounts(orders: OrderSummary[]): AdminOrderCounts {
     ready: orders.filter((order) => order.fulfillment_status === "OUT_FOR_DELIVERY" || order.fulfillment_status === "READY_FOR_PICKUP").length,
     history: orders.filter((order) => orderMatchesView(order, "history")).length,
   };
+}
+
+function sameOrderVersions(current: OrderSummary[], incoming: OrderSummary[]): boolean {
+  return current === incoming || (
+    current.length === incoming.length
+    && current.every((order, index) => {
+      const next = incoming[index];
+      return order.id === next?.id
+        && order.version === next.version
+        && order.can_add_items === next.can_add_items
+        && order.add_items_reason === next.add_items_reason;
+    })
+  );
+}
+
+function sameOrderFilter(current: OrderLoadFilter, incoming: OrderLoadFilter): boolean {
+  return current.status === incoming.status
+    && current.q === incoming.q
+    && current.date === incoming.date
+    && current.limit === incoming.limit
+    && current.offset === incoming.offset;
+}
+
+function sameOrderPage(current: AdminOrdersPageState, incoming: AdminOrdersPageState): boolean {
+  return current.limit === incoming.limit
+    && current.offset === incoming.offset
+    && current.has_more === incoming.has_more
+    && JSON.stringify(current.counts || {}) === JSON.stringify(incoming.counts || {});
+}
+
+function sameReservationVersions(current: Reservation[], incoming: Reservation[]): boolean {
+  return current === incoming || (
+    current.length === incoming.length
+    && current.every((reservation, index) => reservation.id === incoming[index]?.id && reservation.version === incoming[index]?.version)
+  );
+}
+
+function sameDashboardSnapshot(current: AdminDashboard | null, incoming: AdminDashboard): boolean {
+  if (!current) return false;
+  return current.new_orders === incoming.new_orders
+    && current.out_for_delivery === incoming.out_for_delivery
+    && current.ready_for_pickup === incoming.ready_for_pickup
+    && current.orders_today === incoming.orders_today
+    && current.revenue_today_minor === incoming.revenue_today_minor
+    && (current.notification_errors ?? []).join("\n") === (incoming.notification_errors ?? []).join("\n")
+    && current.runtime.accepting_orders === incoming.runtime.accepting_orders
+    && current.runtime.reason === incoming.runtime.reason
+    && current.runtime.next_opening === incoming.runtime.next_opening
+    && current.runtime.day_off_banner === incoming.runtime.day_off_banner;
 }
 
 function orderMatchesView(order: OrderSummary, view: OrdersView): boolean {

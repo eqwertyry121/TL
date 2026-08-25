@@ -50,7 +50,7 @@ export interface AdminMenuResponse {
 }
 
 export interface AdminOrdersResponse {
-  orders: OrderSummary[];
+  orders: Order[];
   limit?: number;
   offset?: number;
   has_more?: boolean;
@@ -722,6 +722,9 @@ async function getBlob(url: string, token?: string) {
 
 async function fetchAdminOrders(baseURL: string, token: string, filter: { status?: string; q?: string; date?: string; limit?: number; offset?: number }, signal?: AbortSignal): Promise<AdminOrdersResponse> {
   const request = adminOrdersRequest(filter);
+  if (!request.q) {
+    return get(`${baseURL}/api/v1/admin/orders?${new URLSearchParams(clean(request))}`, token, signal);
+  }
   try {
     return await post(`${baseURL}/api/v1/admin/orders/search`, cleanBody(request), token, signal);
   } catch (err) {

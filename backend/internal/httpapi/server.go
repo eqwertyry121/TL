@@ -2051,6 +2051,9 @@ func (s *Server) withRequestLog(next http.Handler) http.Handler {
 		if routePattern == "" {
 			routePattern = r.URL.Path
 		}
+		if (routePattern == "/health" || routePattern == "/ready") && recorder.status < http.StatusBadRequest && duration < 250*time.Millisecond {
+			return
+		}
 		attrs := []any{
 			"request_id", middleware.GetReqID(r.Context()),
 			"method", r.Method,
