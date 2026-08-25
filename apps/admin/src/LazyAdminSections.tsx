@@ -1,5 +1,8 @@
-import type { AdminAnalytics, AnalyticsBreakdown, AuditEntry, AuditLogResponse } from "@tk-delivery/api-client/generated";
-import { money, type AnalyticsRange } from "./api";
+import type { AdminAnalytics, AnalyticsBreakdown, AuditEntry, AuditLogResponse, Settings } from "@tk-delivery/api-client/generated";
+import { Save } from "lucide-react";
+import { useEffect, useState } from "react";
+import { money, type AnalyticsRange, type SettingsInput } from "./api";
+import { parseNumberDraft } from "./number-draft";
 
 export function AnalyticsSection({ analytics, range, onRange, onExport }: { analytics: AdminAnalytics; range: AnalyticsRange; onRange(range: AnalyticsRange): void; onExport(): void }) {
   const labels: Record<AnalyticsRange, string> = { today: "Сегодня", "7d": "7 дней", month: "Месяц" };
@@ -53,6 +56,141 @@ export function AuditSection({ entries, page, onPageChange }: { entries: AuditEn
         <button disabled={!page.has_more} onClick={() => void onPageChange(offset + limit)}>Дальше</button>
       </div>}
     </section>
+  );
+}
+
+export function SettingsSection({ settings, demoMode, onSave }: { settings: Settings; demoMode: boolean; onSave(input: SettingsInput): Promise<void> }) {
+  const [form, setForm] = useState(settings);
+  useEffect(() => setForm(settings), [settings]);
+  return (
+    <section className="settings-workspace">
+      <div className="panel settings-card">
+        <h2>Заказы</h2>
+        <div className="form-grid">
+          <NumberInput label="Максимум блюда" value={form.max_item_quantity} onChange={(max_item_quantity) => setForm({ ...form, max_item_quantity })} />
+          <NumberInput label="Комментарий" value={form.max_comment_length} onChange={(max_comment_length) => setForm({ ...form, max_comment_length })} />
+        </div>
+      </div>
+
+      <div className="panel settings-card">
+        <div className="settings-card-head">
+          <h2>Поддержка</h2>
+          <p>Эти контакты видит клиент в разделе “Поддержка” и в юридических страницах.</p>
+        </div>
+        <div className="support-settings">
+          <label>
+            <span>Telegram поддержки</span>
+            <input value={form.support_text} placeholder="@Tako_Lako" onChange={(event) => setForm({ ...form, support_text: event.target.value })} />
+            <small>Основной канал: клиент нажимает кнопку и сразу пишет сюда.</small>
+          </label>
+          <label>
+            <span>Телефон поддержки</span>
+            <input value={form.support_phone} placeholder="+381 ..." onChange={(event) => setForm({ ...form, support_phone: event.target.value })} />
+            <small>Можно оставить пустым, если сейчас работает только Telegram.</small>
+          </label>
+          <label>
+            <span>Ссылка на условия</span>
+            <input value={form.terms_url} placeholder="Оставь пустым — откроется встроенная страница" onChange={(event) => setForm({ ...form, terms_url: event.target.value })} />
+            <small>Нужна только если условия будут на внешнем сайте.</small>
+          </label>
+        </div>
+        <div className="support-preview">
+          <span>Как это выглядит клиенту</span>
+          <strong>{form.support_text.trim() || "@Tako_Lako"}</strong>
+          {form.support_phone.trim() && <small>{form.support_phone.trim()}</small>}
+        </div>
+      </div>
+
+      <div className="panel settings-card">
+        <h2>Наличные</h2>
+        <label className="check"><input type="checkbox" checked={form.cash_enabled} onChange={(event) => setForm({ ...form, cash_enabled: event.target.checked })} /> Принимать наличные</label>
+        <label className="check"><input type="checkbox" checked={form.cash_location_required} onChange={(event) => setForm({ ...form, cash_location_required: event.target.checked })} /> Проверять геопозицию</label>
+      </div>
+
+      <div className="panel settings-card pickup-settings-card">
+        <div className="settings-card-head">
+          <h2>Самовывоз</h2>
+          <p>Клиент выбирает свободное время. Кухня видит заказ заранее и готовит его к выбранному часу.</p>
+        </div>
+        <label className="check"><input type="checkbox" checked={form.pickup_enabled} onChange={(event) => setForm({ ...form, pickup_enabled: event.target.checked })} /> Принимать заказы на самовывоз</label>
+        <div className="form-grid three">
+          <NumberInput label="Готовить за, мин" value={form.pickup_min_lead_minutes} onChange={(pickup_min_lead_minutes) => setForm({ ...form, pickup_min_lead_minutes })} />
+          <NumberInput label="Шаг времени, мин" value={form.pickup_slot_minutes} onChange={(pickup_slot_minutes) => setForm({ ...form, pickup_slot_minutes })} />
+          <NumberInput label="Заказов на время" value={form.pickup_max_orders_per_slot} onChange={(pickup_max_orders_per_slot) => setForm({ ...form, pickup_max_orders_per_slot })} />
+        </div>
+        <label><span>Последний самовывоз</span><input type="time" value={form.pickup_last_time} onChange={(event) => setForm({ ...form, pickup_last_time: event.target.value })} /></label>
+        <Text label="Адрес самовывоза" value={form.pickup_address} onChange={(pickup_address) => setForm({ ...form, pickup_address })} />
+        <Text label="Ссылка на карту" value={form.pickup_map_url} onChange={(pickup_map_url) => setForm({ ...form, pickup_map_url })} />
+        <details className="pickup-copy-settings">
+          <summary>Инструкция для клиента</summary>
+          <div className="stack compact-stack">
+            <Textarea label="Русский" value={form.pickup_instructions_ru} onChange={(pickup_instructions_ru) => setForm({ ...form, pickup_instructions_ru })} />
+            <Textarea label="Сербский" value={form.pickup_instructions_sr} onChange={(pickup_instructions_sr) => setForm({ ...form, pickup_instructions_sr })} />
+            <Textarea label="Английский" value={form.pickup_instructions_en} onChange={(pickup_instructions_en) => setForm({ ...form, pickup_instructions_en })} />
+          </div>
+        </details>
+      </div>
+
+      <div className="panel settings-card">
+        <h2>Способы оплаты</h2>
+        <label className="check disabled-check"><input type="checkbox" checked={false} disabled /> Карта — этап 5</label>
+        <label className={demoMode ? "check" : "check disabled-check"}>
+          <input type="checkbox" checked={Boolean(form.crypto_enabled)} disabled={!demoMode} onChange={(event) => setForm({ ...form, crypto_enabled: event.target.checked })} />
+          Crypto demo
+        </label>
+      </div>
+
+      <details className="panel advanced-fields settings-card">
+        <summary>Расширенные</summary>
+        <div className="advanced-fields-body">
+          <div className="form-grid three">
+            <NumberInput label="Широта" value={form.restaurant_latitude} onChange={(restaurant_latitude) => setForm({ ...form, restaurant_latitude })} />
+            <NumberInput label="Долгота" value={form.restaurant_longitude} onChange={(restaurant_longitude) => setForm({ ...form, restaurant_longitude })} />
+            <NumberInput label="Радиус проверки" value={form.cash_location_radius_meters} onChange={(cash_location_radius_meters) => setForm({ ...form, cash_location_radius_meters })} />
+            <NumberInput label="Срок подтверждения" value={form.cash_location_ttl_seconds} onChange={(cash_location_ttl_seconds) => setForm({ ...form, cash_location_ttl_seconds })} />
+            <NumberInput label="Погрешность" value={form.cash_location_max_accuracy_meters} onChange={(cash_location_max_accuracy_meters) => setForm({ ...form, cash_location_max_accuracy_meters })} />
+          </div>
+        </div>
+      </details>
+
+      <button className="primary sticky-save" onClick={() => void onSave({ ...form, flat_delivery_fee_minor: 0, card_enabled: false, crypto_enabled: demoMode ? form.crypto_enabled : false })}>
+        <Save size={16} /> Сохранить настройки
+      </button>
+    </section>
+  );
+}
+
+function Text({ label, value, onChange }: { label: string; value: string; onChange(value: string): void }) {
+  return <label><span>{label}</span><input value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+}
+
+function Textarea({ label, value, onChange }: { label: string; value: string; onChange(value: string): void }) {
+  return <label><span>{label}</span><textarea value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+}
+
+function NumberInput({ label, value, onChange }: { label: string; value: number; onChange(value: number): void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  return (
+    <label>
+      <span>{label}</span>
+      <input
+        type="number"
+        value={draft}
+        autoComplete="off"
+        onFocus={(event) => event.currentTarget.select()}
+        onChange={(event) => {
+          const nextDraft = event.target.value;
+          setDraft(nextDraft);
+          const parsed = parseNumberDraft(nextDraft);
+          if (parsed !== undefined) onChange(parsed);
+        }}
+        onBlur={() => {
+          const parsed = parseNumberDraft(draft);
+          if (parsed === undefined) setDraft(String(value));
+        }}
+      />
+    </label>
   );
 }
 

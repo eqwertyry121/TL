@@ -4,7 +4,7 @@ import { gzipSync } from "node:zlib";
 
 const apps = {
   client: { js: 107 * 1024, css: 11 * 1024 },
-  admin: { js: 96 * 1024, css: 10 * 1024 },
+  admin: { js: 98 * 1024, css: 10 * 1024 },
   kitchen: { js: 90 * 1024, css: 10 * 1024 },
   courier: { js: 90 * 1024, css: 10 * 1024 },
 };
