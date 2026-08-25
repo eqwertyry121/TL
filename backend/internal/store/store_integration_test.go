@@ -822,7 +822,19 @@ func TestAdminOrdersDateFilterUsesCreatedAtIndexOnRealisticDataset(t *testing.T)
 
 	adminSession := bootstrapOwnerSession(t, ctx, st)
 	clientSession := clientSession(t, ctx, st, clientTelegramID)
-	_, err := pool.Exec(ctx, `
+	testBox, err := cryptobox.NewBox(bytes.Repeat([]byte{7}, 32))
+	if err != nil {
+		t.Fatalf("create test crypto box: %v", err)
+	}
+	phoneCiphertext, err := testBox.Encrypt("+38160000000")
+	if err != nil {
+		t.Fatalf("encrypt test phone: %v", err)
+	}
+	addressCiphertext, err := testBox.Encrypt("Novi Sad performance dataset")
+	if err != nil {
+		t.Fatalf("encrypt test address: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
 		INSERT INTO orders (
 			client_user_id, fulfillment_status, payment_method, payment_status,
 			subtotal_minor, delivery_fee_minor, total_minor, currency,
@@ -832,12 +844,12 @@ func TestAdminOrdersDateFilterUsesCreatedAtIndexOnRealisticDataset(t *testing.T)
 		SELECT
 			$1, 'DELIVERED', 'cash', 'PAID',
 			100, 0, 100, 'RSD',
-			'encrypted-phone', 'hmac-sha256:explain-test', 'encrypted-address', '', 'ru',
+			$2, 'hmac-sha256:explain-test', $3, '', 'ru',
 			TIMESTAMPTZ '2026-05-01 00:00:00+00' + (series.index * INTERVAL '1 hour'),
 			TIMESTAMPTZ '2026-05-01 00:00:00+00' + (series.index * INTERVAL '1 hour'),
 			TIMESTAMPTZ '2026-05-01 00:00:00+00' + (series.index * INTERVAL '1 hour')
 		FROM generate_series(0, 3999) AS series(index)
-	`, clientSession.UserID)
+	`, clientSession.UserID, phoneCiphertext, addressCiphertext)
 	if err != nil {
 		t.Fatalf("seed realistic orders: %v", err)
 	}
@@ -1611,7 +1623,7 @@ func TestOrderListQueryCountIsBoundedByOrderCount(t *testing.T) {
 	if page.Counts.Active != 20 || page.Counts.Ready != 20 {
 		t.Fatalf("unexpected admin order counts: %+v", page.Counts)
 	}
-	assertQueryBudget(t, "admin order summaries 20", adminQueries, 2)
+	assertQueryBudget(t, "admin orders with details 20", adminQueries, 6)
 	detail, err := st.AdminOrderByID(ctx, adminSession, page.Orders[0].ID)
 	if err != nil {
 		t.Fatalf("admin order detail: %v", err)
