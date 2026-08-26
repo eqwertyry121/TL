@@ -271,6 +271,25 @@ func bootstrapOwnerTelegramIDs() []int64 {
 	return out
 }
 
+func telegramIDList(key, fallback string) []int64 {
+	parts := strings.Split(get(key, fallback), ",")
+	out := make([]int64, 0, len(parts))
+	seen := map[int64]bool{}
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		id := mustInt64(value)
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
 func defaultAllowedOrigins() string {
 	return strings.Join([]string{
 		"https://takolako.site",
