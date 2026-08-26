@@ -105,7 +105,7 @@ function ClientMiniApp() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [restoredCheckoutSignature, setRestoredCheckoutSignature] = useState("");
-  const [loading, setLoading] = useState(!data.runtime && data.categories.length === 0);
+  const [loading, setLoading] = useState(!data.runtime);
   const [submitting, setSubmitting] = useState(false);
   const [additionSubmitting, setAdditionSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -187,7 +187,7 @@ function ClientMiniApp() {
       return;
     }
     let alive = true;
-    setLoading(data.categories.length === 0);
+    setLoading(true);
     bootstrap()
       .catch((err) => alive && setError(errorText(err, locale)))
       .finally(() => alive && setLoading(false));
@@ -804,7 +804,7 @@ function ClientMiniApp() {
   if (!data.runtime) {
     return (
       <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={0} header="Tako Lako - Грузинская кухня">
-        <PublicBotLanding />
+        {devSandbox ? <DevSandboxUnavailable /> : <PublicBotLanding />}
       </Shell>
     );
   }
@@ -898,7 +898,7 @@ function ClientMiniApp() {
           <span>{error}</span>
         </div>
       )}
-      {route.name === "menu" && !data.session && <OpenInTelegramCard />}
+      {route.name === "menu" && !data.session && !devSandbox && <OpenInTelegramCard />}
       {content}
       {cartQuantity > 0 && route.name !== "checkout" && route.name !== "cart" && route.name !== "add" && (
         <button className="cart-float" onClick={() => navigate({ name: "cart" })}>
@@ -971,6 +971,16 @@ function PublicBotLanding() {
       <h1>Грузинская кухня в Telegram</h1>
       <TelegramBotButton label="Открыть Mini App" />
       <small>Если Telegram не открылся автоматически, найдите бота @takolako_main_bot.</small>
+    </section>
+  );
+}
+
+function DevSandboxUnavailable() {
+  return (
+    <section className="state dev-sandbox-unavailable">
+      <strong>DEV временно не загрузился</strong>
+      <span>Обновите Mini App. Переход в рабочее приложение отключён.</span>
+      <button className="primary" type="button" onClick={() => window.location.reload()}>Обновить DEV</button>
     </section>
   );
 }

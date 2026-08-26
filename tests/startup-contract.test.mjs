@@ -15,6 +15,15 @@ test("client startup uses bootstrap without private history or contact waterfall
   assertIncludes(appSource, "if (!token || route.name !== \"orders\") return;");
 });
 
+test("client DEV sandbox never falls back to the production bot card", () => {
+  const appSource = readSource("apps/client/src/App.tsx");
+
+  assertIncludes(appSource, "const [loading, setLoading] = useState(!data.runtime)");
+  assertIncludes(appSource, "setLoading(true)");
+  assertIncludes(appSource, "devSandbox ? <DevSandboxUnavailable /> : <PublicBotLanding />");
+  assertIncludes(appSource, "route.name === \"menu\" && !data.session && !devSandbox");
+});
+
 test("kitchen and courier startup use one role bootstrap request", () => {
   const kitchenSource = readSource("apps/kitchen/src/App.tsx");
   const courierSource = readSource("apps/courier/src/App.tsx");
