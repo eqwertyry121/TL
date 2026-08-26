@@ -34,18 +34,17 @@ test("checkout summary prefers the current server calculation snapshot", async (
   assert.match(source, /line_total_minor/);
 });
 
-test("checkout reveals one short step at a time", async () => {
+test("checkout keeps all compact sections in one vertical flow", async () => {
   const source = await readFile(new URL("../apps/client/src/App.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../apps/client/src/styles.css", import.meta.url), "utf8");
 
-  assert.match(source, /const \[checkoutStep, setCheckoutStep\] = useState<1 \| 2 \| 3>/);
-  assert.match(source, /className="checkout-progress"/);
-  assert.match(source, /checkoutStep === 1/);
-  assert.match(source, /checkoutStep === 2/);
-  assert.match(source, /checkoutStep === 3/);
-  assert.match(source, /className="checkout-step-summary"/);
-  assert.match(styles, /\.checkout-progress/);
-  assert.match(styles, /\.checkout-step-summary/);
+  assert.doesNotMatch(source, /checkoutStep|setCheckoutStep/);
+  assert.doesNotMatch(source, /className="checkout-progress"/);
+  assert.doesNotMatch(source, /className="checkout-step-summary"/);
+  assert.equal(source.match(/checkout-section[^\"]*checkout-stage/g)?.length, 3);
+  assert.match(styles, /\.checkout-stage-title/);
+  assert.doesNotMatch(styles, /\.checkout-progress/);
+  assert.doesNotMatch(styles, /\.checkout-step-summary/);
 });
 
 test("admin home ready queue matches the combined ready filter", async () => {

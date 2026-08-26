@@ -1629,7 +1629,6 @@ function Checkout({
   onCalculate: () => Promise<Calculation | null>;
   onSubmit: () => Promise<void>;
 }) {
-  const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(() => verifiedContact?.verified ? 3 : 1);
   useEffect(() => {
     if (lines.length) void onCalculate().catch(() => undefined);
   }, [fulfillmentType, lines.length, draft.deliveryTimeMode, draft.deliveryRequestedAt]);
@@ -1660,7 +1659,6 @@ function Checkout({
   const phoneReady = contactVerified && Boolean(draft.phone.trim());
   const pickupTimeReady = deliverySelected || (pickupEnabled && Boolean(draft.pickupAt));
   const deliveryTimeReady = !deliverySelected || !deliveryTimingEnabled || draft.deliveryTimeMode !== "SCHEDULED" || Boolean(draft.deliveryRequestedAt);
-  const receivingReady = addressReady && pickupTimeReady && deliveryTimeReady;
   const canSubmit = checkoutOpen && !submitting && addressReady && phoneReady && locationVerified && pickupTimeReady && deliveryTimeReady && termsAccepted;
   const checkoutHint = !checkoutOpen
     ? checkoutClosedLabel
@@ -1677,9 +1675,6 @@ function Checkout({
               : !termsAccepted
                 ? copy.nextTerms
                 : copy.readyToOrder;
-  useEffect(() => {
-    if (checkoutStep > 1 && !receivingReady) setCheckoutStep(1);
-  }, [checkoutStep, receivingReady]);
   if (!lines.length) return <div className="state">{t(locale, "emptyCart")}</div>;
   return (
     <div className="page narrow checkout-page">
@@ -1702,23 +1697,8 @@ function Checkout({
           <a href="#/cart">{copy.editCart}</a>
         </div>
       </details>
-      <nav className="checkout-progress" aria-label={copy.checkoutProgressLabel}>
-        {([1, 2, 3] as const).map((step) => (
-          <button
-            key={step}
-            type="button"
-            className={checkoutStep === step ? "active" : checkoutStep > step ? "complete" : ""}
-            disabled={(step === 2 || step === 3) && !receivingReady}
-            onClick={() => setCheckoutStep(step)}
-          >
-            <span>{checkoutStep > step ? <Icon name="check" size={14} /> : step}</span>
-            <small>{step === 1 ? copy.receivingStep : step === 2 ? copy.paymentTitle : copy.confirmStep}</small>
-          </button>
-        ))}
-      </nav>
-      {checkoutStep === 1 ? (
       <div className="form checkout-section checkout-primary-section checkout-stage">
-        <div className="checkout-stage-title"><strong>{copy.receivingStep}</strong><small>{copy.receivingStepHint}</small></div>
+        <div className="checkout-stage-title"><span>1</span><div><strong>{copy.receivingStep}</strong><small>{copy.receivingStepHint}</small></div></div>
         <div className="fulfillment-selector">
           <span>{copy.fulfillmentTitle}</span>
           <div>
@@ -1823,20 +1803,9 @@ function Checkout({
           <span>{t(locale, "comment")}</span>
           <textarea value={draft.comment} maxLength={300} placeholder={copy.commentPlaceholder} onChange={(event) => onDraft({ comment: event.target.value })} />
         </label>
-        <button className="primary checkout-continue" type="button" disabled={!receivingReady} onClick={() => setCheckoutStep(2)}>
-          {receivingReady ? copy.continueButton : checkoutHint}
-        </button>
       </div>
-      ) : (
-        <button className="checkout-step-summary" type="button" onClick={() => setCheckoutStep(1)}>
-          <span><Icon name="check" size={16} /></span>
-          <div><strong>{copy.receivingStep}</strong><small>{deliverySelected ? `${draft.street.trim()} ${draft.houseNumber.trim()}` : `${copy.pickupTitle} · ${formatPickupTime(draft.pickupAt)}`}</small></div>
-          <em>{copy.changeButton}</em>
-        </button>
-      )}
-      {checkoutStep === 2 ? (
       <section className="checkout-section checkout-payment-section checkout-stage">
-        <div className="checkout-stage-title"><strong>{copy.paymentTitle}</strong><small>{copy.paymentStepHint}</small></div>
+        <div className="checkout-stage-title"><span>2</span><div><strong>{copy.paymentTitle}</strong><small>{copy.paymentStepHint}</small></div></div>
         <div className="payment-selector">
           <div>
           {paymentMethods.map((method) => (
@@ -1866,18 +1835,9 @@ function Checkout({
             <p>{copy.cryptoNotice}</p>
           )}
         </div>
-        <button className="primary checkout-continue" type="button" onClick={() => setCheckoutStep(3)}>{copy.continueButton}</button>
       </section>
-      ) : checkoutStep === 3 ? (
-        <button className="checkout-step-summary" type="button" onClick={() => setCheckoutStep(2)}>
-          <span><Icon name="check" size={16} /></span>
-          <div><strong>{copy.paymentTitle}</strong><small>{paymentMethodTitle(paymentMethod, locale)}</small></div>
-          <em>{copy.changeButton}</em>
-        </button>
-      ) : null}
-      {checkoutStep === 3 && (
       <section className="checkout-section checkout-confirm-section checkout-stage">
-        <div className="checkout-stage-title"><strong>{copy.confirmStep}</strong><small>{copy.confirmStepHint}</small></div>
+        <div className="checkout-stage-title"><span>3</span><div><strong>{copy.confirmStep}</strong><small>{copy.confirmStepHint}</small></div></div>
         <div className={contactVerified && locationVerified ? "required-checks verified" : "required-checks"}>
         <div className="required-checks-head">
           <strong>{copy.requiredSteps}</strong>
@@ -1933,15 +1893,12 @@ function Checkout({
           </span>
         </label>
       </section>
-      )}
-      {checkoutStep === 3 && (
       <div className={checkoutHint === copy.readyToOrder ? "checkout-action-bar is-ready" : "checkout-action-bar"}>
         <div><small aria-live="polite">{checkoutHint}</small><strong>{money(checkoutTotal)}</strong></div>
         <button className="primary" disabled={!canSubmit} onClick={onSubmit}>
           {submitting ? "..." : !deliverySelected && draft.pickupAt ? `${copy.placePickupOrder} ${formatPickupTime(draft.pickupAt)}` : paymentMethod === "crypto" ? copy.placeCryptoTestOrder : t(locale, "placeOrder")}
         </button>
       </div>
-      )}
     </div>
   );
 }
@@ -1988,9 +1945,6 @@ function checkoutCopy(locale: Locale) {
       editCart: "Изменить корзину",
       receivingStep: "Получение",
       receivingStepHint: "способ, адрес и время",
-      checkoutProgressLabel: "Этапы оформления",
-      continueButton: "Продолжить",
-      changeButton: "Изменить",
       paymentStepHint: "выберите один вариант",
       confirmStep: "Подтверждение",
       confirmStepHint: "телефон, геолокация и итог",
@@ -2067,9 +2021,6 @@ function checkoutCopy(locale: Locale) {
       editCart: "Izmeni korpu",
       receivingStep: "Preuzimanje",
       receivingStepHint: "način, adresa i vreme",
-      checkoutProgressLabel: "Koraci poručivanja",
-      continueButton: "Nastavi",
-      changeButton: "Izmeni",
       paymentStepHint: "izaberite jednu opciju",
       confirmStep: "Potvrda",
       confirmStepHint: "telefon, lokacija i iznos",
@@ -2146,9 +2097,6 @@ function checkoutCopy(locale: Locale) {
       editCart: "Edit cart",
       receivingStep: "Receiving",
       receivingStepHint: "method, address and time",
-      checkoutProgressLabel: "Checkout steps",
-      continueButton: "Continue",
-      changeButton: "Change",
       paymentStepHint: "choose one option",
       confirmStep: "Confirmation",
       confirmStepHint: "phone, location and total",

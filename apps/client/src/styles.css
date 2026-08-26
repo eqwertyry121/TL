@@ -2136,80 +2136,30 @@ textarea {
   background: rgba(255, 253, 248, 0.94);
 }
 
-.checkout-progress {
+.checkout-stage-title {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.25rem;
-  border: 1px solid var(--line);
-  border-radius: 1rem;
-  padding: 0.25rem;
-  background: rgba(255, 253, 248, 0.88);
-}
-
-.checkout-progress button {
-  display: flex;
-  min-width: 0;
-  min-height: 2.55rem;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  border: 0;
-  border-radius: 0.78rem;
-  padding: 0.35rem 0.28rem;
-  background: transparent;
-  color: var(--muted);
+  gap: 0.58rem;
+  border-bottom: 1px solid rgba(107, 31, 42, 0.08);
+  padding: 0 0.1rem 0.58rem;
 }
 
-.checkout-progress button > span {
+.checkout-stage-title > span {
   display: grid;
-  width: 1.42rem;
-  height: 1.42rem;
-  flex: 0 0 auto;
+  width: 1.55rem;
+  height: 1.55rem;
   place-items: center;
-  border: 1px solid rgba(107, 31, 42, 0.15);
   border-radius: 50%;
-  background: #f7efe4;
-  color: var(--color-primary);
-  font-size: 0.7rem;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 0.72rem;
   font-weight: 950;
 }
 
-.checkout-progress button small {
-  overflow: hidden;
-  font-size: 0.7rem;
-  font-weight: 850;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.checkout-progress button.active {
-  background: rgba(107, 31, 42, 0.08);
-  color: var(--text);
-}
-
-.checkout-progress button.active > span {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-  color: #fff;
-}
-
-.checkout-progress button.complete > span {
-  border-color: rgba(94, 107, 58, 0.28);
-  background: rgba(94, 107, 58, 0.14);
-  color: #53602e;
-}
-
-.checkout-progress button:disabled {
-  opacity: 0.48;
-}
-
-.checkout-stage-title {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.7rem;
-  border-bottom: 1px solid rgba(107, 31, 42, 0.08);
-  padding: 0 0.1rem 0.58rem;
+.checkout-stage-title > div {
+  display: grid;
+  gap: 0.02rem;
 }
 
 .checkout-stage-title strong {
@@ -2221,59 +2171,6 @@ textarea {
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 700;
-  text-align: right;
-}
-
-.checkout-step-summary {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.65rem;
-  min-height: 3.45rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  padding: 0.65rem 0.75rem;
-  background: rgba(255, 253, 248, 0.9);
-  color: var(--text);
-  text-align: left;
-}
-
-.checkout-step-summary > span {
-  display: grid;
-  width: 1.75rem;
-  height: 1.75rem;
-  place-items: center;
-  border-radius: 50%;
-  background: rgba(94, 107, 58, 0.14);
-  color: #53602e;
-}
-
-.checkout-step-summary > div {
-  display: grid;
-  min-width: 0;
-  gap: 0.1rem;
-}
-
-.checkout-step-summary small {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 0.75rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.checkout-step-summary em {
-  color: var(--color-primary);
-  font-size: 0.72rem;
-  font-style: normal;
-  font-weight: 900;
-}
-
-.checkout-continue {
-  width: 100%;
-  min-height: 3.05rem;
-  margin-top: 0.08rem;
-  box-shadow: none;
 }
 
 .checkout-primary-section .fulfillment-selector,
