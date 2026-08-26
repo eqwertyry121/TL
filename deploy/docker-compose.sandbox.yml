@@ -38,6 +38,11 @@ services:
       MEDIA_DIR: /app/uploads
     ports:
       - "127.0.0.1:${DEV_APP_HOST_PORT:-18081}:8080"
+    networks:
+      default:
+      production-gateway:
+        aliases:
+          - sandbox-api
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -61,3 +66,8 @@ services:
 
 volumes:
   tk_delivery_dev_pg:
+
+networks:
+  production-gateway:
+    external: true
+    name: takolako_default
