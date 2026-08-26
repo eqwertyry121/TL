@@ -895,16 +895,34 @@ func TestDevSandboxProxyUsesConfiguredUpstream(t *testing.T) {
 		if r.URL.Path != "/api/v1/version" {
 			t.Fatalf("upstream path = %q", r.URL.Path)
 		}
+		if got := r.Header.Get("Accept-Encoding"); got != "identity" {
+			t.Fatalf("upstream Accept-Encoding = %q, want identity", got)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"environment": "dev"})
 	}))
 	defer upstream.Close()
 
 	server := New(config.Config{Env: "production", DevSandboxUpstreamURL: upstream.URL}, nil, slog.Default())
 	req := httptest.NewRequest(http.MethodGet, "/testbranch-api/api/v1/version", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
 	recorder := httptest.NewRecorder()
 	server.Routes().ServeHTTP(recorder, req)
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"environment":"dev"`) {
-		t.Fatalf("proxy response = %d %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusOK || recorder.Header().Get("Content-Encoding") != "gzip" {
+		t.Fatalf("proxy response = %d encoding=%q", recorder.Code, recorder.Header().Get("Content-Encoding"))
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(recorder.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("open proxy gzip response: %v", err)
+	}
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read proxy gzip response: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close proxy gzip response: %v", err)
+	}
+	if !strings.Contains(string(body), `"environment":"dev"`) {
+		t.Fatalf("proxy response body = %s", body)
 	}
 }
 
