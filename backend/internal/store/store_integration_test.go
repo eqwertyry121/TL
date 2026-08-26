@@ -1860,6 +1860,65 @@ func TestDeliveryTimingCapacityAndKitchenETARevision(t *testing.T) {
 	}
 }
 
+func TestDeliveryTimingASAPQueueDelayTiers(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	now := time.Now().UTC()
+	testTimezone := middayTestTimezone(now)
+	if _, err := pool.Exec(ctx, `
+		UPDATE app_settings
+		SET timezone=$1, delivery_timing_enabled=true, delivery_min_lead_minutes=30,
+			delivery_slot_minutes=30, delivery_max_orders_per_slot=2,
+			delivery_last_target_time='23:30'
+	`, testTimezone); err != nil {
+		t.Fatalf("enable delivery timing queue: %v", err)
+	}
+
+	wantDelays := []int{0, 0, 30, 30, 60, 60}
+	targets := make([]time.Time, 0, len(wantDelays))
+	for index, wantDelay := range wantDelays {
+		telegramID := clientTelegramID + 920 + int64(index)
+		session, input := prepareCashOrderForCart(
+			t,
+			ctx,
+			st,
+			telegramID,
+			fmt.Sprintf("+38160113%03d", index),
+			fmt.Sprintf("ASAP queue address %d", index),
+			[]core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}},
+			now,
+		)
+		input.DeliveryTimeMode = "ASAP"
+		order, err := st.CreateCashOrder(
+			ctx,
+			session,
+			input,
+			fmt.Sprintf("idem-delivery-asap-queue-%d", index),
+			fmt.Sprintf("hash-delivery-asap-queue-%d", index),
+			now,
+		)
+		if err != nil {
+			t.Fatalf("create ASAP queue order %d: %v", index+1, err)
+		}
+		if order.DeliveryQueueDelayMinutes != wantDelay {
+			t.Fatalf("ASAP queue order %d delay = %d, want %d", index+1, order.DeliveryQueueDelayMinutes, wantDelay)
+		}
+		if order.DeliveryTargetAt == nil {
+			t.Fatalf("ASAP queue order %d has no target", index+1)
+		}
+		targets = append(targets, *order.DeliveryTargetAt)
+	}
+
+	if !targets[0].Equal(targets[1]) || !targets[2].Equal(targets[3]) || !targets[4].Equal(targets[5]) {
+		t.Fatalf("orders in each capacity tier must share a target: %v", targets)
+	}
+	if targets[2].Sub(targets[0]) != 30*time.Minute || targets[4].Sub(targets[0]) != time.Hour {
+		t.Fatalf("ASAP queue targets do not advance by 30-minute tiers: %v", targets)
+	}
+}
+
 func middayTestTimezone(now time.Time) string {
 	offsetHours := 12 - now.UTC().Hour()
 	switch {

@@ -2384,6 +2384,7 @@ textarea {
 .delivery-timing-summary { display:grid; gap:.12rem; border-radius:.75rem; padding:.55rem .65rem; background:#f7efe4; line-height:1.25; }
 .delivery-timing-summary strong { font-size:.82rem; }
 .delivery-timing-summary small { color:var(--muted); font-size:.7rem; }
+.delivery-timing-summary.has-queue { border:1px solid rgba(166,105,31,.24); background:rgba(206,163,76,.13); }
 .delivery-timing-note { color:var(--muted); font-size:.7rem; line-height:1.3; }
 .delivery-timing-final { display:flex; align-items:baseline; gap:.25rem; padding:.7rem .85rem; border:1px solid var(--line); border-radius:.9rem; background:rgba(255,255,255,.45); }
 .delivery-order-timing { display:grid; gap:.3rem; }

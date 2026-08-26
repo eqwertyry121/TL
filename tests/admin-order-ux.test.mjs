@@ -49,6 +49,10 @@ test("ASAP delivery never exposes the internal capacity slot as a kitchen promis
 
   assert.match(client, /Сразу передадим заказ кухне/);
   assert.match(client, /Заказ сразу передан кухне/);
+  assert.match(client, /Сейчас на кухне очередь/);
+  assert.match(client, /deliverySlots\?\.asap\?\.queue_delay_minutes/);
+  assert.match(client, /calculation\.delivery_queue_delay_minutes/);
+  assert.match(client, /Ожидание увеличится примерно на/);
   assert.match(client, /order\.delivery_time_mode === "SCHEDULED" && \(order\.delivery_requested_at \|\| order\.delivery_target_at\)/);
   assert.doesNotMatch(client, /deliverySlots\.asap\.wait_minutes/);
   assert.match(kitchen, /order\.delivery_time_mode === "SCHEDULED"/);
