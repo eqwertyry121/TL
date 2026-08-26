@@ -898,17 +898,38 @@ func TestDevSandboxProxyUsesConfiguredUpstream(t *testing.T) {
 		if got := r.Header.Get("Accept-Encoding"); got != "identity" {
 			t.Fatalf("upstream Accept-Encoding = %q, want identity", got)
 		}
+		w.Header().Set("Access-Control-Allow-Origin", "https://takolako.site")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'")
+		w.Header().Add("Vary", "Origin")
+		w.Header().Add("Vary", "Accept-Encoding")
 		writeJSON(w, http.StatusOK, map[string]any{"environment": "dev"})
 	}))
 	defer upstream.Close()
 
-	server := New(config.Config{Env: "production", DevSandboxUpstreamURL: upstream.URL}, nil, slog.Default())
+	server := New(config.Config{
+		Env:                   "production",
+		DevSandboxUpstreamURL: upstream.URL,
+		AllowedOrigins:        []string{"https://takolako.site"},
+	}, nil, slog.Default())
 	req := httptest.NewRequest(http.MethodGet, "/testbranch-api/api/v1/version", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
+	req.Header.Set("Origin", "https://takolako.site")
 	recorder := httptest.NewRecorder()
 	server.Routes().ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusOK || recorder.Header().Get("Content-Encoding") != "gzip" {
 		t.Fatalf("proxy response = %d encoding=%q", recorder.Code, recorder.Header().Get("Content-Encoding"))
+	}
+	if values := recorder.Header().Values("Access-Control-Allow-Origin"); len(values) != 1 {
+		t.Fatalf("proxy CORS header values = %q, want exactly one", values)
+	}
+	if values := recorder.Header().Values("Content-Security-Policy"); len(values) != 1 {
+		t.Fatalf("proxy security header values = %q, want exactly one", values)
+	}
+	if got := countHeaderToken(recorder.Header().Values("Vary"), "Origin"); got != 1 {
+		t.Fatalf("proxy Vary Origin count = %d, want 1; values=%q", got, recorder.Header().Values("Vary"))
+	}
+	if got := countHeaderToken(recorder.Header().Values("Vary"), "Accept-Encoding"); got != 1 {
+		t.Fatalf("proxy Vary Accept-Encoding count = %d, want 1; values=%q", got, recorder.Header().Values("Vary"))
 	}
 	reader, err := gzip.NewReader(bytes.NewReader(recorder.Body.Bytes()))
 	if err != nil {
@@ -924,6 +945,18 @@ func TestDevSandboxProxyUsesConfiguredUpstream(t *testing.T) {
 	if !strings.Contains(string(body), `"environment":"dev"`) {
 		t.Fatalf("proxy response body = %s", body)
 	}
+}
+
+func countHeaderToken(values []string, want string) int {
+	count := 0
+	for _, value := range values {
+		for _, token := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(token), want) {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

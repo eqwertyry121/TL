@@ -946,11 +946,50 @@ func (s *Server) devSandboxProxy() (http.Handler, error) {
 		// response that Telegram WebView and browsers cannot decode.
 		req.Header.Set("Accept-Encoding", "identity")
 	}
+	proxy.ModifyResponse = func(response *http.Response) error {
+		// Both the outer production router and the sandbox router apply these
+		// headers. ReverseProxy appends upstream values to headers already set
+		// by the outer middleware, which produces invalid duplicate CORS fields.
+		for _, name := range []string{
+			"Access-Control-Allow-Origin",
+			"Access-Control-Allow-Methods",
+			"Access-Control-Allow-Headers",
+			"Access-Control-Expose-Headers",
+			"Access-Control-Max-Age",
+			"Content-Security-Policy",
+			"Referrer-Policy",
+			"Strict-Transport-Security",
+			"X-Content-Type-Options",
+			"X-Frame-Options",
+		} {
+			response.Header.Del(name)
+		}
+		stripHeaderToken(response.Header, "Vary", "Origin")
+		stripHeaderToken(response.Header, "Vary", "Accept-Encoding")
+		return nil
+	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, proxyErr error) {
 		s.log().Warn("dev sandbox unavailable", "error", proxyErr)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"code": "SANDBOX_UNAVAILABLE"})
 	}
 	return proxy, nil
+}
+
+func stripHeaderToken(header http.Header, name, unwanted string) {
+	values := header.Values(name)
+	header.Del(name)
+	seen := map[string]bool{}
+	for _, value := range values {
+		for _, token := range strings.Split(value, ",") {
+			token = strings.TrimSpace(token)
+			key := strings.ToLower(token)
+			if token == "" || strings.EqualFold(token, unwanted) || seen[key] {
+				continue
+			}
+			seen[key] = true
+			header.Add(name, token)
+		}
+	}
 }
 
 func (s *Server) bootstrapStaffSession(ctx context.Context, role core.Role, initData string) (core.Session, []core.Role, error) {
