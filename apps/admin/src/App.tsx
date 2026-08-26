@@ -481,9 +481,9 @@ export function App() {
   async function setDayOff(enabled: boolean) {
     if (enabled) {
       const confirmed = await askConfirm({
-        title: "Остановить приём?",
-        message: "Новые заказы будут недоступны. Активные заказы останутся в работе.",
-        confirmLabel: "Остановить",
+        title: "Включить техобслуживание?",
+        message: "Новые заказы и брони будут недоступны. Активные заказы останутся в работе.",
+        confirmLabel: "Закрыть на техобслуживание",
         variant: "danger",
       });
       if (!confirmed) return;
@@ -551,7 +551,7 @@ export function App() {
       <main className="admin-main">
         <header className="topbar">
           <div className="topbar-title">
-            <h1>{activeItem.label}</h1>
+            <h1>{activeItem.label}{import.meta.env.VITE_DEV_SANDBOX === "true" && <span className="dev-environment-badge">DEV</span>}</h1>
           </div>
           <div className="topbar-actions">
             <RestaurantStatus dashboard={dashboard} loading={loading} />
@@ -821,7 +821,7 @@ function HomeTab({
           <p>{compactRuntimeReason(dashboard.runtime.reason)}</p>
         </div>
         <button className={settings.manual_day_off ? "primary" : "danger-button"} onClick={() => void onDayOff(!settings.manual_day_off)}>
-          {settings.manual_day_off ? "Возобновить" : "Стоп приём"}
+          {settings.manual_day_off ? "Возобновить работу" : "Техобслуживание"}
         </button>
       </div>
 

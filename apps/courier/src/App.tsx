@@ -9,6 +9,7 @@ import type { ReactNode, RefObject } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const api = createStaffApi("COURIER");
+const devSandbox = import.meta.env.VITE_DEV_SANDBOX === "true";
 const courierSeenOrdersKey = "tk-courier-seen-orders-v1";
 type CourierLane = "now" | "later";
 type ConfirmDialogState = {
@@ -190,7 +191,7 @@ export function App() {
     <div className="app">
       <header className="header">
         <div>
-          <h1>Курьер</h1>
+          <h1>Курьер{devSandbox && <span className="dev-environment-badge">DEV</span>}</h1>
           <p>{sortedOrders.length} в доставке · <LastUpdatedText valueRef={lastUpdatedRef} empty="ожидание" prefix="обновлено" /></p>
         </div>
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>

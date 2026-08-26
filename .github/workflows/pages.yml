@@ -93,8 +93,9 @@ jobs:
       - name: Build test Mini Apps
         working-directory: test-source
         env:
-          VITE_APP_ENV: test
-          VITE_DEMO_MODE: "true"
+          VITE_APP_ENV: production
+          VITE_DEMO_MODE: "false"
+          VITE_DEV_SANDBOX: "true"
           VITE_API_BASE_URL: https://api.takolako.site/testbranch-api
           VITE_BUILD_SHA: ${{ steps.test_checkout.outputs.commit }}
           VITE_LEGAL_BUSINESS_NAME: ${{ vars.LEGAL_BUSINESS_NAME }}

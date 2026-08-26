@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - test
   pull_request:
   workflow_dispatch:
 
@@ -164,3 +165,57 @@ jobs:
         run: |
           ssh -i ~/.ssh/tk_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
             "cd '$DEPLOY_PATH/deploy' && APP_BUILD_SHA='${{ github.sha }}' docker compose --env-file .env.production -p takolako -f docker-compose.api.yml up -d --build --remove-orphans && docker compose --env-file .env.production -p takolako -f docker-compose.api.yml exec -T app wget -qO- http://127.0.0.1:8080/ready >/dev/null && sh ./maintenance.sh"
+
+  deploy_sandbox:
+    needs: backend
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/test' }}
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.TK_DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.TK_DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.TK_DEPLOY_SSH_KEY }}
+      DEPLOY_PATH: ${{ secrets.TK_DEV_DEPLOY_PATH }}
+    steps:
+      - name: Check sandbox deploy configuration
+        id: deploy_config
+        run: |
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_USER" ] || [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_PATH" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Sandbox deploy skipped: TK_DEPLOY_HOST, TK_DEPLOY_USER, TK_DEPLOY_SSH_KEY or TK_DEV_DEPLOY_PATH is not configured."
+            exit 0
+          fi
+          case "$DEPLOY_PATH" in
+            ""|"/"|"/opt"|"/home"|"/srv")
+              echo "Unsafe TK_DEV_DEPLOY_PATH: $DEPLOY_PATH" >&2
+              exit 1
+              ;;
+          esac
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout test branch
+        if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
+        uses: actions/checkout@v4
+
+      - name: Install SSH key
+        if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/tk_deploy_key
+          chmod 600 ~/.ssh/tk_deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Sync sandbox source to VPS
+        if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
+        run: |
+          rsync -az \
+            --exclude .git \
+            --exclude node_modules \
+            --exclude 'apps/*/dist' \
+            -e "ssh -i ~/.ssh/tk_deploy_key" \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+
+      - name: Deploy sandbox backend on VPS
+        if: ${{ steps.deploy_config.outputs.enabled == 'true' }}
+        run: |
+          ssh -i ~/.ssh/tk_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd '$DEPLOY_PATH/deploy' && APP_BUILD_SHA='${{ github.sha }}' docker compose --env-file .env.sandbox -p takolako-dev -f docker-compose.sandbox.yml up -d --build --remove-orphans && docker compose --env-file .env.sandbox -p takolako-dev -f docker-compose.sandbox.yml exec -T app-dev wget -qO- http://127.0.0.1:8080/ready >/dev/null"

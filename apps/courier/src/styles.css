@@ -1298,3 +1298,16 @@ body::before {
   font: inherit;
   font-weight: 800;
 }
+.dev-environment-badge {
+  display: inline-flex;
+  margin-left: .5rem;
+  border-radius: 999px;
+  padding: .16rem .42rem;
+  background: #f4c95d;
+  color: #3a2613;
+  font-family: var(--font-body);
+  font-size: .62rem;
+  font-weight: 950;
+  letter-spacing: .06em;
+  vertical-align: middle;
+}

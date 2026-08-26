@@ -781,7 +781,12 @@ func (s *Store) SetManualDayOff(ctx context.Context, sess core.Session, enabled 
 	}
 	defer rollback(ctx, tx)
 	_, err = tx.Exec(ctx, `
-		UPDATE app_settings SET manual_day_off=$1, version=version+1, updated_at=now() WHERE id=true
+		UPDATE app_settings
+		SET manual_day_off=$1,
+			day_off_banner=CASE WHEN $1 THEN 'Временно закрыто на техобслуживание' ELSE 'ВЫХОДНОЙ' END,
+			version=version+1,
+			updated_at=now()
+		WHERE id=true
 	`, enabled)
 	if err != nil {
 		return core.Settings{}, err
@@ -797,6 +802,35 @@ func (s *Store) SetManualDayOff(ctx context.Context, sess core.Session, enabled 
 		return core.Settings{}, err
 	}
 	return after, nil
+}
+
+func (s *Store) SetTelegramSandboxPreference(ctx context.Context, telegramUserID int64, enabled bool) error {
+	if telegramUserID <= 0 {
+		return core.ErrInvalidInput
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO telegram_environment_preferences (telegram_user_id, sandbox_enabled, updated_at)
+		VALUES ($1, $2, now())
+		ON CONFLICT (telegram_user_id) DO UPDATE
+		SET sandbox_enabled=EXCLUDED.sandbox_enabled, updated_at=now()
+	`, telegramUserID, enabled)
+	return err
+}
+
+func (s *Store) TelegramSandboxPreference(ctx context.Context, telegramUserID int64) (bool, error) {
+	if telegramUserID <= 0 {
+		return false, core.ErrInvalidInput
+	}
+	var enabled bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT sandbox_enabled
+		FROM telegram_environment_preferences
+		WHERE telegram_user_id=$1
+	`, telegramUserID).Scan(&enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return enabled, err
 }
 
 func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input UpdateSettingsInput) (core.Settings, error) {

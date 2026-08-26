@@ -46,6 +46,7 @@ import type { DeliverySlots } from "@tk-delivery/api-client/generated";
 
 const api = createApi();
 const clientBotMiniAppURL = "https://t.me/TakoLako_main_bot?startapp";
+const devSandbox = import.meta.env.VITE_DEV_SANDBOX === "true";
 const developerTelegramURL = "https://t.me/eqwertyry";
 const comboCategoryID = "66666666-6666-6666-6666-666666666001";
 const recommendedMenuItemIDs = new Set(["44444444-4444-4444-4444-444444444013"]);
@@ -135,7 +136,7 @@ function ClientMiniApp() {
   const total = subtotal;
   const checkoutOpen = Boolean(data.runtime?.accepting_orders);
   const activeOrder = data.orders.find((order) => !isTerminalOrderStatus(order.fulfillment_status));
-  const dayOffBlocked = isDayOffRuntime(data.runtime) && route.name !== "booking" && !isOwnerTelegramId(data.session?.telegram_user_id);
+  const dayOffBlocked = isDayOffRuntime(data.runtime) && (data.runtime?.reason === "manual_day_off" || route.name !== "booking") && !isOwnerTelegramId(data.session?.telegram_user_id);
   const paymentMethods = useMemo(() => checkoutPaymentMethods(data.runtime?.enabled_payments || []), [data.runtime?.enabled_payments]);
   const cashLocationRequired = data.runtime?.cash_location_required ?? true;
   const deliveryTimingEnabled = data.runtime?.delivery_timing_enabled === true && data.session?.delivery_timing_access === true;
@@ -1039,7 +1040,7 @@ function Shell({
   const [moreOpen, setMoreOpen] = useState(false);
   const isRoot = route.name === "menu";
   const showLocale = isRoot || isPublicInformationRoute(route);
-  const dayOffBlocked = isDayOffRuntime(runtime) && route.name !== "booking" && !isOwnerTelegramId(session?.telegram_user_id);
+  const dayOffBlocked = isDayOffRuntime(runtime) && (runtime?.reason === "manual_day_off" || route.name !== "booking") && !isOwnerTelegramId(session?.telegram_user_id);
   const showClosedBanner = runtime && !runtime.accepting_orders && !dayOffBlocked;
 
   return (
@@ -1054,7 +1055,7 @@ function Shell({
             )}
             {isRoot && <span className="brand-mark" aria-hidden="true">TL</span>}
             <div className="brand">
-              <strong>{header}</strong>
+              <strong>{header}{devSandbox && <em className="dev-environment-badge">DEV</em>}</strong>
               <span className="worktime" aria-label="Приём заказов с 13:00 до 21:00">
                 <span>Заказы</span>
                 <strong>13:00–21:00</strong>

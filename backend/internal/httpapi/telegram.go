@@ -184,6 +184,39 @@ func (s *Server) clientTelegramWebhook(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
+	if !s.cfg.DevSandboxMode && s.isDevSandboxAllowedTelegramID(message.From.ID) {
+		if isBotCommand(message.Text, "/dev") {
+			if err := s.store.SetTelegramSandboxPreference(r.Context(), message.From.ID, true); err != nil {
+				writeError(w, err)
+				return
+			}
+			_, _ = s.sendClientBotMessage(r.Context(), message.Chat.ID, "DEV sandbox включён. Здесь можно безопасно создавать тестовые заказы и проверять новые функции.", s.sandboxMiniAppKeyboard())
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+			return
+		}
+		if isBotCommand(message.Text, "/prod") {
+			if err := s.store.SetTelegramSandboxPreference(r.Context(), message.From.ID, false); err != nil {
+				writeError(w, err)
+				return
+			}
+			_, _ = s.sendClientBotMessage(r.Context(), message.Chat.ID, "Production включён.", s.mainMiniAppKeyboard())
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+			return
+		}
+		sandboxEnabled, err := s.store.TelegramSandboxPreference(r.Context(), message.From.ID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if sandboxEnabled && s.cfg.DevSandboxWebhookURL != "" {
+			if err := s.relayTelegramUpdate(r.Context(), update); err != nil {
+				s.log().Warn("dev sandbox Telegram relay failed", "error", err)
+				_, _ = s.sendClientBotMessage(r.Context(), message.Chat.ID, "DEV sandbox временно недоступен. Отправьте /prod, чтобы вернуться в production.", replyKeyboardRemove())
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+			return
+		}
+	}
 	if message.Contact != nil {
 		if err := s.store.VerifyTelegramContact(r.Context(), message.From.ID, message.Contact.UserID, message.Contact.PhoneNumber); err == nil {
 			_, _ = s.sendClientBotMessage(r.Context(), message.Chat.ID, "Телефон подтверждён. Вернитесь к оформлению заказа.", replyKeyboardRemove())
@@ -233,6 +266,31 @@ func (s *Server) clientTelegramWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) relayTelegramUpdate(ctx context.Context, update telegramUpdate) error {
+	payload, err := json.Marshal(update)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.DevSandboxWebhookURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if s.cfg.TelegramWebhookSecret != "" {
+		req.Header.Set("X-Telegram-Bot-Api-Secret-Token", s.cfg.TelegramWebhookSecret)
+	}
+	resp, err := s.telegramClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("sandbox webhook status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func (s *Server) sendLocationPrompt(ctx context.Context, chatID int64) (int64, error) {
@@ -300,6 +358,13 @@ func (s *Server) mainMiniAppKeyboard() map[string]any {
 	}}
 }
 
+func (s *Server) sandboxMiniAppKeyboard() map[string]any {
+	return map[string]any{"inline_keyboard": [][]map[string]any{
+		{{"text": "Открыть DEV Mini App", "web_app": map[string]any{"url": miniAppURL(s.cfg.DevSandboxMiniAppURL, "/", s.cfg.BuildSHA)}}},
+		{{"text": "DEV: забронировать стол", "web_app": map[string]any{"url": miniAppURL(s.cfg.DevSandboxMiniAppURL, "/booking", s.cfg.BuildSHA)}}},
+	}}
+}
+
 func (s *Server) bookingMiniAppKeyboard() map[string]any {
 	return map[string]any{"inline_keyboard": [][]map[string]any{
 		{{"text": "Забронировать стол", "web_app": map[string]any{"url": s.clientMiniAppURL("/booking")}}},
@@ -313,11 +378,15 @@ func (s *Server) orderMiniAppKeyboard() map[string]any {
 }
 
 func (s *Server) clientMiniAppURL(route string) string {
-	base := strings.TrimRight(strings.TrimSpace(s.cfg.ClientMiniAppURL), "/")
+	return miniAppURL(s.cfg.ClientMiniAppURL, route, s.cfg.BuildSHA)
+}
+
+func miniAppURL(rawBase, route, buildSHA string) string {
+	base := strings.TrimRight(strings.TrimSpace(rawBase), "/")
 	if base == "" {
 		base = "https://takolako.site/main"
 	}
-	version := safeVersionToken(s.cfg.BuildSHA)
+	version := safeVersionToken(buildSHA)
 	versionQuery := ""
 	if version != "" && version != "dev" && version != "unknown" {
 		versionQuery = "?v=" + version

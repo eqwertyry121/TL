@@ -32,6 +32,20 @@ func TestLoadAcceptsStrictProductionConfig(t *testing.T) {
 	}
 }
 
+func TestLoadParsesDevSandboxAllowlist(t *testing.T) {
+	setMinimalProductionEnv(t)
+	t.Setenv("DEV_SANDBOX_MODE", "true")
+	t.Setenv("DEV_SANDBOX_ALLOWED_TELEGRAM_IDS", "1048084234,1048084234,8609105840")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load sandbox config: %v", err)
+	}
+	if !cfg.DevSandboxMode || len(cfg.DevSandboxAllowedIDs) != 2 || cfg.DevSandboxAllowedIDs[0] != 1048084234 {
+		t.Fatalf("sandbox config = mode:%t ids:%v", cfg.DevSandboxMode, cfg.DevSandboxAllowedIDs)
+	}
+}
+
 func TestLoadRejectsProductionDryRunNotifications(t *testing.T) {
 	setMinimalProductionEnv(t)
 	t.Setenv("NOTIFICATION_DRY_RUN", "true")

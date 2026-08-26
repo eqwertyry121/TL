@@ -14,6 +14,8 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -162,6 +164,15 @@ func (s *Server) Routes() http.Handler {
 	r.Use(s.withCORS)
 	if s.cfg.ServerTimingEnabled {
 		r.Use(withServerTiming)
+	}
+	if s.cfg.DevSandboxUpstreamURL != "" && !s.cfg.DevSandboxMode {
+		proxy, err := s.devSandboxProxy()
+		if err != nil {
+			s.log().Error("dev sandbox proxy disabled", "error", err)
+		} else {
+			r.Handle("/testbranch-api", http.StripPrefix("/testbranch-api", proxy))
+			r.Handle("/testbranch-api/*", http.StripPrefix("/testbranch-api", proxy))
+		}
 	}
 	r.Get("/live", s.live)
 	r.Get("/ready", s.ready)
@@ -890,6 +901,9 @@ func (s *Server) telegramSession(ctx context.Context, audience core.Audience, ro
 	if err != nil {
 		return core.Session{}, nil, err
 	}
+	if s.cfg.DevSandboxMode && !s.isDevSandboxAllowedTelegramID(tgUser.ID) {
+		return core.Session{}, nil, core.ErrForbidden
+	}
 	user, err := s.store.UpsertTelegramUser(ctx, core.User{
 		TelegramUserID: tgUser.ID,
 		Username:       tgUser.Username,
@@ -901,6 +915,31 @@ func (s *Server) telegramSession(ctx context.Context, audience core.Audience, ro
 		return core.Session{}, nil, err
 	}
 	return s.store.CreateSession(ctx, user, role, s.cfg.SessionTTL)
+}
+
+func (s *Server) isDevSandboxAllowedTelegramID(telegramUserID int64) bool {
+	if telegramUserID <= 0 {
+		return false
+	}
+	for _, allowedID := range s.cfg.DevSandboxAllowedIDs {
+		if telegramUserID == allowedID {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) devSandboxProxy() (http.Handler, error) {
+	target, err := url.Parse(s.cfg.DevSandboxUpstreamURL)
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		return nil, fmt.Errorf("invalid DEV_SANDBOX_UPSTREAM_URL")
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, proxyErr error) {
+		s.log().Warn("dev sandbox unavailable", "error", proxyErr)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"code": "SANDBOX_UNAVAILABLE"})
+	}
+	return proxy, nil
 }
 
 func (s *Server) bootstrapStaffSession(ctx context.Context, role core.Role, initData string) (core.Session, []core.Role, error) {

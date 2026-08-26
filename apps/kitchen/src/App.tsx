@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 const api = createStaffApi("KITCHEN");
 const kitchenSeenOrdersKey = "tk-kitchen-seen-orders-v2";
 const notificationSoundUrl = `${import.meta.env.BASE_URL}new-order-notification.mp3`;
+const devSandbox = import.meta.env.VITE_DEV_SANDBOX === "true";
 let notificationAudioContext: AudioContext | null = null;
 let notificationAudioBuffer: AudioBuffer | null = null;
 let notificationAudioBufferPromise: Promise<AudioBuffer> | null = null;
@@ -266,7 +267,7 @@ export function App() {
     <div className="app">
       <header className="header">
         <div>
-          <h1>Кухня</h1>
+          <h1>Кухня{devSandbox && <span className="dev-environment-badge">DEV</span>}</h1>
           <LastUpdatedText valueRef={lastUpdatedRef} empty="Ожидание заказов" prefix="Обновлено" />
         </div>
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>

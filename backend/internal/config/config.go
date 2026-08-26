@@ -35,6 +35,11 @@ type Config struct {
 	BootstrapOwnerTelegramID  int64
 	BootstrapOwnerTelegramIDs []int64
 	DeliveryTimingBetaIDs     []int64
+	DevSandboxMode            bool
+	DevSandboxAllowedIDs      []int64
+	DevSandboxMiniAppURL      string
+	DevSandboxWebhookURL      string
+	DevSandboxUpstreamURL     string
 	LocalRoleSwitcherEnabled  bool
 	EncryptionKey             []byte
 	PIIHashKey                []byte
@@ -68,6 +73,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	devSandboxMode, err := getBoolStrict("DEV_SANDBOX_MODE", false)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
 		Env:                      env,
 		BuildSHA:                 get("APP_BUILD_SHA", "dev"),
@@ -98,9 +107,14 @@ func Load() (Config, error) {
 		NotificationBacklogAfter: getDuration("NOTIFICATION_BACKLOG_ALERT_AFTER", 60*time.Second),
 		FiscalProcessAccepted:    fiscalProcessAccepted,
 		PIIRetentionDays:         int(mustInt64(get("PII_RETENTION_DAYS", "730"))),
+		DevSandboxMode:           devSandboxMode,
+		DevSandboxMiniAppURL:     get("DEV_SANDBOX_MINI_APP_URL", "https://takolako.site/testbranch/main/"),
+		DevSandboxWebhookURL:     strings.TrimRight(strings.TrimSpace(os.Getenv("DEV_SANDBOX_WEBHOOK_URL")), "/"),
+		DevSandboxUpstreamURL:    strings.TrimRight(strings.TrimSpace(os.Getenv("DEV_SANDBOX_UPSTREAM_URL")), "/"),
 	}
 	cfg.BootstrapOwnerTelegramIDs = bootstrapOwnerTelegramIDs()
 	cfg.DeliveryTimingBetaIDs = telegramIDList("DELIVERY_TIMING_BETA_TELEGRAM_IDS", "")
+	cfg.DevSandboxAllowedIDs = telegramIDList("DEV_SANDBOX_ALLOWED_TELEGRAM_IDS", "1048084234")
 	if len(cfg.BootstrapOwnerTelegramIDs) > 0 {
 		cfg.BootstrapOwnerTelegramID = cfg.BootstrapOwnerTelegramIDs[0]
 	}
@@ -167,6 +181,9 @@ func Load() (Config, error) {
 	}
 	if cfg.PIIRetentionDays > 3650 {
 		cfg.PIIRetentionDays = 3650
+	}
+	if cfg.DevSandboxMode && len(cfg.DevSandboxAllowedIDs) == 0 {
+		return Config{}, fmt.Errorf("%w: DEV_SANDBOX_ALLOWED_TELEGRAM_IDS must not be empty in sandbox mode", core.ErrProductionUnsafeValue)
 	}
 	return cfg, nil
 }

@@ -3124,3 +3124,17 @@ body {
   font: inherit;
   font-weight: 800;
 }
+.dev-environment-badge {
+  display: inline-flex;
+  margin-left: .45rem;
+  border-radius: 999px;
+  padding: .16rem .4rem;
+  background: #f4c95d;
+  color: #3a2613;
+  font-family: var(--font-body);
+  font-size: .62rem;
+  font-style: normal;
+  font-weight: 950;
+  letter-spacing: .06em;
+  vertical-align: middle;
+}
