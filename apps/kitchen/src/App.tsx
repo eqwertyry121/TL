@@ -3,7 +3,7 @@ import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry"
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
 import { clientLabel, createStaffApi, isAuthError, money, openTelegramLink, problemLink, sameOrderSnapshot, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
-import { AlertTriangle, Check, MoreVertical, RefreshCw, WifiOff } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Clock3, MoreVertical, RefreshCw, WifiOff } from "lucide-react";
 import { useDrag } from "@use-gesture/react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
@@ -617,6 +617,7 @@ function KitchenTiming({
   const pickup = order.fulfillment_type === "pickup";
   const target = order.pickup_at || order.delivery_target_at;
   const exactOptions = readyTimeOptions();
+  const [exactOpen, setExactOpen] = useState(false);
 
   return (
     <section className={`kitchen-timing${pickup ? " pickup" : ""}`} aria-label="Время заказа" onClick={(event) => event.stopPropagation()}>
@@ -648,20 +649,39 @@ function KitchenTiming({
               <button type="button" key={minutes} disabled={Boolean(etaBusy)} className={etaMatchesMinutes(order, minutes) ? "active" : ""} onClick={() => onEstimateReady(order, minutes)}>{etaBusy === `${order.id}:${minutes}` ? "…" : `+${minutes}`}</button>
             ))}
           </div>
-          <label className="custom-eta-control">
-            <span>Точное время</span>
-            <select
-              value=""
+          <div className={`custom-eta-control${exactOpen ? " is-open" : ""}`}>
+            <button
+              type="button"
+              className="exact-time-trigger"
               disabled={Boolean(etaBusy)}
               aria-label="Точное время готовности"
-              onChange={(event) => {
-                if (event.target.value) onEstimateReady(order, undefined, event.target.value);
-              }}
+              aria-expanded={exactOpen}
+              onClick={() => setExactOpen((open) => !open)}
             >
-              <option value="">{etaBusy === `${order.id}:target` ? "Отправляю…" : "Готов к…"}</option>
-              {exactOptions.map((option) => <option key={option.at} value={option.at}>{option.label}</option>)}
-            </select>
-          </label>
+              <Clock3 size={16} />
+              <span>{etaBusy === `${order.id}:target` ? "Отправляю…" : order.estimated_ready_at ? `Готов к ${timeHHMM(order.estimated_ready_at)}` : "Выбрать точное время"}</span>
+              <ChevronDown size={16} />
+            </button>
+            {exactOpen && (
+              <div className="ready-time-options" role="listbox" aria-label="Время готовности">
+                {exactOptions.map((option) => (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={sameReadyTime(order.estimated_ready_at, option.at)}
+                    className={sameReadyTime(order.estimated_ready_at, option.at) ? "active" : ""}
+                    key={option.at}
+                    onClick={() => {
+                      setExactOpen(false);
+                      onEstimateReady(order, undefined, option.at);
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </section>
@@ -703,6 +723,10 @@ function readyTimeOptions(): Array<{ at: string; label: string }> {
     const target = new Date(first.getTime() + index * 5 * 60000);
     return { at: target.toISOString(), label: timeHHMM(target.toISOString()) };
   });
+}
+
+function sameReadyTime(current: string | undefined, candidate: string): boolean {
+  return Boolean(current) && Math.abs(new Date(current!).getTime() - new Date(candidate).getTime()) < 60000;
 }
 
 function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {
