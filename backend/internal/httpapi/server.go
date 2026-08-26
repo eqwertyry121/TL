@@ -935,6 +935,14 @@ func (s *Server) devSandboxProxy() (http.Handler, error) {
 		return nil, fmt.Errorf("invalid DEV_SANDBOX_UPSTREAM_URL")
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	director := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		director(req)
+		// The production router applies response compression after proxying.
+		// Requesting an uncompressed upstream body prevents a double-gzip
+		// response that Telegram WebView and browsers cannot decode.
+		req.Header.Set("Accept-Encoding", "identity")
+	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, proxyErr error) {
 		s.log().Warn("dev sandbox unavailable", "error", proxyErr)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"code": "SANDBOX_UNAVAILABLE"})
