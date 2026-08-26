@@ -669,7 +669,7 @@ function KitchenTiming({
               <section className="ready-time-sheet" role="dialog" aria-modal="true" aria-label="Выбор времени готовности" onClick={(event) => event.stopPropagation()}>
                 <header>
                   <div>
-                    <small>Заказ #{order.public_number}</small>
+                    <small>План клиента: {target ? `~${timeHHMM(target)}` : "как можно скорее"}</small>
                     <strong>Когда будет готово?</strong>
                   </div>
                   <button type="button" onClick={() => setExactOpen(false)} aria-label="Закрыть">×</button>
@@ -734,9 +734,9 @@ function etaMatchesMinutes(order: Order, minutes: number): boolean {
 }
 
 function readyTimeOptions(): Array<{ at: string; label: string }> {
-  const first = new Date(Date.now() + 10 * 60000);
-  first.setMinutes(Math.ceil(first.getMinutes() / 5) * 5, 0, 0);
-  return Array.from({ length: 35 }, (_, index) => {
+  const first = new Date();
+  first.setMinutes(Math.floor(first.getMinutes() / 5) * 5 + 5, 0, 0);
+  return Array.from({ length: 36 }, (_, index) => {
     const target = new Date(first.getTime() + index * 5 * 60000);
     return { at: target.toISOString(), label: timeHHMM(target.toISOString()) };
   });
@@ -828,8 +828,8 @@ function Menu({ order, busy, onResetPreparation, onEstimateReady }: { order: Ord
           )}
           {order.fulfillment_type === "delivery" && order.fulfillment_status === "NEW" && (
             customOpen ? <div className="custom-eta-control">
-              <label><span>Минут</span><input type="number" min={10} max={180} step={5} value={customMinutes} onChange={(event) => setCustomMinutes(Number(event.target.value))} /></label>
-              <button type="button" disabled={busy || customMinutes < 10 || customMinutes > 180 || customMinutes % 5 !== 0} onClick={() => { setOpen(false); setCustomOpen(false); onEstimateReady(order, customMinutes); }}>Отправить</button>
+              <label><span>Минут</span><input type="number" min={5} max={180} step={5} value={customMinutes} onChange={(event) => setCustomMinutes(Number(event.target.value))} /></label>
+              <button type="button" disabled={busy || customMinutes < 5 || customMinutes > 180 || customMinutes % 5 !== 0} onClick={() => { setOpen(false); setCustomOpen(false); onEstimateReady(order, customMinutes); }}>Отправить</button>
             </div> : <button type="button" disabled={busy} onClick={() => setCustomOpen(true)}>Другое время</button>
           )}
           <a href={problemLink(order)} target="_blank" rel="noreferrer">Сообщить о проблеме</a>

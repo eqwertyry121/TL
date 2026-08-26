@@ -31,6 +31,8 @@ test("kitchen exact ready time opens in a compact bottom sheet", async () => {
   assert.match(source, /className="ready-time-sheet"/);
   assert.match(source, /className="ready-time-list"/);
   assert.match(source, /readyTimeOptions\(\)/);
+  assert.match(source, /setMinutes\(Math\.floor\(first\.getMinutes\(\) \/ 5\) \* 5 \+ 5/);
+  assert.match(source, /План клиента:/);
   assert.match(source, /onEstimateReady\(order, undefined, option\.at\)/);
   assert.match(styles, /\.ready-time-backdrop/);
   assert.match(styles, /\.ready-time-sheet/);

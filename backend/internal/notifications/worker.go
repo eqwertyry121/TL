@@ -442,28 +442,24 @@ func (w *Worker) kitchenETAText(ctx context.Context, orderID uuid.UUID, number i
 		return "", err
 	}
 	clock := at.In(loc).Format("15:04")
-	minutes := int(time.Until(at).Minutes())
-	if minutes < 0 {
-		minutes = 0
-	}
 	locale = normalizeLocale(locale)
 	if updated {
 		switch locale {
 		case "sr":
-			return fmt.Sprintf("Vreme pripreme porudžbine #%d je ažurirano: okvirno oko %s.", number, clock), nil
+			return fmt.Sprintf("Novo okvirno vreme pripreme porudžbine #%d je %s.", number, clock), nil
 		case "en":
-			return fmt.Sprintf("The preparation time for order #%d was updated: approximately %s.", number, clock), nil
+			return fmt.Sprintf("The new estimated preparation time for order #%d is %s.", number, clock), nil
 		default:
-			return fmt.Sprintf("Время готовности заказа #%d обновилось: ориентировочно около %s.", number, clock), nil
+			return fmt.Sprintf("Новое ориентировочное время готовности заказа #%d — %s.", number, clock), nil
 		}
 	}
 	switch locale {
 	case "sr":
-		return fmt.Sprintf("Porudžbina #%d biće spremna i predata kuriru za oko %d min, oko %s. Vreme je okvirno.", number, minutes, clock), nil
+		return fmt.Sprintf("Porudžbina #%d biće spremna i predata kuriru okvirno do %s.", number, clock), nil
 	case "en":
-		return fmt.Sprintf("Order #%d should be ready and handed to the courier in about %d minutes, around %s. The time is approximate.", number, minutes, clock), nil
+		return fmt.Sprintf("Order #%d should be ready and handed to the courier at approximately %s.", number, clock), nil
 	default:
-		return fmt.Sprintf("Заказ #%d будет готов и передан курьеру примерно через %d минут, около %s. Время ориентировочное.", number, minutes, clock), nil
+		return fmt.Sprintf("Заказ #%d будет готов и передан курьеру ориентировочно к %s.", number, clock), nil
 	}
 }
 

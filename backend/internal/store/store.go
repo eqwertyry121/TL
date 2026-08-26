@@ -4184,7 +4184,7 @@ func (s *Store) EstimateReady(ctx context.Context, sess core.Session, orderID uu
 		target = now.UTC().Add(time.Duration(*input.ReadyInMinutes) * time.Minute).Truncate(time.Minute)
 	} else {
 		target = input.EstimatedReadyAt.UTC().Truncate(time.Minute)
-		minimum := now.UTC().Add(10 * time.Minute).Truncate(time.Minute)
+		minimum := now.UTC().Truncate(time.Minute)
 		maximum := now.UTC().Add(180 * time.Minute).Truncate(time.Minute)
 		if target.Before(minimum) || target.After(maximum) || target.Minute()%5 != 0 {
 			return core.Order{}, core.ErrInvalidInput
