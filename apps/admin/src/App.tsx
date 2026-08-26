@@ -2271,7 +2271,7 @@ function scheduleFingerprint(schedule: ScheduleDay[]): string {
 
 function scheduleRuntimeExplanation(reason: string, manualDayOff: boolean, scheduleOpen: boolean): string {
   if (reason === "fiscal_process_pending") return "Часы сохранены, но приём остановлен отдельной серверной защитой.";
-  if (manualDayOff || reason === "manual_day_off") return "Включён ручной режим «Выходной» на главной странице.";
+  if (manualDayOff || reason === "manual_day_off") return "Включено техобслуживание. Заказы и брони временно закрыты.";
   if (reason === "weekly_day_off") return "Сегодня отмечено как выходной.";
   if (reason === "schedule_closed") return scheduleOpen ? "Статус обновляется — по сохранённым часам уже можно принимать заказы." : "Сейчас ещё рано или приём заказов уже завершён.";
   return scheduleOpen ? "Текущее время входит в период приёма заказов." : "Сейчас время вне периода приёма заказов.";
