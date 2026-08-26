@@ -1449,6 +1449,33 @@ p {
   touch-action: manipulation;
 }
 
+.order-row-preview {
+  display: grid;
+  gap: 0.22rem;
+  margin-top: 0.3rem;
+  border-top: 1px solid rgba(107, 31, 42, 0.1);
+  padding-top: 0.42rem;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.32;
+}
+
+.order-row-preview > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.order-row-preview b {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.order-row-comment {
+  color: var(--color-accent);
+}
+
 .order-row-side {
   justify-items: end;
   align-content: center;
@@ -1974,7 +2001,6 @@ p {
   *::before,
   *::after {
     animation: none !important;
-    transition: none !important;
   }
 
   body::before {
@@ -2016,6 +2042,7 @@ p {
   .order-detail,
   .schedule-card {
     animation: none;
+    transition: none;
     box-shadow: none;
     content-visibility: visible;
     contain: none;
@@ -2035,6 +2062,12 @@ p {
 
   .primary::after {
     display: none;
+  }
+
+  button,
+  .bottom-nav a,
+  .order-segments button {
+    transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease, transform 160ms ease;
   }
 }
 
@@ -2883,4 +2916,17 @@ button:hover {
 @keyframes owner-reservation-enter {
   from { opacity: 0; transform: translate(-50%, -0.6rem); }
   to { opacity: 1; transform: translate(-50%, 0); }
+}
+.dev-environment-badge {
+  display: inline-flex;
+  margin-left: .5rem;
+  border-radius: 999px;
+  padding: .16rem .42rem;
+  background: #f4c95d;
+  color: #3a2613;
+  font-family: var(--font-body);
+  font-size: .62rem;
+  font-weight: 950;
+  letter-spacing: .06em;
+  vertical-align: middle;
 }

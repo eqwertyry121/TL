@@ -1,4 +1,4 @@
-import type { Category, FulfillmentType, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Reservation, ReservationAvailability, Runtime } from "@tk-delivery/api-client/generated";
+import type { Category, DeliverySlots, DeliveryTimeMode, FulfillmentType, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Reservation, ReservationAvailability, Runtime } from "@tk-delivery/api-client/generated";
 
 export type Locale = "ru" | "sr" | "en";
 export type Route =
@@ -21,6 +21,7 @@ export interface Session {
   username?: string;
   first_name?: string;
   photo_url?: string;
+  delivery_timing_access?: boolean;
   active_role: "CLIENT";
   expires_at: string;
 }
@@ -59,6 +60,8 @@ export interface Calculation {
   expires_at: string;
   order_subtotal_minor?: number;
   order_total_minor?: number;
+  delivery_target_at?: string;
+  delivery_queue_delay_minutes?: number;
 }
 
 export type CashLocationStatus = "PENDING" | "VERIFIED" | "REJECTED" | "EXPIRED" | "USED";
@@ -91,6 +94,8 @@ export interface CheckoutDraft {
   comment: string;
   fulfillmentType: FulfillmentType;
   pickupAt: string;
+  deliveryTimeMode: DeliveryTimeMode;
+  deliveryRequestedAt: string;
 }
 
 export interface PickupSlots {
@@ -105,7 +110,8 @@ export interface Api {
   authenticate(locale: Locale): Promise<Session>;
   runtime(signal?: AbortSignal): Promise<Runtime>;
   menu(locale: Locale): Promise<{ categories: Category[] }>;
-  calculate(token: string, items: Array<{ item_id: string; quantity: number }>, fulfillmentType: FulfillmentType): Promise<Calculation>;
+  calculate(token: string, items: Array<{ item_id: string; quantity: number }>, fulfillmentType: FulfillmentType, timing?: { delivery_time_mode?: DeliveryTimeMode; delivery_requested_at?: string }): Promise<Calculation>;
+  deliverySlots(token: string): Promise<DeliverySlots>;
   pickupSlots(token: string): Promise<PickupSlots>;
   calculateAddition(token: string, orderId: string, items: Array<{ item_id: string; quantity: number }>): Promise<Calculation>;
   contact(token: string): Promise<VerifiedContact>;
@@ -145,6 +151,8 @@ export interface CreateOrderInput {
   comment: string;
   fulfillment_type: FulfillmentType;
   pickup_at?: string;
+  delivery_time_mode?: DeliveryTimeMode;
+  delivery_requested_at?: string;
   payment_method: Extract<PaymentMethod, "cash" | "crypto">;
   terms_accepted: boolean;
   terms_version: string;

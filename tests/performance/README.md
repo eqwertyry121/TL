@@ -132,6 +132,8 @@ Useful env:
   non-menu endpoint smoke tests.
 - `PERF_MEDIA_MENU_ENDPOINT=/api/v1/menu?locale=ru` — menu endpoint used to
   discover published media URLs during load smoke.
+- `PERF_MEDIA_CONCURRENCY=6` — maximum number of menu images validated at once;
+  this avoids creating an artificial connection storm during release smoke.
 - `PERF_ALLOW_LOCAL_BASE_URL=true` — allows localhost for the external-smoke and
   release-acceptance wrappers only in wrapper tests or deliberate local dry-runs.
 - `PERF_CORS_ORIGIN=https://takolako.site` — allowed frontend origin for

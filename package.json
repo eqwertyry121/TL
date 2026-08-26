@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@11.16.0",
   "scripts": {
-    "check": "pnpm openapi:check && pnpm docs:links:test && pnpm media:check && pnpm media:rendering:test && pnpm media:backfill:cli:test && pnpm go:test:postgres:cli:test && pnpm perf:external-smoke:cli:test && pnpm perf:production-contract:cli:test && pnpm perf:legacy-public-contract:cli:test && pnpm perf:cors-contract:cli:test && pnpm perf:release-acceptance:cli:test && pnpm perf:deployment-diagnostics:cli:test && pnpm perf:release-lab:cli:test && pnpm env:contract:test && pnpm migrations:contract:test && pnpm api:compatibility:test && pnpm performance:beacon:test && pnpm role-switch:test && pnpm architecture:guard:test && pnpm ui:recovery:test && pnpm operations:contract:test && pnpm polling:test && pnpm storage:test && pnpm auth:test && pnpm bootstrap:fallback:test && pnpm startup:contract:test && pnpm startup:assets:test && pnpm load-smoke:test && pnpm -r check",
+    "check": "pnpm openapi:check && pnpm docs:links:test && pnpm media:check && pnpm media:rendering:test && pnpm media:backfill:cli:test && pnpm go:test:postgres:cli:test && pnpm perf:external-smoke:cli:test && pnpm perf:production-contract:cli:test && pnpm perf:legacy-public-contract:cli:test && pnpm perf:cors-contract:cli:test && pnpm perf:release-acceptance:cli:test && pnpm perf:deployment-diagnostics:cli:test && pnpm perf:release-lab:cli:test && pnpm env:contract:test && pnpm migrations:contract:test && pnpm api:compatibility:test && pnpm performance:beacon:test && pnpm role-switch:test && pnpm architecture:guard:test && pnpm ui:recovery:test && pnpm operations:contract:test && pnpm polling:test && pnpm storage:test && pnpm auth:test && pnpm bootstrap:fallback:test && pnpm startup:contract:test && pnpm startup:assets:test && pnpm admin:order-ux:test && pnpm load-smoke:test && pnpm -r check",
     "openapi:check": "node scripts/check-openapi-routes.mjs",
     "docs:links:test": "node --test tests/docs-links.test.mjs",
     "media:check": "node scripts/check-media-references.mjs",
@@ -25,6 +25,7 @@
     "bootstrap:fallback:test": "node --test tests/bootstrap-fallback.test.mjs",
     "startup:contract:test": "node --test tests/startup-contract.test.mjs",
     "startup:assets:test": "node --test tests/startup-assets.test.mjs",
+    "admin:order-ux:test": "node --experimental-strip-types --test tests/admin-order-ux.test.mjs",
     "load-smoke:test": "node --test tests/load-smoke.test.mjs",
     "perf:budgets": "node scripts/check-bundle-budgets.mjs",
     "perf:lab": "node tests/performance/run-lab.mjs",

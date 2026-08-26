@@ -412,7 +412,6 @@ h1 {
   position: relative;
   z-index: 1;
   min-width: 0;
-  will-change: transform;
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
@@ -421,6 +420,7 @@ h1 {
 
 .swipe-card.is-dragging {
   cursor: grabbing;
+  will-change: transform;
 }
 
 .swipe-shell.is-armed .swipe-reveal {
@@ -823,6 +823,8 @@ li {
   align-items: center;
   gap: 0.42rem;
 }
+.delivery-timing-compact { display:flex; flex-wrap:wrap; gap:.35rem; color:var(--color-muted); font-size:.78rem; font-weight:700; }
+.delivery-timing-compact span { padding:.25rem .45rem; border-radius:.55rem; background:#f4eadc; }
 
 .order-meta-line .customer-badge {
   max-width: min(100%, 18rem);
@@ -1079,7 +1081,6 @@ li {
   *::before,
   *::after {
     animation: none !important;
-    transition: none !important;
   }
 
   body::before {
@@ -1107,6 +1108,7 @@ li {
 
   .card {
     animation: none;
+    transition: none;
     box-shadow: none;
     content-visibility: visible;
     contain: none;
@@ -1124,6 +1126,12 @@ li {
 
   .primary::after {
     display: none;
+  }
+
+  button,
+  .tab,
+  .role-link {
+    transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease, transform 160ms ease;
   }
 }
 
@@ -1289,4 +1297,17 @@ body::before {
   background: var(--color-primary);
   font: inherit;
   font-weight: 800;
+}
+.dev-environment-badge {
+  display: inline-flex;
+  margin-left: .5rem;
+  border-radius: 999px;
+  padding: .16rem .42rem;
+  background: #f4c95d;
+  color: #3a2613;
+  font-family: var(--font-body);
+  font-size: .62rem;
+  font-weight: 950;
+  letter-spacing: .06em;
+  vertical-align: middle;
 }

@@ -17,6 +17,7 @@ const validateGzip = process.env.PERF_VALIDATE_GZIP !== "false";
 const gzipMinBytes = Number.parseInt(process.env.PERF_GZIP_MIN_BYTES || "1024", 10);
 const validateMedia = process.env.PERF_VALIDATE_MEDIA !== "false";
 const mediaMenuEndpoint = process.env.PERF_MEDIA_MENU_ENDPOINT || "/api/v1/menu?locale=ru";
+const mediaConcurrency = Math.max(1, Number.parseInt(process.env.PERF_MEDIA_CONCURRENCY || "6", 10) || 6);
 const checkoutIterations = Number.parseInt(process.env.PERF_CHECKOUT_ITERATIONS || "0", 10);
 const checkoutConcurrency = Number.parseInt(process.env.PERF_CHECKOUT_CONCURRENCY || "1", 10);
 const checkoutMaxP95Ms = Number.parseInt(process.env.PERF_CHECKOUT_MAX_P95_MS || String(maxP95Ms), 10);
@@ -251,7 +252,7 @@ async function validateMenuMedia() {
       }));
       return { ok: true };
     }
-    const results = await Promise.allSettled(media.urls.map((url) => validateMediaURL(url)));
+    const results = await mapWithConcurrency(media.urls, mediaConcurrency, validateMediaURL);
     const checked = results.filter((entry) => entry.status === "fulfilled").map((entry) => entry.value);
     const failedChecks = [
       ...checked.filter((entry) => !entry.ok),
@@ -279,6 +280,24 @@ async function validateMenuMedia() {
     }));
     return { ok: false };
   }
+}
+
+async function mapWithConcurrency(values, concurrency, mapper) {
+  const results = new Array(values.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = { status: "fulfilled", value: await mapper(values[index]) };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, () => worker()));
+  return results;
 }
 
 async function validateCheckoutCalculation() {

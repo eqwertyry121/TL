@@ -160,6 +160,13 @@ func (s *Store) CreateReservation(ctx context.Context, sess core.Session, input 
 	if sess.ActiveRole != core.RoleClient {
 		return core.Reservation{}, core.ErrForbidden
 	}
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return core.Reservation{}, err
+	}
+	if settings.ManualDayOff {
+		return core.Reservation{}, core.ErrManualDayOff
+	}
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	if idempotencyKey == "" || len(idempotencyKey) > 128 || input.Guests < 1 || input.Guests > 5 {
 		return core.Reservation{}, core.ErrInvalidInput

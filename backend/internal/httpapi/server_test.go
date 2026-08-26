@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -451,22 +452,6 @@ func TestSendClientBotMessageUsesSharedTelegramHTTPClient(t *testing.T) {
 	}
 }
 
-func TestClientTelegramWebhookIgnoresUsersOutsideAllowlist(t *testing.T) {
-	server := New(config.Config{
-		Env:                    "test",
-		TelegramAllowedUserIDs: []int64{1048084234},
-	}, nil, slog.Default())
-	body := strings.NewReader(`{"update_id":1,"message":{"message_id":2,"date":1,"from":{"id":42},"chat":{"id":42,"type":"private"},"text":"/start"}}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/telegram/client/webhook", body)
-	w := httptest.NewRecorder()
-
-	server.Routes().ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("webhook status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
-	}
-}
-
 func TestCachedRuntimePayloadCoalescesConcurrentMisses(t *testing.T) {
 	var calls atomic.Int64
 	release := make(chan struct{})
@@ -883,6 +868,43 @@ func TestClientMiniAppURLUsesFrontendOriginAndBookingHash(t *testing.T) {
 	}
 	if got := server.clientMiniAppURL("/booking"); got != "https://takolako.site/main/?v=4e819f3897f22ae8175958652d16c4eaae562b04#/booking" {
 		t.Fatalf("booking Mini App URL = %q", got)
+	}
+}
+
+func TestDevSandboxAllowlistAndMiniAppURL(t *testing.T) {
+	server := New(config.Config{
+		BuildSHA:             "dev-release",
+		DevSandboxAllowedIDs: []int64{1048084234},
+		DevSandboxMiniAppURL: "https://takolako.site/testbranch/main/",
+	}, nil, slog.Default())
+	if !server.isDevSandboxAllowedTelegramID(1048084234) || server.isDevSandboxAllowedTelegramID(8609105840) {
+		t.Fatal("dev sandbox allowlist mismatch")
+	}
+	keyboard := server.sandboxMiniAppKeyboard()
+	raw, err := json.Marshal(keyboard)
+	if err != nil {
+		t.Fatalf("marshal sandbox keyboard: %v", err)
+	}
+	if !strings.Contains(string(raw), "https://takolako.site/testbranch/main/?v=dev-release#/") {
+		t.Fatalf("sandbox keyboard = %s", raw)
+	}
+}
+
+func TestDevSandboxProxyUsesConfiguredUpstream(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/version" {
+			t.Fatalf("upstream path = %q", r.URL.Path)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"environment": "dev"})
+	}))
+	defer upstream.Close()
+
+	server := New(config.Config{Env: "production", DevSandboxUpstreamURL: upstream.URL}, nil, slog.Default())
+	req := httptest.NewRequest(http.MethodGet, "/testbranch-api/api/v1/version", nil)
+	recorder := httptest.NewRecorder()
+	server.Routes().ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"environment":"dev"`) {
+		t.Fatalf("proxy response = %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 

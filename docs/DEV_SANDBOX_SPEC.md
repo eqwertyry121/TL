@@ -1,0 +1,92 @@
+# Dev sandbox Tako Lako
+
+## Цель
+
+Дать владельцу с Telegram ID `1048084234` закрытую копию всей системы для
+проверки новых функций в любое время без влияния на реальные заказы, брони,
+уведомления и аналитику.
+
+`DEV` не является пятой бизнес-ролью. В sandbox владелец по-прежнему получает
+разрешённые роли `ADMIN`, `KITCHEN` и `COURIER`; доступ к самому окружению
+задаётся отдельным whitelist.
+
+## Окружения
+
+| Окружение | Git | Mini Apps | API | PostgreSQL |
+|---|---|---|---|---|
+| Production | `main` | `/`, `/admin`, `/kitchen`, `/courier` | production app | `tk_delivery` |
+| Dev sandbox | `test` | `/testbranch/` и подпути | `/testbranch-api/` | отдельная `tk_delivery_dev` |
+
+Sandbox использует отдельный Docker Compose project и отдельный named volume.
+Тестовые заказы, пользователи, брони, события и notification jobs никогда не
+попадают в production-БД и не участвуют в production-аналитике.
+
+## Доступ
+
+- Sandbox backend проверяет обычный Telegram `initData` тем же способом, что и
+  production.
+- После проверки Telegram ID должен присутствовать в
+  `DEV_SANDBOX_ALLOWED_TELEGRAM_IDS`.
+- Знание URL не даёт доступа к данным или сессии.
+- `/dev` в основном боте включает sandbox-режим для whitelisted пользователя и
+  присылает dev Mini App.
+- `/prod` возвращает этого пользователя в production.
+- Contact/location updates пользователя в sandbox-режиме пересылаются
+  production webhook-обработчиком в sandbox backend. Telegram webhook остаётся
+  один, поэтому конфликт webhook одного bot token исключён.
+
+## Выпуск функций
+
+1. Изменение разрабатывается в ветке `test`.
+2. CI собирает `/testbranch/`, sandbox backend обновляется из `test`.
+3. Владелец проверяет изменение на реальных Telegram WebView-устройствах.
+4. После подтверждения изменение переносится в `main` отдельным merge/cherry-pick.
+5. Production deployment не зависит от состояния sandbox-БД.
+
+## Техобслуживание production
+
+Owner-only действие «Техобслуживание»:
+
+- требует подтверждение;
+- прекращает создание заказов и броней;
+- не удаляет и не меняет активные заказы;
+- бот и Mini App продолжают отвечать и показывают сообщение
+  «Временно закрыто на техобслуживание»;
+- повторное нажатие возобновляет приём;
+- каждое переключение записывается в audit log.
+
+Нельзя останавливать сам процесс бота: в таком случае пользователь увидит
+молчание вместо объяснения причины.
+
+## Переменные окружения
+
+Production:
+
+```dotenv
+DEV_SANDBOX_MODE=false
+DEV_SANDBOX_ALLOWED_TELEGRAM_IDS=1048084234
+DEV_SANDBOX_MINI_APP_URL=https://takolako.site/testbranch/main/
+DEV_SANDBOX_WEBHOOK_URL=https://api.takolako.site/testbranch-api/api/v1/telegram/client/webhook
+DEV_SANDBOX_UPSTREAM_URL=http://127.0.0.1:18081
+```
+
+Sandbox:
+
+```dotenv
+DEV_SANDBOX_MODE=true
+DEV_SANDBOX_ALLOWED_TELEGRAM_IDS=1048084234
+TELEGRAM_CLIENT_MINI_APP_URL=https://takolako.site/testbranch/main/
+```
+
+Secrets sandbox хранятся только в `.env.sandbox` на VPS. Файл не добавляется в
+git и не передаётся во frontend.
+
+## Приёмка
+
+- чужой Telegram ID получает `403` от sandbox auth/bootstrap;
+- dev-заказ отсутствует во всех production API и production analytics;
+- production-заказ отсутствует в sandbox;
+- `/dev` и `/prod` переключают ссылки и маршрутизацию contact/location;
+- production остаётся доступен при остановленном sandbox;
+- maintenance блокирует заказ и бронь и отображает правильную плашку;
+- выключение maintenance возвращает обычную работу без redeploy.

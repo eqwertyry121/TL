@@ -822,7 +822,19 @@ func TestAdminOrdersDateFilterUsesCreatedAtIndexOnRealisticDataset(t *testing.T)
 
 	adminSession := bootstrapOwnerSession(t, ctx, st)
 	clientSession := clientSession(t, ctx, st, clientTelegramID)
-	_, err := pool.Exec(ctx, `
+	testBox, err := cryptobox.NewBox(bytes.Repeat([]byte{7}, 32))
+	if err != nil {
+		t.Fatalf("create test crypto box: %v", err)
+	}
+	phoneCiphertext, err := testBox.Encrypt("+38160000000")
+	if err != nil {
+		t.Fatalf("encrypt test phone: %v", err)
+	}
+	addressCiphertext, err := testBox.Encrypt("Novi Sad performance dataset")
+	if err != nil {
+		t.Fatalf("encrypt test address: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
 		INSERT INTO orders (
 			client_user_id, fulfillment_status, payment_method, payment_status,
 			subtotal_minor, delivery_fee_minor, total_minor, currency,
@@ -832,12 +844,12 @@ func TestAdminOrdersDateFilterUsesCreatedAtIndexOnRealisticDataset(t *testing.T)
 		SELECT
 			$1, 'DELIVERED', 'cash', 'PAID',
 			100, 0, 100, 'RSD',
-			'encrypted-phone', 'hmac-sha256:explain-test', 'encrypted-address', '', 'ru',
+			$2, 'hmac-sha256:explain-test', $3, '', 'ru',
 			TIMESTAMPTZ '2026-05-01 00:00:00+00' + (series.index * INTERVAL '1 hour'),
 			TIMESTAMPTZ '2026-05-01 00:00:00+00' + (series.index * INTERVAL '1 hour'),
 			TIMESTAMPTZ '2026-05-01 00:00:00+00' + (series.index * INTERVAL '1 hour')
 		FROM generate_series(0, 3999) AS series(index)
-	`, clientSession.UserID)
+	`, clientSession.UserID, phoneCiphertext, addressCiphertext)
 	if err != nil {
 		t.Fatalf("seed realistic orders: %v", err)
 	}
@@ -875,7 +887,7 @@ func TestAdminOrdersDateFilterUsesCreatedAtIndexOnRealisticDataset(t *testing.T)
 	}
 }
 
-func TestOrderSummaryPagesDoNotDecryptPIIOrLoadDetailData(t *testing.T) {
+func TestClientOrderSummaryPagesDoNotDecryptPIIOrLoadDetailData(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)
 	defer pool.Close()
@@ -885,13 +897,6 @@ func TestOrderSummaryPagesDoNotDecryptPIIOrLoadDetailData(t *testing.T) {
 	order := createVerifiedCashOrder(t, ctx, st, clientTelegramID, "+38160111321", "Novi Sad corrupt PII", "idem-summary-no-pii", time.Now().UTC())
 	corruptOrderPII(t, ctx, pool, order.ID)
 
-	adminPage, err := st.AdminOrders(ctx, adminSession, store.AdminOrderFilter{Limit: 20})
-	if err != nil {
-		t.Fatalf("admin order summaries should not decrypt PII: %v", err)
-	}
-	if !orderSummaryPageContains(adminPage.Orders, order.ID) {
-		t.Fatalf("admin order summaries did not include order %s: %+v", order.ID, adminPage.Orders)
-	}
 	clientPage, err := st.ClientOrders(ctx, clientListSession, store.ClientOrderFilter{Limit: 20})
 	if err != nil {
 		t.Fatalf("client order summaries should not decrypt PII: %v", err)
@@ -1618,7 +1623,7 @@ func TestOrderListQueryCountIsBoundedByOrderCount(t *testing.T) {
 	if page.Counts.Active != 20 || page.Counts.Ready != 20 {
 		t.Fatalf("unexpected admin order counts: %+v", page.Counts)
 	}
-	assertQueryBudget(t, "admin order summaries 20", adminQueries, 2)
+	assertQueryBudget(t, "admin orders with details 20", adminQueries, 6)
 	detail, err := st.AdminOrderByID(ctx, adminSession, page.Orders[0].ID)
 	if err != nil {
 		t.Fatalf("admin order detail: %v", err)
@@ -1744,6 +1749,78 @@ func TestServerSideTextLimits(t *testing.T) {
 		Visible: true,
 	}); !errors.Is(err, core.ErrInvalidInput) {
 		t.Fatalf("expected long category title rejection, got %v", err)
+	}
+}
+
+func TestDeliveryTimingCapacityAndKitchenETARevision(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE app_settings
+		SET delivery_timing_enabled=true, delivery_min_lead_minutes=10,
+			delivery_slot_minutes=10, delivery_max_orders_per_slot=1,
+			delivery_last_target_time='23:50'
+	`); err != nil {
+		t.Fatalf("enable delivery timing: %v", err)
+	}
+	loc, err := time.LoadLocation("Europe/Belgrade")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localNow := time.Now().In(loc)
+	now := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 12, 0, 0, 0, loc).UTC()
+
+	firstSession, firstInput := prepareCashOrderForCart(t, ctx, st, clientTelegramID, "+38160111901", "Delivery timing one", []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now)
+	slots, err := st.DeliverySlots(ctx, firstSession, now)
+	if err != nil || len(slots.Slots) < 2 {
+		t.Fatalf("delivery slots: slots=%d err=%v", len(slots.Slots), err)
+	}
+	requested := slots.Slots[0].TargetAt
+	firstInput.DeliveryTimeMode = "SCHEDULED"
+	firstInput.DeliveryRequestedAt = &requested
+	first, err := st.CreateCashOrder(ctx, firstSession, firstInput, "idem-delivery-timing-first", "hash-delivery-timing-first", now)
+	if err != nil {
+		t.Fatalf("create scheduled delivery: %v", err)
+	}
+	if first.DeliveryTargetAt == nil || !first.DeliveryTargetAt.Equal(requested) || first.DeliveryTimeMode != "SCHEDULED" {
+		t.Fatalf("stored delivery timing = %+v", first)
+	}
+
+	secondSession, secondInput := prepareCashOrderForCart(t, ctx, st, clientTelegramID+901, "+38160111902", "Delivery timing two", []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now)
+	secondInput.DeliveryTimeMode = "SCHEDULED"
+	secondInput.DeliveryRequestedAt = &requested
+	_, err = st.CreateCashOrder(ctx, secondSession, secondInput, "idem-delivery-timing-second", "hash-delivery-timing-second", now)
+	var slotErr *core.DeliverySlotUnavailableError
+	if !errors.As(err, &slotErr) || slotErr.NextAvailableAt == nil || !slotErr.NextAvailableAt.After(requested) {
+		t.Fatalf("filled slot error = %#v", err)
+	}
+
+	bootstrapOwnerSession(t, ctx, st)
+	owner, err := st.UpsertTelegramUser(ctx, core.User{TelegramUserID: ownerTelegramID, Username: "owner", FirstName: "Owner", LanguageCode: "ru"})
+	if err != nil {
+		t.Fatalf("upsert kitchen owner: %v", err)
+	}
+	kitchenSession, _, err := st.CreateSession(ctx, owner, core.RoleKitchen, time.Hour)
+	if err != nil {
+		t.Fatalf("create kitchen session: %v", err)
+	}
+	minutes := 5
+	updated, err := st.EstimateReady(ctx, kitchenSession, first.ID, store.EstimateReadyInput{ReadyInMinutes: &minutes, ExpectedVersion: first.Version}, "idem-delivery-eta", "hash-delivery-eta", now)
+	if err != nil {
+		t.Fatalf("estimate ready: %v", err)
+	}
+	if updated.EstimatedReadyAt == nil || updated.Version != first.Version+1 || updated.FulfillmentStatus != core.StatusNew || updated.KitchenStartedAt != nil {
+		t.Fatalf("ETA changed order workflow: %+v", updated)
+	}
+	replayed, err := st.EstimateReady(ctx, kitchenSession, first.ID, store.EstimateReadyInput{ReadyInMinutes: &minutes, ExpectedVersion: first.Version}, "idem-delivery-eta", "hash-delivery-eta", now)
+	if err != nil || replayed.Version != updated.Version {
+		t.Fatalf("ETA replay = version %d, err=%v", replayed.Version, err)
+	}
+	var jobs int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM notification_jobs WHERE order_id=$1 AND template='client_kitchen_eta_set'`, first.ID).Scan(&jobs); err != nil || jobs != 1 {
+		t.Fatalf("ETA notification jobs = %d, err=%v", jobs, err)
 	}
 }
 

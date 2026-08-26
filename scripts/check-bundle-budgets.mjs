@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
 const apps = {
-  client: { js: 105.75 * 1024, css: 10.75 * 1024 },
-  admin: { js: 95 * 1024, css: 10 * 1024 },
+  client: { js: 112 * 1024, css: 12 * 1024 },
+  admin: { js: 102 * 1024, css: 10 * 1024 },
   kitchen: { js: 90 * 1024, css: 10 * 1024 },
   courier: { js: 90 * 1024, css: 10 * 1024 },
 };

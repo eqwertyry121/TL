@@ -2,14 +2,15 @@ import type { Order, Role } from "@tk-delivery/api-client/generated";
 import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
-import { clientLabel, createStaffApi, isAuthError, kitchenTimeText, money, openTelegramLink, paymentText, problemLink, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
+import { clientLabel, createStaffApi, isAuthError, money, openTelegramLink, problemLink, sameOrderSnapshot, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
 import { AlertTriangle, Check, MoreVertical, RefreshCw, WifiOff } from "lucide-react";
 import { useDrag } from "@use-gesture/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 const api = createStaffApi("KITCHEN");
 const kitchenSeenOrdersKey = "tk-kitchen-seen-orders-v2";
 const notificationSoundUrl = `${import.meta.env.BASE_URL}new-order-notification.mp3`;
+const devSandbox = import.meta.env.VITE_DEV_SANDBOX === "true";
 let notificationAudioContext: AudioContext | null = null;
 let notificationAudioBuffer: AudioBuffer | null = null;
 let notificationAudioBufferPromise: Promise<AudioBuffer> | null = null;
@@ -25,14 +26,14 @@ export function App() {
   const [token, setToken] = useState("");
   const [telegramUserId, setTelegramUserId] = useState<number | undefined>();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const lastUpdatedRef = useRef<Date | null>(null);
   const [offline, setOffline] = useState(false);
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState("");
+  const [etaBusy, setEtaBusy] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [activeWindow, setActiveWindow] = useState<"delivery" | "pickup">("delivery");
   const [activeLane, setActiveLane] = useState<"new" | "in_progress" | "ready">("new");
-  const [clock, setClock] = useState(() => Date.now());
   const seenIdsRef = useRef(loadSeenOrderIds(kitchenSeenOrdersKey));
   const notifiedIds = useRef(new Set<string>());
   const dueAlertedIds = useRef(new Set<string>());
@@ -45,20 +46,24 @@ export function App() {
   const deliveryOrders = useMemo(() => orders.filter((order) => order.fulfillment_type !== "pickup" && order.fulfillment_status === "NEW"), [orders]);
   const pickupOrders = useMemo(() => orders.filter((order) => order.fulfillment_type === "pickup" && order.fulfillment_status === "NEW"), [orders]);
   const pickupReadyOrders = useMemo(() => orders.filter(isPickupReady), [orders]);
-  const sortedDeliveryOrders = useMemo(() => [...deliveryOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [deliveryOrders]);
+  const sortedDeliveryOrders = useMemo(() => [...deliveryOrders].sort((a, b) => new Date(a.delivery_target_at || a.created_at).getTime() - new Date(b.delivery_target_at || b.created_at).getTime()), [deliveryOrders]);
   const sortedPickupOrders = useMemo(() => [...pickupOrders].sort((a, b) => pickupTimestamp(a) - pickupTimestamp(b)), [pickupOrders]);
-  const pickupDueOrders = useMemo(() => sortedPickupOrders.filter((order) => pickupCookTimestamp(order) <= clock), [sortedPickupOrders, clock]);
   const sortedPickupReadyOrders = useMemo(() => [...pickupReadyOrders].sort((a, b) => new Date(a.ready_at || a.created_at).getTime() - new Date(b.ready_at || b.created_at).getTime()), [pickupReadyOrders]);
   const visibleNewOrders = useMemo(() => (activeWindow === "delivery" ? sortedDeliveryOrders : sortedPickupOrders).filter((order) => !order.kitchen_started_at), [activeWindow, sortedDeliveryOrders, sortedPickupOrders]);
   const visibleInProgressOrders = useMemo(() => (activeWindow === "delivery" ? sortedDeliveryOrders : sortedPickupOrders).filter((order) => Boolean(order.kitchen_started_at)), [activeWindow, sortedDeliveryOrders, sortedPickupOrders]);
 
   useEffect(() => installPerformanceBeacon("kitchen", () => "orders"), []);
-  useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 15000); return () => window.clearInterval(timer); }, []);
   useEffect(() => {
-    const dueNow = pickupDueOrders.filter((order) => !dueAlertedIds.current.has(order.id));
-    pickupDueOrders.forEach((order) => dueAlertedIds.current.add(order.id));
-    if (dueNow.length) playBeep();
-  }, [pickupDueOrders]);
+    const checkDueOrders = () => {
+      const dueOrders = sortedPickupOrders.filter((order) => pickupCookTimestamp(order) <= Date.now());
+      const dueNow = dueOrders.filter((order) => !dueAlertedIds.current.has(order.id));
+      dueOrders.forEach((order) => dueAlertedIds.current.add(order.id));
+      if (dueNow.length) playBeep();
+    };
+    checkDueOrders();
+    const timer = window.setInterval(checkDueOrders, 15000);
+    return () => window.clearInterval(timer);
+  }, [sortedPickupOrders]);
 
   function markSeen(order: Order) {
     const key = seenKey(order);
@@ -106,8 +111,8 @@ export function App() {
       incoming.filter((order) => order.fulfillment_type === "pickup" && order.fulfillment_status === "NEW" && pickupCookTimestamp(order) <= Date.now())
         .forEach((order) => dueAlertedIds.current.add(order.id));
       if (incoming.length) playBeep();
-      setOrders(response.orders);
-      setLastUpdated(new Date());
+      setOrders((current) => sameOrderSnapshot(current, response.orders) ? current : response.orders);
+      lastUpdatedRef.current = new Date();
       setOffline(false);
     } catch {
       if (signal?.aborted) return;
@@ -121,7 +126,7 @@ export function App() {
       if (stopped) return;
       applySession(response.session);
       setOrders(response.orders);
-      setLastUpdated(new Date());
+      lastUpdatedRef.current = new Date();
     }).catch(() => setOffline(true));
     return () => {
       stopped = true;
@@ -185,6 +190,26 @@ export function App() {
     }
   }
 
+  async function estimateReady(order: Order, minutes?: number, estimatedReadyAt?: string) {
+    if (etaBusy || order.fulfillment_type !== "delivery" || order.fulfillment_status !== "NEW") return;
+    const target = estimatedReadyAt || new Date(Date.now() + (minutes || 30) * 60000).toISOString();
+    if (order.estimated_ready_at && Math.abs(new Date(order.estimated_ready_at).getTime() - new Date(target).getTime()) < 60000) return;
+    setEtaBusy(`${order.id}:${minutes || "target"}`);
+    setActionError("");
+    try {
+      const updated = await withAuth((authToken) => api.estimateKitchenReady(authToken, order.id, {
+        ...(estimatedReadyAt ? { estimated_ready_at: estimatedReadyAt } : { ready_in_minutes: minutes }),
+        expected_version: order.version,
+      }, `eta-${order.id}-${order.version}-${minutes || estimatedReadyAt}`));
+      setOrders((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
+    } catch (err) {
+      setActionError(staffActionErrorText(err));
+      await refresh();
+    } finally {
+      setEtaBusy("");
+    }
+  }
+
   async function startPreparation(order: Order) {
     if (busy === order.id || order.kitchen_started_at || order.fulfillment_status !== "NEW") return;
     markSeen(order);
@@ -242,8 +267,8 @@ export function App() {
     <div className="app">
       <header className="header">
         <div>
-          <h1>Кухня</h1>
-          <p>{lastUpdated ? `Обновлено ${secondsAgo(lastUpdated)} сек назад` : "Ожидание заказов"}</p>
+          <h1>Кухня{devSandbox && <span className="dev-environment-badge">DEV</span>}</h1>
+          <LastUpdatedText valueRef={lastUpdatedRef} empty="Ожидание заказов" prefix="Обновлено" />
         </div>
         <button className="icon" onClick={() => void refresh()} aria-label="Обновить"><RefreshCw size={20} /></button>
       </header>
@@ -257,10 +282,12 @@ export function App() {
       <PreparationBoard
         activeLane={activeLane}
         busy={busy}
+        etaBusy={etaBusy}
         inProgressOrders={visibleInProgressOrders}
         newOrders={visibleNewOrders}
         onLaneChange={setActiveLane}
         onMarkReady={markReady}
+        onEstimateReady={estimateReady}
         onPickupCollected={markPickupCollected}
         onResetPreparation={resetPreparation}
         onSeen={markSeen}
@@ -279,10 +306,12 @@ type KitchenLane = "new" | "in_progress" | "ready";
 function PreparationBoard({
   activeLane,
   busy,
+  etaBusy,
   inProgressOrders,
   newOrders,
   onLaneChange,
   onMarkReady,
+  onEstimateReady,
   onPickupCollected,
   onResetPreparation,
   onSeen,
@@ -293,10 +322,12 @@ function PreparationBoard({
 }: {
   activeLane: KitchenLane;
   busy: string;
+  etaBusy: string;
   inProgressOrders: Order[];
   newOrders: Order[];
   onLaneChange(lane: KitchenLane): void;
   onMarkReady(order: Order): void;
+  onEstimateReady(order: Order, minutes?: number, estimatedReadyAt?: string): void;
   onPickupCollected(order: Order): void;
   onResetPreparation(order: Order): void;
   onSeen(order: Order): void;
@@ -330,10 +361,12 @@ function PreparationBoard({
                     order={order}
                     seenIds={seenIds}
                     busy={busy}
+                    etaBusy={etaBusy}
                     canStart={lane.id === "new"}
                     onSeen={onSeen}
                     onStart={onStartPreparation}
                     onPrimary={lane.id === "ready" ? onPickupCollected : onMarkReady}
+                    onEstimateReady={onEstimateReady}
                     onResetPreparation={onResetPreparation}
                   />
                 ))}
@@ -364,46 +397,92 @@ function SwipeableOrderCard({
   order,
   seenIds,
   busy,
+  etaBusy,
   canStart,
   onSeen,
   onStart,
   onPrimary,
+  onEstimateReady,
   onResetPreparation,
 }: {
   order: Order;
   seenIds: Set<string>;
   busy: string;
+  etaBusy: string;
   canStart: boolean;
   onSeen(order: Order): void;
   onStart(order: Order): void;
   onPrimary(order: Order): void;
+  onEstimateReady(order: Order, minutes?: number, estimatedReadyAt?: string): void;
   onResetPreparation(order: Order): void;
 }) {
   const shellRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const revealRef = useRef<HTMLDivElement>(null);
   const commitTimerRef = useRef<number | undefined>(undefined);
-  const [dragX, setDragX] = useState(0);
+  const animationFrameRef = useRef<number | null>(null);
+  const offsetRef = useRef(0);
   const [dragging, setDragging] = useState(false);
   const draggable = canStart && busy !== order.id && order.fulfillment_status === "NEW" && !order.kitchen_started_at;
-  const bindDrag = useDrag(({ active, movement: [movementX], velocity: [velocityX] }) => {
+
+  function renderOffset(value: number) {
+    offsetRef.current = value;
+    if (cardRef.current) cardRef.current.style.transform = `translate3d(${value}px, 0, 0)`;
+    if (revealRef.current) revealRef.current.style.opacity = String(Math.min(1, Math.max(0, value / 72)));
+  }
+
+  function stopAnimation() {
+    if (animationFrameRef.current === null) return;
+    window.cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = null;
+  }
+
+  function animateOffset(target: number, onRest?: () => void) {
+    stopAnimation();
+    let position = offsetRef.current;
+    let velocity = 0;
+    let previousTime = performance.now();
+    const tick = (time: number) => {
+      const delta = Math.min(0.032, Math.max(0.001, (time - previousTime) / 1000));
+      previousTime = time;
+      const acceleration = (-480 * (position - target) - 39 * velocity) / 0.78;
+      velocity += acceleration * delta;
+      position += velocity * delta;
+      renderOffset(position);
+      if (Math.abs(position - target) < 0.45 && Math.abs(velocity) < 4) {
+        renderOffset(target);
+        animationFrameRef.current = null;
+        onRest?.();
+        return;
+      }
+      animationFrameRef.current = window.requestAnimationFrame(tick);
+    };
+    animationFrameRef.current = window.requestAnimationFrame(tick);
+  }
+
+  const bindDrag = useDrag(({ active, first, movement: [movementX], velocity: [velocityX] }) => {
     if (!draggable) return;
     const x = Math.max(0, Math.min(112, movementX));
-    setDragging(active);
     if (active) {
-      setDragX(x);
+      if (first) {
+        stopAnimation();
+        setDragging(true);
+      }
+      renderOffset(x);
       return;
     }
+    setDragging(false);
     const width = shellRef.current?.clientWidth || 320;
     const threshold = Math.min(104, Math.max(68, width * 0.24));
     const committed = x >= threshold || (x >= 42 && velocityX >= 0.62);
     if (!committed) {
-      setDragX(0);
+      animateOffset(0);
       return;
     }
-    setDragX(112);
-    commitTimerRef.current = window.setTimeout(() => {
+    animateOffset(112, () => {
       onStart(order);
-      setDragX(0);
-    }, 150);
+      commitTimerRef.current = window.setTimeout(() => animateOffset(0), 120);
+    });
   }, {
     axis: "x",
     bounds: { left: 0, right: 112 },
@@ -413,6 +492,7 @@ function SwipeableOrderCard({
   });
 
   useEffect(() => () => {
+    stopAnimation();
     if (commitTimerRef.current !== undefined) window.clearTimeout(commitTimerRef.current);
   }, []);
 
@@ -429,18 +509,21 @@ function SwipeableOrderCard({
       ref={shellRef}
       className={`swipe-shell${draggable ? " can-swipe" : ""}`}
     >
-      {draggable && <div className="swipe-reveal" aria-hidden="true"><span>В ПРОЦЕССЕ</span><b>→</b></div>}
+      {draggable && <div ref={revealRef} className="swipe-reveal" aria-hidden="true"><span>В ПРОЦЕССЕ</span><b>→</b></div>}
       <div
+        ref={cardRef}
         {...(draggable ? bindDrag() : {})}
         className={`swipe-card${dragging ? " is-dragging" : ""}`}
-        style={{ touchAction: "pan-y", transform: `translate3d(${dragX}px, 0, 0)` }}
+        style={{ touchAction: "pan-y" }}
       >
         <KitchenOrderCard
           order={order}
           seenIds={seenIds}
           busy={busy}
+          etaBusy={etaBusy}
           onSeen={onSeen}
           onPrimary={onPrimary}
+          onEstimateReady={onEstimateReady}
           onResetPreparation={onResetPreparation}
         />
       </div>
@@ -452,15 +535,19 @@ function KitchenOrderCard({
   order,
   seenIds,
   busy,
+  etaBusy,
   onSeen,
   onPrimary,
+  onEstimateReady,
   onResetPreparation,
 }: {
   order: Order;
   seenIds: Set<string>;
   busy: string;
+  etaBusy: string;
   onSeen(order: Order): void;
   onPrimary(order: Order): void;
+  onEstimateReady(order: Order, minutes?: number, estimatedReadyAt?: string): void;
   onResetPreparation(order: Order): void;
 }) {
   const unread = !seenIds.has(seenKey(order));
@@ -474,19 +561,13 @@ function KitchenOrderCard({
         <div className="order-top">
           <div className="order-title">
             <strong>Заказ #{order.public_number}</strong>
-            <span>{pickup ? pickupTimingText(order) : kitchenTimeText(order)}</span>
           </div>
           <div className="order-side">
             {order.kitchen_started_at
               ? <span className="progress-badge">В процессе</span>
               : <span className={unread ? "new-badge" : "read-badge"}>{unread ? "Новый" : "Прочитано"}</span>}
-            <Menu order={order} busy={busy === order.id} onResetPreparation={onResetPreparation} />
+            <Menu order={order} busy={busy === order.id} onResetPreparation={onResetPreparation} onEstimateReady={onEstimateReady} />
           </div>
-        </div>
-        <div className="order-meta-line">
-          <CustomerBadge order={order} />
-          <span className={pickup ? "fulfillment-chip pickup" : "fulfillment-chip"}>{pickup ? "Самовывоз" : "Доставка"}</span>
-          <span className="payment-chip">{paymentText(order)}</span>
         </div>
         <ul className="items-compact" aria-label={`Блюда заказа #${order.public_number}`}>
           {order.items.map((item, index) => (
@@ -499,6 +580,14 @@ function KitchenOrderCard({
             </li>
           ))}
         </ul>
+        <div className="order-meta-line">
+          <CustomerBadge order={order} />
+          <i aria-hidden="true">·</i>
+          <span>{pickup ? "Самовывоз" : "Доставка"}</span>
+          <i aria-hidden="true">·</i>
+          <span>{compactPaymentText(order)} · {money(order.total_minor)}</span>
+        </div>
+        <KitchenTiming order={order} etaBusy={etaBusy} onEstimateReady={onEstimateReady} />
         {addedAt && <p className="addition-note">Дозаказ добавлен в {timeHHMM(addedAt)}</p>}
         {order.customer_comment && <p className="comment compact-comment"><AlertTriangle size={16} /> {order.customer_comment}</p>}
         <button
@@ -516,6 +605,53 @@ function KitchenOrderCard({
   );
 }
 
+function KitchenTiming({
+  order,
+  etaBusy,
+  onEstimateReady,
+}: {
+  order: Order;
+  etaBusy: string;
+  onEstimateReady(order: Order, minutes?: number, estimatedReadyAt?: string): void;
+}) {
+  const pickup = order.fulfillment_type === "pickup";
+  const target = order.pickup_at || order.delivery_target_at;
+  return (
+    <section className={`kitchen-timing${pickup ? " pickup" : ""}`} aria-label="Время заказа" onClick={(event) => event.stopPropagation()}>
+      <div className="kitchen-timing-summary">
+        <div>
+          <small>Поступил</small>
+          <b>{timeHHMM(order.created_at)}</b>
+          <span>{elapsedShort(order.created_at)}</span>
+        </div>
+        <div>
+          <small>{pickup ? "Заберут" : order.delivery_time_mode === "SCHEDULED" ? "Клиент" : "План"}</small>
+          <b>{target ? `${pickup ? "" : "~"}${timeHHMM(target)}` : "Сейчас"}</b>
+          {pickup && target && <span>{pickupCountdown(order)}</span>}
+          {!pickup && Boolean(order.delivery_queue_delay_minutes) && <span>Очередь +{order.delivery_queue_delay_minutes} мин</span>}
+        </div>
+        {!pickup && (
+          <div>
+            <small>Кухня</small>
+            <b>{order.estimated_ready_at ? `~${timeHHMM(order.estimated_ready_at)}` : "Не выбрано"}</b>
+          </div>
+        )}
+      </div>
+      {!pickup && (
+        <div className="kitchen-timing-actions" aria-label="Сообщить время готовности">
+          <span>Готов через</span>
+          <div>
+            {order.delivery_time_mode === "SCHEDULED" && order.delivery_target_at && <button type="button" disabled={Boolean(etaBusy)} className={order.estimated_ready_at === order.delivery_target_at ? "active" : ""} onClick={() => onEstimateReady(order, undefined, order.delivery_target_at)}>К {timeHHMM(order.delivery_target_at)}</button>}
+            {[5, 10, 20, 30, 40, 60].map((minutes) => (
+              <button type="button" key={minutes} disabled={Boolean(etaBusy)} className={etaMatchesMinutes(order, minutes) ? "active" : ""} onClick={() => onEstimateReady(order, minutes)}>{etaBusy === `${order.id}:${minutes}` ? "…" : `+${minutes}`}</button>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function isPickupReady(order: Order): boolean {
   return order.fulfillment_type === "pickup" && order.fulfillment_status === "READY_FOR_PICKUP";
 }
@@ -523,11 +659,11 @@ function isPickupReady(order: Order): boolean {
 function pickupTimestamp(order: Order): number { return new Date(order.pickup_at || order.created_at).getTime(); }
 function pickupCookTimestamp(order: Order): number { return new Date(order.pickup_cook_at || order.pickup_at || order.created_at).getTime(); }
 
-function pickupTimingText(order: Order): string {
-  if (isPickupReady(order)) return `Готов · заберут в ${timeHHMM(order.pickup_at || order.created_at)}`;
+function pickupCountdown(order: Order): string {
+  if (isPickupReady(order)) return "Заказ готов";
   const minutes = Math.ceil((pickupTimestamp(order) - Date.now()) / 60000);
-  if (minutes <= 0) return `ЗАБЕРУТ СЕЙЧАС · ${timeHHMM(order.pickup_at || order.created_at)}`;
-  return `Заберут в ${timeHHMM(order.pickup_at || order.created_at)} · через ${minutes} мин`;
+  if (minutes <= 0) return "Сейчас";
+  return `Через ${minutes} мин`;
 }
 
 function pickupUrgencyClass(order: Order): string {
@@ -538,11 +674,16 @@ function pickupUrgencyClass(order: Order): string {
   return "";
 }
 
+function etaMatchesMinutes(order: Order, minutes: number): boolean {
+  if (!order.estimated_ready_at || !order.estimated_ready_updated_at) return false;
+  const delta = new Date(order.estimated_ready_at).getTime() - new Date(order.estimated_ready_updated_at).getTime();
+  return Math.abs(delta - minutes * 60000) < 90000;
+}
+
 function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {
   return (
     <span className="order-avatar" aria-hidden="true">
-      {order.client_photo_url ? <img src={order.client_photo_url} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span>{clientInitials(order)}</span>}
-      <small>#{order.public_number}</small>
+      {order.client_photo_url ? <img src={order.client_photo_url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : <span>{clientInitials(order)}</span>}
       {unread && <i />}
     </span>
   );
@@ -550,15 +691,7 @@ function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {
 
 function CustomerBadge({ order }: { order: Order }) {
   const href = telegramUserLink(order);
-  const content = (
-    <>
-      <span className="customer-avatar">
-        <span>{clientInitials(order)}</span>
-        {order.client_photo_url && <img src={order.client_photo_url} alt="" loading="lazy" referrerPolicy="no-referrer" />}
-      </span>
-      <b>{clientLabel(order)}</b>
-    </>
-  );
+  const content = <b>{clientLabel(order)}</b>;
   if (!href) return <div className="customer-badge" title={clientLabel(order)}>{content}</div>;
   return (
     <a
@@ -569,14 +702,20 @@ function CustomerBadge({ order }: { order: Order }) {
       title={`Открыть ЛС ${clientLabel(order)}`}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
-        event.preventDefault();
         event.stopPropagation();
-        openTelegramLink(href);
+        if (openTelegramLink(href)) event.preventDefault();
       }}
     >
       {content}
     </a>
   );
+}
+
+function compactPaymentText(order: Order): string {
+  if (order.payment_method === "cash") return "Наличные";
+  if (order.payment_method === "card") return "Карта";
+  if (order.payment_method === "crypto") return "Crypto";
+  return "Оплачено";
 }
 
 function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
@@ -591,8 +730,10 @@ function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
   );
 }
 
-function Menu({ order, busy, onResetPreparation }: { order: Order; busy: boolean; onResetPreparation(order: Order): void }) {
+function Menu({ order, busy, onResetPreparation, onEstimateReady }: { order: Order; busy: boolean; onResetPreparation(order: Order): void; onEstimateReady(order: Order, minutes?: number): void }) {
   const [open, setOpen] = useState(false);
+  const [customMinutes, setCustomMinutes] = useState(30);
+  const [customOpen, setCustomOpen] = useState(false);
   return (
     <div className="menu">
       <button
@@ -619,6 +760,12 @@ function Menu({ order, busy, onResetPreparation }: { order: Order; busy: boolean
               Вернуть в новые
             </button>
           )}
+          {order.fulfillment_type === "delivery" && order.fulfillment_status === "NEW" && (
+            customOpen ? <div className="custom-eta-control">
+              <label><span>Минут</span><input type="number" min={10} max={180} step={5} value={customMinutes} onChange={(event) => setCustomMinutes(Number(event.target.value))} /></label>
+              <button type="button" disabled={busy || customMinutes < 10 || customMinutes > 180 || customMinutes % 5 !== 0} onClick={() => { setOpen(false); setCustomOpen(false); onEstimateReady(order, customMinutes); }}>Отправить</button>
+            </div> : <button type="button" disabled={busy} onClick={() => setCustomOpen(true)}>Другое время</button>
+          )}
           <a href={problemLink(order)} target="_blank" rel="noreferrer">Сообщить о проблеме</a>
           <span>Сумма: {money(order.total_minor)}</span>
         </div>
@@ -631,6 +778,16 @@ function secondsAgo(value: Date) {
   return Math.max(0, Math.floor((Date.now() - value.getTime()) / 1000));
 }
 
+function LastUpdatedText({ valueRef, empty, prefix }: { valueRef: RefObject<Date | null>; empty: string; prefix: string }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setTick((value) => value + 1), 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const value = valueRef.current;
+  return <>{value ? `${prefix} ${secondsAgo(value)} сек назад` : empty}</>;
+}
+
 function seenKey(order: Order): string {
   const addition = order.latest_addition?.id || "base";
   return `${order.id}:${order.version}:${addition}`;
@@ -641,6 +798,15 @@ function timeHHMM(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function elapsedShort(value: string): string {
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
+  if (minutes < 1) return "сейчас";
+  if (minutes < 60) return `${minutes} мин назад`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} ч ${rest} мин назад` : `${hours} ч назад`;
 }
 
 function loadSeenOrderIds(key: string): Set<string> {

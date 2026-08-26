@@ -14,6 +14,8 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -163,6 +165,15 @@ func (s *Server) Routes() http.Handler {
 	if s.cfg.ServerTimingEnabled {
 		r.Use(withServerTiming)
 	}
+	if s.cfg.DevSandboxUpstreamURL != "" && !s.cfg.DevSandboxMode {
+		proxy, err := s.devSandboxProxy()
+		if err != nil {
+			s.log().Error("dev sandbox proxy disabled", "error", err)
+		} else {
+			r.Handle("/testbranch-api", http.StripPrefix("/testbranch-api", proxy))
+			r.Handle("/testbranch-api/*", http.StripPrefix("/testbranch-api", proxy))
+		}
+	}
 	r.Get("/live", s.live)
 	r.Get("/ready", s.ready)
 	r.Get("/health", s.ready)
@@ -189,6 +200,7 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/me", s.me)
 			r.Get("/contact", s.contact)
 			r.Get("/pickup/slots", s.pickupSlots)
+			r.Get("/delivery/slots", s.deliverySlots)
 			r.Get("/reservations/availability", s.reservationAvailability)
 			r.Get("/reservations/mine", s.myReservation)
 			r.Post("/reservations", s.createReservation)
@@ -207,6 +219,7 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/kitchen/orders/{id}/start", s.startKitchenPreparation)
 			r.Post("/kitchen/orders/{id}/preparation/reset", s.resetKitchenPreparation)
 			r.Post("/kitchen/orders/{id}/ready", s.markReady)
+			r.Post("/kitchen/orders/{id}/estimate-ready", s.estimateReady)
 			r.Post("/kitchen/orders/{id}/picked-up", s.markPickupCollected)
 
 			r.Get("/courier/orders", s.courierOrders)
@@ -388,6 +401,10 @@ func (s *Server) runtimePayload(ctx context.Context) (core.Runtime, int, error) 
 		PickupMinLeadMinutes:     settings.PickupMinLeadMinutes,
 		PickupSlotMinutes:        settings.PickupSlotMinutes,
 		PickupLastTime:           settings.PickupLastTime,
+		DeliveryTimingEnabled:    settings.DeliveryTimingEnabled,
+		DeliveryMinLeadMinutes:   settings.DeliveryMinLeadMinutes,
+		DeliverySlotMinutes:      settings.DeliverySlotMinutes,
+		DeliveryLastTargetTime:   settings.DeliveryLastTargetTime,
 	}, settings.Version, nil
 }
 
@@ -884,7 +901,7 @@ func (s *Server) telegramSession(ctx context.Context, audience core.Audience, ro
 	if err != nil {
 		return core.Session{}, nil, err
 	}
-	if !s.isTelegramUserAllowed(tgUser.ID) {
+	if s.cfg.DevSandboxMode && !s.isDevSandboxAllowedTelegramID(tgUser.ID) {
 		return core.Session{}, nil, core.ErrForbidden
 	}
 	user, err := s.store.UpsertTelegramUser(ctx, core.User{
@@ -898,6 +915,31 @@ func (s *Server) telegramSession(ctx context.Context, audience core.Audience, ro
 		return core.Session{}, nil, err
 	}
 	return s.store.CreateSession(ctx, user, role, s.cfg.SessionTTL)
+}
+
+func (s *Server) isDevSandboxAllowedTelegramID(telegramUserID int64) bool {
+	if telegramUserID <= 0 {
+		return false
+	}
+	for _, allowedID := range s.cfg.DevSandboxAllowedIDs {
+		if telegramUserID == allowedID {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) devSandboxProxy() (http.Handler, error) {
+	target, err := url.Parse(s.cfg.DevSandboxUpstreamURL)
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		return nil, fmt.Errorf("invalid DEV_SANDBOX_UPSTREAM_URL")
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, proxyErr error) {
+		s.log().Warn("dev sandbox unavailable", "error", proxyErr)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"code": "SANDBOX_UNAVAILABLE"})
+	}
+	return proxy, nil
 }
 
 func (s *Server) bootstrapStaffSession(ctx context.Context, role core.Role, initData string) (core.Session, []core.Role, error) {
@@ -928,21 +970,6 @@ func (s *Server) isBootstrapOwnerTelegramID(telegramUserID int64) bool {
 	return telegramUserID == s.cfg.BootstrapOwnerTelegramID
 }
 
-func (s *Server) isTelegramUserAllowed(telegramUserID int64) bool {
-	if telegramUserID <= 0 {
-		return false
-	}
-	if len(s.cfg.TelegramAllowedUserIDs) == 0 {
-		return true
-	}
-	for _, allowedID := range s.cfg.TelegramAllowedUserIDs {
-		if telegramUserID == allowedID {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	sess := mustSession(r)
 	roles, err := s.store.StaffRoles(r.Context(), sess.TelegramUserID)
@@ -955,19 +982,31 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) calculate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Items           []core.CartItemInput `json:"items"`
-		FulfillmentType core.FulfillmentType `json:"fulfillment_type"`
+		Items               []core.CartItemInput `json:"items"`
+		FulfillmentType     core.FulfillmentType `json:"fulfillment_type"`
+		DeliveryTimeMode    string               `json:"delivery_time_mode"`
+		DeliveryRequestedAt *time.Time           `json:"delivery_requested_at"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, err)
 		return
 	}
-	calc, err := s.store.CalculateForFulfillment(r.Context(), mustSession(r), req.Items, req.FulfillmentType, s.now())
+	calc, err := s.store.CalculateForFulfillmentTiming(r.Context(), mustSession(r), req.Items, req.FulfillmentType,
+		store.DeliveryTimingInput{Mode: req.DeliveryTimeMode, RequestedAt: req.DeliveryRequestedAt}, s.now())
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, calc)
+}
+
+func (s *Server) deliverySlots(w http.ResponseWriter, r *http.Request) {
+	slots, err := s.store.DeliverySlots(r.Context(), mustSession(r), s.now())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeConditionalJSON(w, r, http.StatusOK, slots, "private, max-age=5")
 }
 
 func (s *Server) pickupSlots(w http.ResponseWriter, r *http.Request) {
@@ -1557,6 +1596,30 @@ func (s *Server) markReady(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, order)
 }
 
+func (s *Server) estimateReady(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req store.EstimateReadyInput
+	if err := json.Unmarshal(raw, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	order, err := s.store.EstimateReady(r.Context(), mustSession(r), id, req, r.Header.Get("Idempotency-Key"), bodyHash(raw), s.now())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
 func (s *Server) startKitchenPreparation(w http.ResponseWriter, r *http.Request) {
 	s.updateKitchenPreparation(w, r, true)
 }
@@ -2068,6 +2131,9 @@ func (s *Server) withRequestLog(next http.Handler) http.Handler {
 		}
 		if routePattern == "" {
 			routePattern = r.URL.Path
+		}
+		if (routePattern == "/health" || routePattern == "/ready") && recorder.status < http.StatusBadRequest && duration < 250*time.Millisecond {
+			return
 		}
 		attrs := []any{
 			"request_id", middleware.GetReqID(r.Context()),
@@ -2589,6 +2655,12 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code, messageKey = http.StatusConflict, "PICKUP_UNAVAILABLE", "pickup_unavailable"
 	case errors.Is(err, core.ErrPickupSlotUnavailable):
 		status, code, messageKey = http.StatusConflict, "PICKUP_SLOT_UNAVAILABLE", "pickup_slot_unavailable"
+	case errors.Is(err, core.ErrDeliveryTimingUnavailable):
+		status, code, messageKey = http.StatusConflict, "DELIVERY_TIMING_UNAVAILABLE", "delivery_timing_unavailable"
+	case errors.Is(err, core.ErrDeliverySlotUnavailable):
+		status, code, messageKey = http.StatusConflict, "DELIVERY_SLOT_UNAVAILABLE", "delivery_slot_unavailable"
+	case errors.Is(err, core.ErrDeliveryTimeInvalid):
+		status, code, messageKey = http.StatusBadRequest, "DELIVERY_TIME_INVALID", "delivery_time_invalid"
 	case errors.Is(err, core.ErrReservationUnavailable):
 		status, code, messageKey = http.StatusConflict, "RESERVATION_UNAVAILABLE", "reservation_unavailable"
 	case errors.Is(err, core.ErrActiveReservationExists):
@@ -2601,11 +2673,19 @@ func writeError(w http.ResponseWriter, err error) {
 	if !known {
 		slog.Default().Error("http handler error", "error", redactedInternalError(err))
 	}
+	payload := map[string]any{
+		"code":        code,
+		"message_key": messageKey,
+	}
+	var deliverySlotErr *core.DeliverySlotUnavailableError
+	if errors.As(err, &deliverySlotErr) {
+		payload["queue_delay_minutes"] = deliverySlotErr.QueueDelayMinutes
+		if deliverySlotErr.NextAvailableAt != nil {
+			payload["next_available_at"] = deliverySlotErr.NextAvailableAt
+		}
+	}
 	writeJSON(w, status, map[string]any{
-		"error": map[string]any{
-			"code":        code,
-			"message_key": messageKey,
-		},
+		"error": payload,
 	})
 }
 

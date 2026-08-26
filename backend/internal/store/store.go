@@ -27,9 +27,10 @@ import (
 )
 
 type Store struct {
-	pool       *pgxpool.Pool
-	box        *cryptobox.Box
-	piiHashKey []byte
+	pool                  *pgxpool.Pool
+	box                   *cryptobox.Box
+	piiHashKey            []byte
+	deliveryTimingBetaIDs map[int64]struct{}
 }
 
 const (
@@ -67,10 +68,23 @@ type CreateOrderInput struct {
 	Comment                 string               `json:"comment"`
 	FulfillmentType         core.FulfillmentType `json:"fulfillment_type"`
 	PickupAt                *time.Time           `json:"pickup_at"`
+	DeliveryTimeMode        string               `json:"delivery_time_mode"`
+	DeliveryRequestedAt     *time.Time           `json:"delivery_requested_at"`
 	PaymentMethod           core.PaymentMethod   `json:"payment_method"`
 	TermsAccepted           bool                 `json:"terms_accepted"`
 	TermsVersion            string               `json:"terms_version"`
 	Locale                  string               `json:"locale"`
+}
+
+type DeliveryTimingInput struct {
+	Mode        string
+	RequestedAt *time.Time
+}
+
+type EstimateReadyInput struct {
+	ReadyInMinutes   *int       `json:"ready_in_minutes"`
+	EstimatedReadyAt *time.Time `json:"estimated_ready_at"`
+	ExpectedVersion  int        `json:"expected_version"`
 }
 
 type AddOrderItemsInput struct {
@@ -133,6 +147,11 @@ type UpdateSettingsInput struct {
 	PickupSlotMinutes             int     `json:"pickup_slot_minutes"`
 	PickupMaxOrdersPerSlot        int     `json:"pickup_max_orders_per_slot"`
 	PickupLastTime                string  `json:"pickup_last_time"`
+	DeliveryTimingEnabled         bool    `json:"delivery_timing_enabled"`
+	DeliveryMinLeadMinutes        int     `json:"delivery_min_lead_minutes"`
+	DeliverySlotMinutes           int     `json:"delivery_slot_minutes"`
+	DeliveryMaxOrdersPerSlot      int     `json:"delivery_max_orders_per_slot"`
+	DeliveryLastTargetTime        string  `json:"delivery_last_target_time"`
 	Version                       int     `json:"version"`
 }
 
@@ -174,11 +193,11 @@ type AdminOrderCounts struct {
 }
 
 type AdminOrdersPage struct {
-	Orders  []core.OrderSummary `json:"orders"`
-	Limit   int                 `json:"limit"`
-	Offset  int                 `json:"offset"`
-	HasMore bool                `json:"has_more"`
-	Counts  AdminOrderCounts    `json:"counts"`
+	Orders  []core.Order     `json:"orders"`
+	Limit   int              `json:"limit"`
+	Offset  int              `json:"offset"`
+	HasMore bool             `json:"has_more"`
+	Counts  AdminOrderCounts `json:"counts"`
 }
 
 type AuditLogPage struct {
@@ -212,13 +231,27 @@ type UpdateStaffInput struct {
 	Active       bool      `json:"active"`
 }
 
-func New(pool *pgxpool.Pool, box *cryptobox.Box, piiHashKey []byte) *Store {
+func New(pool *pgxpool.Pool, box *cryptobox.Box, piiHashKey []byte, deliveryTimingBetaIDs ...int64) *Store {
 	key := append([]byte(nil), piiHashKey...)
 	if len(key) == 0 {
 		sum := sha256.Sum256([]byte("tk-delivery-local-dev-pii-hash-key"))
 		key = append([]byte(nil), sum[:]...)
 	}
-	return &Store{pool: pool, box: box, piiHashKey: key}
+	betaIDs := make(map[int64]struct{}, len(deliveryTimingBetaIDs))
+	for _, telegramUserID := range deliveryTimingBetaIDs {
+		if telegramUserID > 0 {
+			betaIDs[telegramUserID] = struct{}{}
+		}
+	}
+	return &Store{pool: pool, box: box, piiHashKey: key, deliveryTimingBetaIDs: betaIDs}
+}
+
+func (s *Store) deliveryTimingAccess(telegramUserID int64) bool {
+	if len(s.deliveryTimingBetaIDs) == 0 {
+		return true
+	}
+	_, ok := s.deliveryTimingBetaIDs[telegramUserID]
+	return ok
 }
 
 func (s *Store) Ping(ctx context.Context) error {
@@ -369,16 +402,17 @@ func (s *Store) CreateSession(ctx context.Context, user core.User, role core.Rol
 		return core.Session{}, nil, err
 	}
 	return core.Session{
-		Token:          token,
-		TokenHash:      tokenHash,
-		UserID:         user.ID,
-		TelegramUserID: user.TelegramUserID,
-		Username:       user.Username,
-		FirstName:      user.FirstName,
-		PhotoURL:       user.PhotoURL,
-		Audience:       audience,
-		ActiveRole:     role,
-		ExpiresAt:      expiresAt,
+		Token:                token,
+		TokenHash:            tokenHash,
+		UserID:               user.ID,
+		TelegramUserID:       user.TelegramUserID,
+		Username:             user.Username,
+		FirstName:            user.FirstName,
+		PhotoURL:             user.PhotoURL,
+		DeliveryTimingAccess: s.deliveryTimingAccess(user.TelegramUserID),
+		Audience:             audience,
+		ActiveRole:           role,
+		ExpiresAt:            expiresAt,
 	}, roles, nil
 }
 
@@ -415,6 +449,7 @@ func (s *Store) SessionByToken(ctx context.Context, token string) (core.Session,
 	if errors.Is(err, pgx.ErrNoRows) {
 		return core.Session{}, core.ErrForbidden
 	}
+	sess.DeliveryTimingAccess = s.deliveryTimingAccess(sess.TelegramUserID)
 	return sess, err
 }
 
@@ -428,7 +463,9 @@ func (s *Store) Settings(ctx context.Context) (core.Settings, error) {
 			cash_location_max_accuracy_meters, pickup_enabled, pickup_address, pickup_map_url,
 			pickup_instructions_ru, pickup_instructions_sr, pickup_instructions_en,
 			pickup_min_lead_minutes, pickup_slot_minutes, pickup_max_orders_per_slot,
-			to_char(pickup_last_time, 'HH24:MI'), version
+			to_char(pickup_last_time, 'HH24:MI'), delivery_timing_enabled,
+			delivery_min_lead_minutes, delivery_slot_minutes, delivery_max_orders_per_slot,
+			to_char(delivery_last_target_time, 'HH24:MI'), version
 		FROM app_settings WHERE id=true
 	`).Scan(
 		&settings.Timezone,
@@ -460,6 +497,11 @@ func (s *Store) Settings(ctx context.Context) (core.Settings, error) {
 		&settings.PickupSlotMinutes,
 		&settings.PickupMaxOrdersPerSlot,
 		&settings.PickupLastTime,
+		&settings.DeliveryTimingEnabled,
+		&settings.DeliveryMinLeadMinutes,
+		&settings.DeliverySlotMinutes,
+		&settings.DeliveryMaxOrdersPerSlot,
+		&settings.DeliveryLastTargetTime,
 		&settings.Version,
 	)
 	if err != nil {
@@ -561,6 +603,139 @@ func (s *Store) PickupSlots(ctx context.Context, sess core.Session, now time.Tim
 	return result, nil
 }
 
+func (s *Store) DeliverySlots(ctx context.Context, sess core.Session, now time.Time) (core.DeliverySlots, error) {
+	if sess.ActiveRole != core.RoleClient {
+		return core.DeliverySlots{}, core.ErrForbidden
+	}
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return core.DeliverySlots{}, err
+	}
+	if !settings.DeliveryTimingEnabled || !s.deliveryTimingAccess(sess.TelegramUserID) {
+		return core.DeliverySlots{}, core.ErrDeliveryTimingUnavailable
+	}
+	accept := core.CanAcceptOrder(now, settings)
+	if !accept.OK {
+		return core.DeliverySlots{Timezone: settings.Timezone, Slots: []core.DeliverySlot{}}, nil
+	}
+	loc, err := time.LoadLocation(settings.Timezone)
+	if err != nil {
+		return core.DeliverySlots{}, err
+	}
+	localNow := now.In(loc)
+	first, last, err := deliverySlotBounds(localNow, settings)
+	if err != nil {
+		return core.DeliverySlots{}, err
+	}
+	result := core.DeliverySlots{Timezone: settings.Timezone, Date: localNow.Format("2006-01-02"), Slots: []core.DeliverySlot{}}
+	if first.After(last) {
+		return result, nil
+	}
+	interval := time.Duration(settings.DeliverySlotMinutes) * time.Minute
+	counts, err := s.deliverySlotLoads(ctx, first, last, interval)
+	if err != nil {
+		return core.DeliverySlots{}, err
+	}
+	all := make([]time.Time, 0, int(last.Sub(first)/interval)+1)
+	for slot := first; !slot.After(last); slot = slot.Add(interval) {
+		all = append(all, slot)
+	}
+	for index, slot := range all {
+		available := counts[slot.UTC()] < settings.DeliveryMaxOrdersPerSlot
+		var next *time.Time
+		if !available {
+			for _, candidate := range all[index+1:] {
+				if counts[candidate.UTC()] < settings.DeliveryMaxOrdersPerSlot {
+					value := candidate.UTC()
+					next = &value
+					break
+				}
+			}
+		}
+		queueDelay := 0
+		if next != nil {
+			queueDelay = int(next.Sub(slot.UTC()).Minutes())
+		}
+		result.Slots = append(result.Slots, core.DeliverySlot{
+			TargetAt: slot.UTC(), Label: slot.Format("15:04"), Available: available,
+			QueueDelayMinutes: queueDelay, NextAvailableAt: next,
+		})
+	}
+	for _, slot := range result.Slots {
+		if slot.Available {
+			queueDelay := int(slot.TargetAt.Sub(first.UTC()).Minutes())
+			result.ASAP = &core.DeliveryASAP{
+				TargetAt: slot.TargetAt, WaitMinutes: max(0, int(slot.TargetAt.Sub(now.UTC()).Minutes())),
+				QueueDelayMinutes: queueDelay,
+			}
+			break
+		}
+	}
+	return result, nil
+}
+
+func deliverySlotBounds(localNow time.Time, settings core.Settings) (time.Time, time.Time, error) {
+	interval := time.Duration(settings.DeliverySlotMinutes) * time.Minute
+	earliest := localNow.Add(time.Duration(settings.DeliveryMinLeadMinutes) * time.Minute)
+	dayStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localNow.Location())
+	elapsed := earliest.Sub(dayStart)
+	first := dayStart.Add(((elapsed + interval - 1) / interval) * interval)
+	lastHour, lastMinute, ok := parseClock(settings.DeliveryLastTargetTime)
+	if !ok {
+		return time.Time{}, time.Time{}, core.ErrInvalidInput
+	}
+	last := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), lastHour, lastMinute, 0, 0, localNow.Location())
+	for _, day := range settings.Schedule {
+		if day.DayOfWeek != int(localNow.Weekday()) {
+			continue
+		}
+		closeHour, closeMinute, valid := parseClock(day.CloseTime)
+		if valid {
+			closeAt := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), closeHour, closeMinute, 0, 0, localNow.Location())
+			if closeAt.Before(last) {
+				last = closeAt
+			}
+		}
+		break
+	}
+	return first, last, nil
+}
+
+func (s *Store) deliverySlotLoads(ctx context.Context, first, last time.Time, interval time.Duration) (map[time.Time]int, error) {
+	counts := map[time.Time]int{}
+	rows, err := s.pool.Query(ctx, `
+		SELECT slot_at, SUM(load)::int
+		FROM (
+			SELECT delivery_target_at AS slot_at, COUNT(*)::int AS load
+			FROM orders
+			WHERE fulfillment_type='delivery' AND fulfillment_status IN ('NEW','OUT_FOR_DELIVERY')
+				AND delivery_target_at BETWEEN $1 AND $2
+			GROUP BY delivery_target_at
+			UNION ALL
+			SELECT $1 + floor(extract(epoch FROM (pickup_cook_at - $1)) / $3)::int * ($3 * interval '1 second') AS slot_at,
+				COUNT(*)::int AS load
+			FROM orders
+			WHERE fulfillment_type='pickup' AND fulfillment_status IN ('NEW','READY_FOR_PICKUP')
+				AND pickup_cook_at >= $1 AND pickup_cook_at < $2 + ($3 * interval '1 second')
+			GROUP BY 1
+		) loads
+		GROUP BY slot_at
+	`, first.UTC(), last.UTC(), int(interval.Seconds()))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var slot time.Time
+		var count int
+		if err := rows.Scan(&slot, &count); err != nil {
+			return nil, err
+		}
+		counts[slot.UTC()] = count
+	}
+	return counts, rows.Err()
+}
+
 func parseClock(value string) (int, int, bool) {
 	parts := strings.Split(strings.TrimSpace(value), ":")
 	if len(parts) != 2 {
@@ -584,6 +759,14 @@ func validPickupSlotMinutes(value int) bool {
 	return false
 }
 
+func validDeliverySlotMinutes(value int) bool {
+	switch value {
+	case 10, 15, 20, 30, 60:
+		return true
+	}
+	return false
+}
+
 func (s *Store) SetManualDayOff(ctx context.Context, sess core.Session, enabled bool) (core.Settings, error) {
 	if sess.ActiveRole != core.RoleAdmin {
 		return core.Settings{}, core.ErrForbidden
@@ -598,7 +781,12 @@ func (s *Store) SetManualDayOff(ctx context.Context, sess core.Session, enabled 
 	}
 	defer rollback(ctx, tx)
 	_, err = tx.Exec(ctx, `
-		UPDATE app_settings SET manual_day_off=$1, version=version+1, updated_at=now() WHERE id=true
+		UPDATE app_settings
+		SET manual_day_off=$1,
+			day_off_banner=CASE WHEN $1 THEN 'Временно закрыто на техобслуживание' ELSE 'ВЫХОДНОЙ' END,
+			version=version+1,
+			updated_at=now()
+		WHERE id=true
 	`, enabled)
 	if err != nil {
 		return core.Settings{}, err
@@ -614,6 +802,35 @@ func (s *Store) SetManualDayOff(ctx context.Context, sess core.Session, enabled 
 		return core.Settings{}, err
 	}
 	return after, nil
+}
+
+func (s *Store) SetTelegramSandboxPreference(ctx context.Context, telegramUserID int64, enabled bool) error {
+	if telegramUserID <= 0 {
+		return core.ErrInvalidInput
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO telegram_environment_preferences (telegram_user_id, sandbox_enabled, updated_at)
+		VALUES ($1, $2, now())
+		ON CONFLICT (telegram_user_id) DO UPDATE
+		SET sandbox_enabled=EXCLUDED.sandbox_enabled, updated_at=now()
+	`, telegramUserID, enabled)
+	return err
+}
+
+func (s *Store) TelegramSandboxPreference(ctx context.Context, telegramUserID int64) (bool, error) {
+	if telegramUserID <= 0 {
+		return false, core.ErrInvalidInput
+	}
+	var enabled bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT sandbox_enabled
+		FROM telegram_environment_preferences
+		WHERE telegram_user_id=$1
+	`, telegramUserID).Scan(&enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return enabled, err
 }
 
 func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input UpdateSettingsInput) (core.Settings, error) {
@@ -641,6 +858,18 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 	}
 	if strings.TrimSpace(input.PickupLastTime) == "" {
 		input.PickupLastTime = "22:00"
+	}
+	if input.DeliveryMinLeadMinutes == 0 {
+		input.DeliveryMinLeadMinutes = 40
+	}
+	if input.DeliverySlotMinutes == 0 {
+		input.DeliverySlotMinutes = 30
+	}
+	if input.DeliveryMaxOrdersPerSlot == 0 {
+		input.DeliveryMaxOrdersPerSlot = 2
+	}
+	if strings.TrimSpace(input.DeliveryLastTargetTime) == "" {
+		input.DeliveryLastTargetTime = "21:30"
 	}
 	if input.FlatDeliveryFeeMinor < 0 || input.MaxItemQuantity <= 0 || input.MaxItemQuantity > maxItemQuantityHardLimit ||
 		input.MaxCommentLength <= 0 || input.MaxCommentLength > maxCustomerCommentLength || !input.CashEnabled {
@@ -673,6 +902,11 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 	if input.PickupEnabled && strings.TrimSpace(input.PickupAddress) == "" {
 		return core.Settings{}, core.ErrInvalidInput
 	}
+	if input.DeliveryMinLeadMinutes < 10 || input.DeliveryMinLeadMinutes > 180 ||
+		!validDeliverySlotMinutes(input.DeliverySlotMinutes) || input.DeliveryMaxOrdersPerSlot < 1 || input.DeliveryMaxOrdersPerSlot > 20 ||
+		!validClock(input.DeliveryLastTargetTime) {
+		return core.Settings{}, core.ErrInvalidInput
+	}
 	before, err := s.Settings(ctx)
 	if err != nil {
 		return core.Settings{}, err
@@ -691,15 +925,19 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 			cash_location_max_accuracy_meters=$13, pickup_enabled=$14, pickup_address=$15,
 			pickup_map_url=$16, pickup_instructions_ru=$17, pickup_instructions_sr=$18,
 			pickup_instructions_en=$19, pickup_min_lead_minutes=$20, pickup_slot_minutes=$21,
-			pickup_max_orders_per_slot=$22, pickup_last_time=$23::time, version=version+1, updated_at=now()
-		WHERE id=true AND version=$24
+			pickup_max_orders_per_slot=$22, pickup_last_time=$23::time, delivery_timing_enabled=$24,
+			delivery_min_lead_minutes=$25, delivery_slot_minutes=$26, delivery_max_orders_per_slot=$27,
+			delivery_last_target_time=$28::time, version=version+1, updated_at=now()
+		WHERE id=true AND version=$29
 	`, input.FlatDeliveryFeeMinor, safe(input.SupportText), safe(input.SupportPhone), safe(input.TermsURL),
 		input.MaxItemQuantity, input.MaxCommentLength, input.CashEnabled, input.CashLocationRequired,
 		input.RestaurantLatitude, input.RestaurantLongitude, input.CashLocationRadiusMeters,
 		input.CashLocationTTLSeconds, input.CashLocationMaxAccuracyMeters, input.PickupEnabled,
 		safe(input.PickupAddress), safe(input.PickupMapURL), safe(input.PickupInstructionsRU),
 		safe(input.PickupInstructionsSR), safe(input.PickupInstructionsEN), input.PickupMinLeadMinutes,
-		input.PickupSlotMinutes, input.PickupMaxOrdersPerSlot, input.PickupLastTime, input.Version)
+		input.PickupSlotMinutes, input.PickupMaxOrdersPerSlot, input.PickupLastTime,
+		input.DeliveryTimingEnabled, input.DeliveryMinLeadMinutes, input.DeliverySlotMinutes,
+		input.DeliveryMaxOrdersPerSlot, input.DeliveryLastTargetTime, input.Version)
 	if err != nil {
 		return core.Settings{}, err
 	}
@@ -732,6 +970,11 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 	afterAudit.PickupSlotMinutes = input.PickupSlotMinutes
 	afterAudit.PickupMaxOrdersPerSlot = input.PickupMaxOrdersPerSlot
 	afterAudit.PickupLastTime = input.PickupLastTime
+	afterAudit.DeliveryTimingEnabled = input.DeliveryTimingEnabled
+	afterAudit.DeliveryMinLeadMinutes = input.DeliveryMinLeadMinutes
+	afterAudit.DeliverySlotMinutes = input.DeliverySlotMinutes
+	afterAudit.DeliveryMaxOrdersPerSlot = input.DeliveryMaxOrdersPerSlot
+	afterAudit.DeliveryLastTargetTime = input.DeliveryLastTargetTime
 	afterAudit.Version = before.Version + 1
 	if err := s.insertAuditTx(ctx, tx, sess, "settings.update", "app_settings", nil, "", safeSettingsAudit(before), safeSettingsAudit(afterAudit)); err != nil {
 		return core.Settings{}, err
@@ -1425,6 +1668,10 @@ func (s *Store) Calculate(ctx context.Context, sess core.Session, input []core.C
 }
 
 func (s *Store) CalculateForFulfillment(ctx context.Context, sess core.Session, input []core.CartItemInput, fulfillmentType core.FulfillmentType, now time.Time) (core.Calculation, error) {
+	return s.CalculateForFulfillmentTiming(ctx, sess, input, fulfillmentType, DeliveryTimingInput{}, now)
+}
+
+func (s *Store) CalculateForFulfillmentTiming(ctx context.Context, sess core.Session, input []core.CartItemInput, fulfillmentType core.FulfillmentType, timing DeliveryTimingInput, now time.Time) (core.Calculation, error) {
 	if sess.ActiveRole != core.RoleClient {
 		return core.Calculation{}, core.ErrForbidden
 	}
@@ -1463,6 +1710,15 @@ func (s *Store) CalculateForFulfillment(ctx context.Context, sess core.Session, 
 	}
 	if fulfillmentType == core.FulfillmentPickup {
 		calc.DeliveryFeeMinor = 0
+	} else if settings.DeliveryTimingEnabled && s.deliveryTimingAccess(sess.TelegramUserID) {
+		target, delay, err := s.resolveDeliveryTiming(ctx, timing, settings, now)
+		if err != nil {
+			return core.Calculation{}, err
+		}
+		calc.DeliveryTargetAt = &target
+		calc.DeliveryQueueDelayMinutes = delay
+	} else if timing.RequestedAt != nil || (timing.Mode != "" && !strings.EqualFold(timing.Mode, "ASAP")) {
+		return core.Calculation{}, core.ErrDeliveryTimingUnavailable
 	}
 	rows, err := s.pool.Query(ctx, `
 			SELECT mi.id, mi.title_ru, mi.price_minor, mi.version, mi.min_quantity
@@ -2264,7 +2520,7 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	address := safe(input.Address)
 	comment := safe(input.Comment)
 	if fulfillmentType == core.FulfillmentPickup {
-		if !settings.PickupEnabled || input.PickupAt == nil {
+		if !settings.PickupEnabled || input.PickupAt == nil || input.DeliveryRequestedAt != nil || strings.TrimSpace(input.DeliveryTimeMode) != "" {
 			return core.Order{}, core.ErrPickupSlotUnavailable
 		}
 		address = pickupAddressSnapshot
@@ -2334,6 +2590,10 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	}
 	var pickupAt *time.Time
 	var pickupCookAtValue *time.Time
+	var deliveryRequestedAt *time.Time
+	var deliveryTargetAt *time.Time
+	deliveryTimeMode := "ASAP"
+	deliveryQueueDelayMinutes := 0
 	if fulfillmentType == core.FulfillmentPickup {
 		validated, err := s.validatePickupSlotTx(ctx, tx, *input.PickupAt, settings, now)
 		if err != nil {
@@ -2341,6 +2601,17 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		}
 		pickupAt = &validated
 		pickupCookAtValue = pickupCookAt(pickupAt, settings)
+	} else if settings.DeliveryTimingEnabled && s.deliveryTimingAccess(sess.TelegramUserID) {
+		mode, requested, target, delay, err := s.validateDeliveryTimingTx(ctx, tx, DeliveryTimingInput{Mode: input.DeliveryTimeMode, RequestedAt: input.DeliveryRequestedAt}, settings, now)
+		if err != nil {
+			return core.Order{}, err
+		}
+		deliveryTimeMode, deliveryRequestedAt, deliveryTargetAt, deliveryQueueDelayMinutes = mode, requested, &target, delay
+	} else {
+		if input.DeliveryRequestedAt != nil || (strings.TrimSpace(input.DeliveryTimeMode) != "" && !strings.EqualFold(input.DeliveryTimeMode, "ASAP")) {
+			return core.Order{}, core.ErrDeliveryTimingUnavailable
+		}
+		deliveryTimeMode = "ASAP"
 	}
 	phone, err := s.verifiedPhoneForCashOrder(ctx, tx, sess.UserID, input.Phone)
 	if err != nil {
@@ -2370,13 +2641,15 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 			client_user_id, fulfillment_type, fulfillment_status, payment_method, payment_status, subtotal_minor, delivery_fee_minor,
 			total_minor, currency, phone_ciphertext, phone_hash, address_ciphertext, customer_comment, locale,
 			terms_version, terms_accepted_at, cash_location_challenge_id, cash_location_verified_at, cash_location_distance_meters,
-			pickup_at, pickup_original_at, pickup_cook_at, pickup_address_snapshot, pickup_instructions_snapshot
+			pickup_at, pickup_original_at, pickup_cook_at, pickup_address_snapshot, pickup_instructions_snapshot,
+			delivery_time_mode, delivery_requested_at, delivery_target_at, delivery_queue_delay_minutes
 		)
-		VALUES ($1, $2, 'NEW', 'cash', 'CASH_PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15, $16, $16, $17, $18, $19)
+		VALUES ($1, $2, 'NEW', 'cash', 'CASH_PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15, $16, $16, $17, $18, $19, $20, $21, $22, $23)
 		RETURNING id, public_number, created_at
 	`, sess.UserID, string(fulfillmentType), subtotal, delivery, total, currency, phoneCipher, phoneHash, addressCipher, comment, localeOrDefault(input.Locale),
 		termsVersion, uuidSQL(cashLocationChallengeID), timeSQL(cashLocationVerifiedAt), intSQL(cashLocationDistance),
-		timeSQL(pickupAt), timeSQL(pickupCookAtValue), pickupAddressForOrder(fulfillmentType, settings), pickupInstructionsForLocale(fulfillmentType, settings, input.Locale)).
+		timeSQL(pickupAt), timeSQL(pickupCookAtValue), pickupAddressForOrder(fulfillmentType, settings), pickupInstructionsForLocale(fulfillmentType, settings, input.Locale),
+		deliveryTimeMode, timeSQL(deliveryRequestedAt), timeSQL(deliveryTargetAt), deliveryQueueDelayMinutes).
 		Scan(&orderID, &publicNumber, &createdAt)
 	if err != nil {
 		if isUniqueViolation(err, "idx_orders_one_active_per_client") {
@@ -2451,6 +2724,10 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		PickupCookAt:               pickupCookAtValue,
 		PickupAddress:              pickupAddressForOrder(fulfillmentType, settings),
 		PickupInstructions:         pickupInstructionsForLocale(fulfillmentType, settings, input.Locale),
+		DeliveryTimeMode:           deliveryTimeMode,
+		DeliveryRequestedAt:        deliveryRequestedAt,
+		DeliveryTargetAt:           deliveryTargetAt,
+		DeliveryQueueDelayMinutes:  deliveryQueueDelayMinutes,
 		CashLocationVerifiedAt:     cashLocationVerifiedAt,
 		CashLocationDistanceMeters: cashLocationDistance,
 	}
@@ -2464,6 +2741,170 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		})
 	}
 	return order, nil
+}
+
+func normalizeDeliveryTiming(input DeliveryTimingInput) (string, *time.Time, error) {
+	mode := strings.ToUpper(strings.TrimSpace(input.Mode))
+	if mode == "" {
+		mode = "ASAP"
+	}
+	switch mode {
+	case "ASAP":
+		if input.RequestedAt != nil {
+			return "", nil, core.ErrDeliveryTimeInvalid
+		}
+		return mode, nil, nil
+	case "SCHEDULED":
+		if input.RequestedAt == nil {
+			return "", nil, core.ErrDeliveryTimeInvalid
+		}
+		value := input.RequestedAt.UTC()
+		return mode, &value, nil
+	default:
+		return "", nil, core.ErrDeliveryTimeInvalid
+	}
+}
+
+func (s *Store) resolveDeliveryTiming(ctx context.Context, input DeliveryTimingInput, settings core.Settings, now time.Time) (time.Time, int, error) {
+	mode, requested, err := normalizeDeliveryTiming(input)
+	if err != nil {
+		return time.Time{}, 0, err
+	}
+	slots, err := s.deliverySlotsForSettings(ctx, settings, now)
+	if err != nil {
+		return time.Time{}, 0, err
+	}
+	if mode == "ASAP" {
+		if slots.ASAP == nil {
+			return time.Time{}, 0, core.ErrDeliveryTimingUnavailable
+		}
+		return slots.ASAP.TargetAt, slots.ASAP.QueueDelayMinutes, nil
+	}
+	for _, slot := range slots.Slots {
+		if requested != nil && slot.TargetAt.Equal(*requested) {
+			if !slot.Available {
+				return time.Time{}, 0, &core.DeliverySlotUnavailableError{NextAvailableAt: slot.NextAvailableAt, QueueDelayMinutes: slot.QueueDelayMinutes}
+			}
+			return slot.TargetAt, 0, nil
+		}
+	}
+	return time.Time{}, 0, core.ErrDeliveryTimeInvalid
+}
+
+func (s *Store) deliverySlotsForSettings(ctx context.Context, settings core.Settings, now time.Time) (core.DeliverySlots, error) {
+	if !core.CanAcceptOrder(now, settings).OK {
+		return core.DeliverySlots{}, core.ErrDeliveryTimingUnavailable
+	}
+	loc, err := time.LoadLocation(settings.Timezone)
+	if err != nil {
+		return core.DeliverySlots{}, err
+	}
+	localNow := now.In(loc)
+	first, last, err := deliverySlotBounds(localNow, settings)
+	if err != nil {
+		return core.DeliverySlots{}, err
+	}
+	result := core.DeliverySlots{Timezone: settings.Timezone, Date: localNow.Format("2006-01-02"), Slots: []core.DeliverySlot{}}
+	if first.After(last) {
+		return result, nil
+	}
+	interval := time.Duration(settings.DeliverySlotMinutes) * time.Minute
+	counts, err := s.deliverySlotLoads(ctx, first, last, interval)
+	if err != nil {
+		return core.DeliverySlots{}, err
+	}
+	for slot := first; !slot.After(last); slot = slot.Add(interval) {
+		available := counts[slot.UTC()] < settings.DeliveryMaxOrdersPerSlot
+		result.Slots = append(result.Slots, core.DeliverySlot{TargetAt: slot.UTC(), Label: slot.Format("15:04"), Available: available})
+	}
+	for i := range result.Slots {
+		if result.Slots[i].Available {
+			if result.ASAP == nil {
+				delay := int(result.Slots[i].TargetAt.Sub(first.UTC()).Minutes())
+				result.ASAP = &core.DeliveryASAP{TargetAt: result.Slots[i].TargetAt, WaitMinutes: max(0, int(result.Slots[i].TargetAt.Sub(now.UTC()).Minutes())), QueueDelayMinutes: delay}
+			}
+			continue
+		}
+		for j := i + 1; j < len(result.Slots); j++ {
+			if result.Slots[j].Available {
+				next := result.Slots[j].TargetAt
+				result.Slots[i].NextAvailableAt = &next
+				result.Slots[i].QueueDelayMinutes = int(next.Sub(result.Slots[i].TargetAt).Minutes())
+				break
+			}
+		}
+	}
+	return result, nil
+}
+
+func (s *Store) validateDeliveryTimingTx(ctx context.Context, tx pgx.Tx, input DeliveryTimingInput, settings core.Settings, now time.Time) (string, *time.Time, time.Time, int, error) {
+	mode, requested, err := normalizeDeliveryTiming(input)
+	if err != nil {
+		return "", nil, time.Time{}, 0, err
+	}
+	loc, err := time.LoadLocation(settings.Timezone)
+	if err != nil {
+		return "", nil, time.Time{}, 0, err
+	}
+	first, last, err := deliverySlotBounds(now.In(loc), settings)
+	if err != nil || first.After(last) {
+		return "", nil, time.Time{}, 0, core.ErrDeliveryTimingUnavailable
+	}
+	interval := time.Duration(settings.DeliverySlotMinutes) * time.Minute
+	candidate := first
+	if mode == "SCHEDULED" {
+		candidate = requested.In(loc)
+		if candidate.Before(first) || candidate.After(last) || !candidate.Equal(candidate.Truncate(time.Minute)) || int(candidate.Sub(time.Date(candidate.Year(), candidate.Month(), candidate.Day(), 0, 0, 0, 0, loc))/time.Minute)%settings.DeliverySlotMinutes != 0 || candidate.YearDay() != now.In(loc).YearDay() || candidate.Year() != now.In(loc).Year() {
+			return "", nil, time.Time{}, 0, core.ErrDeliveryTimeInvalid
+		}
+	}
+	for slot := candidate; !slot.After(last); slot = slot.Add(interval) {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "delivery:"+slot.UTC().Format(time.RFC3339)); err != nil {
+			return "", nil, time.Time{}, 0, err
+		}
+		count, err := deliverySlotLoadTx(ctx, tx, slot.UTC(), interval)
+		if err != nil {
+			return "", nil, time.Time{}, 0, err
+		}
+		if count < settings.DeliveryMaxOrdersPerSlot {
+			delay := int(slot.Sub(first).Minutes())
+			return mode, requested, slot.UTC(), delay, nil
+		}
+		if mode == "SCHEDULED" {
+			var next *time.Time
+			for later := slot.Add(interval); !later.After(last); later = later.Add(interval) {
+				if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "delivery:"+later.UTC().Format(time.RFC3339)); err != nil {
+					return "", nil, time.Time{}, 0, err
+				}
+				load, err := deliverySlotLoadTx(ctx, tx, later.UTC(), interval)
+				if err != nil {
+					return "", nil, time.Time{}, 0, err
+				}
+				if load < settings.DeliveryMaxOrdersPerSlot {
+					value := later.UTC()
+					next = &value
+					break
+				}
+			}
+			delay := 0
+			if next != nil {
+				delay = int(next.Sub(slot.UTC()).Minutes())
+			}
+			return "", nil, time.Time{}, 0, &core.DeliverySlotUnavailableError{NextAvailableAt: next, QueueDelayMinutes: delay}
+		}
+	}
+	return "", nil, time.Time{}, 0, core.ErrDeliveryTimingUnavailable
+}
+
+func deliverySlotLoadTx(ctx context.Context, tx pgx.Tx, slot time.Time, interval time.Duration) (int, error) {
+	var count int
+	err := tx.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM orders WHERE fulfillment_type='delivery' AND fulfillment_status IN ('NEW','OUT_FOR_DELIVERY') AND delivery_target_at=$1)
+			+
+			(SELECT COUNT(*) FROM orders WHERE fulfillment_type='pickup' AND fulfillment_status IN ('NEW','READY_FOR_PICKUP') AND pickup_cook_at >= $1 AND pickup_cook_at < $2)
+	`, slot, slot.Add(interval)).Scan(&count)
+	return count, err
 }
 
 func (s *Store) validatePickupSlotTx(ctx context.Context, tx pgx.Tx, requested time.Time, settings core.Settings, now time.Time) (time.Time, error) {
@@ -2502,6 +2943,22 @@ func (s *Store) validatePickupSlotTx(ctx context.Context, tx pgx.Tx, requested t
 	}
 	if count >= settings.PickupMaxOrdersPerSlot {
 		return time.Time{}, core.ErrPickupSlotUnavailable
+	}
+	if settings.DeliveryTimingEnabled {
+		cookAt := localRequested.Add(-time.Duration(settings.PickupMinLeadMinutes) * time.Minute)
+		dayStart := time.Date(cookAt.Year(), cookAt.Month(), cookAt.Day(), 0, 0, 0, 0, loc)
+		interval := time.Duration(settings.DeliverySlotMinutes) * time.Minute
+		sharedSlot := dayStart.Add((cookAt.Sub(dayStart) / interval) * interval).UTC()
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "delivery:"+sharedSlot.Format(time.RFC3339)); err != nil {
+			return time.Time{}, err
+		}
+		sharedCount, err := deliverySlotLoadTx(ctx, tx, sharedSlot, interval)
+		if err != nil {
+			return time.Time{}, err
+		}
+		if sharedCount >= settings.DeliveryMaxOrdersPerSlot {
+			return time.Time{}, core.ErrPickupSlotUnavailable
+		}
 	}
 	return localRequested.UTC(), nil
 }
@@ -2575,7 +3032,9 @@ func (s *Store) KitchenOrders(ctx context.Context, sess core.Session) ([]core.Or
 			OR (o.fulfillment_status='READY_FOR_PICKUP' AND o.fulfillment_type='pickup')
 		ORDER BY
 			CASE WHEN o.fulfillment_status='READY_FOR_PICKUP' THEN 0 ELSE 1 END,
-			CASE WHEN o.fulfillment_type='pickup' THEN o.pickup_at ELSE o.created_at END ASC
+			CASE WHEN o.fulfillment_type='delivery' AND o.delivery_target_at < now() THEN 0 ELSE 1 END,
+			CASE WHEN o.fulfillment_type='pickup' THEN o.pickup_at ELSE COALESCE(o.delivery_target_at, o.created_at) END ASC,
+			o.created_at ASC
 		LIMIT 50
 	`)
 	if err != nil {
@@ -2628,7 +3087,9 @@ func (s *Store) ClientOrders(ctx context.Context, sess core.Session, filter Clie
 			COALESCE(u.photo_url, ''),
 			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
-			o.locale, o.version, o.created_at, o.pickup_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.locale, o.version, o.created_at, o.pickup_at, o.delivery_time_mode, o.delivery_requested_at,
+			o.delivery_target_at, o.delivery_queue_delay_minutes, o.estimated_ready_at,
+			o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
 		FROM orders o
 		JOIN users u ON u.id=o.client_user_id
@@ -2660,7 +3121,9 @@ func (s *Store) ClientBootstrapOrders(ctx context.Context, sess core.Session) ([
 			COALESCE(u.photo_url, ''),
 			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
-			o.locale, o.version, o.created_at, o.pickup_at, o.ready_at, o.delivered_at, o.cancelled_at,
+			o.locale, o.version, o.created_at, o.pickup_at, o.delivery_time_mode, o.delivery_requested_at,
+			o.delivery_target_at, o.delivery_queue_delay_minutes, o.estimated_ready_at,
+			o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
 		FROM orders o
 		JOIN users u ON u.id=o.client_user_id
@@ -2718,7 +3181,7 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 		SELECT
 			COUNT(*) FILTER (WHERE o.fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP'))::int,
 			COUNT(*) FILTER (WHERE o.fulfillment_status='NEW')::int,
-			COUNT(*) FILTER (WHERE o.fulfillment_status='OUT_FOR_DELIVERY')::int,
+			COUNT(*) FILTER (WHERE o.fulfillment_status IN ('OUT_FOR_DELIVERY', 'READY_FOR_PICKUP'))::int,
 			COUNT(*) FILTER (WHERE o.fulfillment_status IN ('DELIVERED', 'CANCELLED'))::int
 		FROM orders o
 		JOIN users u ON u.id=o.client_user_id
@@ -2739,12 +3202,7 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 	}
 	args = append(args, limit+1, offset)
 	sqlQuery := fmt.Sprintf(
-		`SELECT o.id, o.public_number, COALESCE(u.username, ''), COALESCE(u.first_name, ''),
-			COALESCE(u.photo_url, ''),
-			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
-			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
-			o.locale, o.version, o.created_at, o.pickup_at, o.ready_at, o.delivered_at, o.cancelled_at,
-			o.cash_location_verified_at, o.cash_location_distance_meters
+		`SELECT o.id
 		FROM orders o
 		JOIN users u ON u.id=o.client_user_id
 		WHERE %s
@@ -2758,14 +3216,26 @@ func (s *Store) AdminOrders(ctx context.Context, sess core.Session, filter Admin
 	if err != nil {
 		return AdminOrdersPage{}, err
 	}
-	defer rows.Close()
-	orders, err := scanOrderSummaries(rows)
-	if err != nil {
+	ids := make([]uuid.UUID, 0, limit+1)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return AdminOrdersPage{}, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
 		return AdminOrdersPage{}, err
 	}
-	hasMore := len(orders) > limit
+	hasMore := len(ids) > limit
 	if hasMore {
-		orders = orders[:limit]
+		ids = ids[:limit]
+	}
+	orders, err := s.ordersByIDs(ctx, ids, true)
+	if err != nil {
+		return AdminOrdersPage{}, err
 	}
 	return AdminOrdersPage{
 		Orders:  orders,
@@ -3271,6 +3741,10 @@ func (s *Store) AdminDashboard(ctx context.Context, sess core.Session, now time.
 		PickupMinLeadMinutes:     settings.PickupMinLeadMinutes,
 		PickupSlotMinutes:        settings.PickupSlotMinutes,
 		PickupLastTime:           settings.PickupLastTime,
+		DeliveryTimingEnabled:    settings.DeliveryTimingEnabled,
+		DeliveryMinLeadMinutes:   settings.DeliveryMinLeadMinutes,
+		DeliverySlotMinutes:      settings.DeliverySlotMinutes,
+		DeliveryLastTargetTime:   settings.DeliveryLastTargetTime,
 	}
 	loc, err := time.LoadLocation(settings.Timezone)
 	if err != nil {
@@ -3343,14 +3817,21 @@ func (s *Store) AdminAnalytics(ctx context.Context, sess core.Session, from, to 
 			COUNT(*)::int,
 			COUNT(*) FILTER (WHERE fulfillment_status='DELIVERED')::int,
 			COUNT(*) FILTER (WHERE fulfillment_status='CANCELLED')::int,
-			COALESCE(SUM(total_minor) FILTER (WHERE fulfillment_status='DELIVERED' AND payment_status='PAID'), 0)::int
+			COALESCE(SUM(total_minor) FILTER (WHERE fulfillment_status='DELIVERED' AND payment_status='PAID'), 0)::int,
+			COALESCE(ROUND(100.0 * COUNT(*) FILTER (WHERE fulfillment_type='delivery' AND fulfillment_status<>'CANCELLED' AND delivery_target_at IS NOT NULL)
+				/ NULLIF(COUNT(DISTINCT delivery_target_at) FILTER (WHERE fulfillment_type='delivery' AND fulfillment_status<>'CANCELLED' AND delivery_target_at IS NOT NULL) * $3, 0)), 0)::int,
+			COALESCE(ROUND(AVG(delivery_queue_delay_minutes) FILTER (WHERE fulfillment_type='delivery' AND fulfillment_status<>'CANCELLED' AND delivery_target_at IS NOT NULL)), 0)::int,
+			COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (ready_at - delivery_target_at)) / 60) FILTER (WHERE fulfillment_type='delivery' AND ready_at IS NOT NULL AND delivery_target_at IS NOT NULL)), 0)::int
 		FROM orders
 		WHERE created_at >= $1 AND created_at < $2
-	`, from.UTC(), to.UTC()).Scan(
+	`, from.UTC(), to.UTC(), settings.DeliveryMaxOrdersPerSlot).Scan(
 		&analytics.Summary.AllOrders,
 		&analytics.Summary.DeliveredOrders,
 		&analytics.Summary.CancelledOrders,
 		&analytics.Summary.RevenueMinor,
+		&analytics.Summary.DeliverySlotFillPercent,
+		&analytics.Summary.AverageDeliveryQueueDelayMinutes,
+		&analytics.Summary.AverageReadyPlanDeviationMinutes,
 	)
 	if err != nil {
 		return core.AdminAnalytics{}, err
@@ -3680,6 +4161,99 @@ func (s *Store) MarkReady(ctx context.Context, sess core.Session, orderID uuid.U
 		return core.Order{}, core.ErrForbidden
 	}
 	return s.transition(ctx, sess, orderID, "orders.mark_ready", idempotencyKey, requestHash, core.StatusNew, core.StatusOutForDelivery, expectedVersionValue(expectedVersion))
+}
+
+func (s *Store) EstimateReady(ctx context.Context, sess core.Session, orderID uuid.UUID, input EstimateReadyInput, idempotencyKey, requestHash string, now time.Time) (core.Order, error) {
+	if sess.ActiveRole != core.RoleKitchen {
+		return core.Order{}, core.ErrForbidden
+	}
+	if strings.TrimSpace(idempotencyKey) == "" || input.ExpectedVersion <= 0 || (input.ReadyInMinutes == nil) == (input.EstimatedReadyAt == nil) {
+		return core.Order{}, core.ErrInvalidInput
+	}
+	var target time.Time
+	if input.ReadyInMinutes != nil {
+		if *input.ReadyInMinutes < 5 || *input.ReadyInMinutes > 180 || *input.ReadyInMinutes%5 != 0 {
+			return core.Order{}, core.ErrInvalidInput
+		}
+		target = now.UTC().Add(time.Duration(*input.ReadyInMinutes) * time.Minute).Truncate(time.Minute)
+	} else {
+		target = input.EstimatedReadyAt.UTC().Truncate(time.Minute)
+		minimum := now.UTC().Add(10 * time.Minute).Truncate(time.Minute)
+		maximum := now.UTC().Add(180 * time.Minute).Truncate(time.Minute)
+		if target.Before(minimum) || target.After(maximum) || target.Minute()%5 != 0 {
+			return core.Order{}, core.ErrInvalidInput
+		}
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return core.Order{}, err
+	}
+	defer rollback(ctx, tx)
+	if existingID, replay, err := s.beginIdempotency(ctx, tx, sess.UserID, "orders.estimate_ready", idempotencyKey, requestHash); err != nil {
+		return core.Order{}, err
+	} else if replay {
+		if err := tx.Commit(ctx); err != nil {
+			return core.Order{}, err
+		}
+		return s.OrderByID(ctx, existingID, false)
+	}
+	var currentStatus core.FulfillmentStatus
+	var fulfillment core.FulfillmentType
+	var currentVersion int
+	var previous sql.NullTime
+	if err := tx.QueryRow(ctx, `SELECT fulfillment_status, fulfillment_type, version, estimated_ready_at FROM orders WHERE id=$1 FOR UPDATE`, orderID).
+		Scan(&currentStatus, &fulfillment, &currentVersion, &previous); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return core.Order{}, core.ErrOrderStatusConflict
+		}
+		return core.Order{}, err
+	}
+	if currentStatus != core.StatusNew || fulfillment != core.FulfillmentDelivery || currentVersion != input.ExpectedVersion {
+		return core.Order{}, core.ErrOrderStatusConflict
+	}
+	if previous.Valid && previous.Time.UTC().Equal(target) {
+		if err := s.finishIdempotency(ctx, tx, sess.UserID, "orders.estimate_ready", idempotencyKey, orderID); err != nil {
+			return core.Order{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return core.Order{}, err
+		}
+		return s.OrderByID(ctx, orderID, false)
+	}
+	var newVersion int
+	if err := tx.QueryRow(ctx, `
+		UPDATE orders SET estimated_ready_at=$2, estimated_ready_updated_at=now(), estimated_ready_by=$3,
+			updated_at=now(), version=version+1
+		WHERE id=$1 RETURNING version
+	`, orderID, target, sess.UserID).Scan(&newVersion); err != nil {
+		return core.Order{}, err
+	}
+	action := "kitchen.estimate_ready"
+	template := "client_kitchen_eta_set"
+	if previous.Valid {
+		action = "kitchen.update_estimated_ready"
+		template = "client_kitchen_eta_updated"
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO order_events (order_id, from_status, to_status, action, actor_user_id, actor_role, reason)
+		VALUES ($1, 'NEW', 'NEW', $2, $3, 'KITCHEN', $4)
+	`, orderID, action, sess.UserID, fmt.Sprintf("version=%d;at=%s", newVersion, target.Format(time.RFC3339))); err != nil {
+		return core.Order{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
+		VALUES ($1, 'client', $2, $3)
+		ON CONFLICT (event_key, recipient_kind) DO NOTHING
+	`, orderID, template, fmt.Sprintf("order:%s:eta:%d", orderID, newVersion)); err != nil {
+		return core.Order{}, err
+	}
+	if err := s.finishIdempotency(ctx, tx, sess.UserID, "orders.estimate_ready", idempotencyKey, orderID); err != nil {
+		return core.Order{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return core.Order{}, err
+	}
+	return s.OrderByID(ctx, orderID, false)
 }
 
 func (s *Store) StartKitchenPreparation(ctx context.Context, sess core.Session, orderID uuid.UUID, idempotencyKey, requestHash string, expectedVersion int) (core.Order, error) {
@@ -4114,11 +4688,16 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 		value := int(locationDistance.Int32)
 		order.CashLocationDistanceMeters = &value
 	}
-	var pickupAt, pickupOriginalAt, pickupCookAtValue sql.NullTime
+	var pickupAt, pickupOriginalAt, pickupCookAtValue, deliveryRequestedAt, deliveryTargetAt, estimatedReadyAt, estimatedReadyUpdatedAt sql.NullTime
+	var estimatedReadyBy uuid.NullUUID
 	if err := s.pool.QueryRow(ctx, `
-		SELECT pickup_at, pickup_original_at, pickup_cook_at, pickup_address_snapshot, pickup_instructions_snapshot
+		SELECT pickup_at, pickup_original_at, pickup_cook_at, pickup_address_snapshot, pickup_instructions_snapshot,
+			delivery_time_mode, delivery_requested_at, delivery_target_at, delivery_queue_delay_minutes,
+			estimated_ready_at, estimated_ready_updated_at, estimated_ready_by
 		FROM orders WHERE id=$1
-	`, orderID).Scan(&pickupAt, &pickupOriginalAt, &pickupCookAtValue, &order.PickupAddress, &order.PickupInstructions); err != nil {
+	`, orderID).Scan(&pickupAt, &pickupOriginalAt, &pickupCookAtValue, &order.PickupAddress, &order.PickupInstructions,
+		&order.DeliveryTimeMode, &deliveryRequestedAt, &deliveryTargetAt, &order.DeliveryQueueDelayMinutes,
+		&estimatedReadyAt, &estimatedReadyUpdatedAt, &estimatedReadyBy); err != nil {
 		return core.Order{}, err
 	}
 	if pickupAt.Valid {
@@ -4129,6 +4708,22 @@ func (s *Store) OrderByID(ctx context.Context, orderID uuid.UUID, includePII boo
 	}
 	if pickupCookAtValue.Valid {
 		order.PickupCookAt = &pickupCookAtValue.Time
+	}
+	if deliveryRequestedAt.Valid {
+		order.DeliveryRequestedAt = &deliveryRequestedAt.Time
+	}
+	if deliveryTargetAt.Valid {
+		order.DeliveryTargetAt = &deliveryTargetAt.Time
+	}
+	if estimatedReadyAt.Valid {
+		order.EstimatedReadyAt = &estimatedReadyAt.Time
+	}
+	if estimatedReadyUpdatedAt.Valid {
+		order.EstimatedReadyUpdatedAt = &estimatedReadyUpdatedAt.Time
+	}
+	if estimatedReadyBy.Valid {
+		value := estimatedReadyBy.UUID
+		order.EstimatedReadyBy = &value
 	}
 	items, err := s.orderItems(ctx, order.ID)
 	if err != nil {
@@ -4326,7 +4921,7 @@ func scanOrderSummaries(rows pgx.Rows) ([]core.OrderSummary, error) {
 	summaries := []core.OrderSummary{}
 	for rows.Next() {
 		var summary core.OrderSummary
-		var pickup, ready, delivered, cancelled sql.NullTime
+		var pickup, deliveryRequested, deliveryTarget, estimatedReady, ready, delivered, cancelled sql.NullTime
 		var locationVerified sql.NullTime
 		var locationDistance sql.NullInt32
 		if err := rows.Scan(
@@ -4334,7 +4929,8 @@ func scanOrderSummaries(rows pgx.Rows) ([]core.OrderSummary, error) {
 			&summary.FulfillmentType, &summary.FulfillmentStatus, &summary.PaymentMethod, &summary.PaymentStatus,
 			&summary.SubtotalMinor, &summary.DeliveryFeeMinor, &summary.TotalMinor, &summary.Currency,
 			&summary.Locale, &summary.Version, &summary.CreatedAt,
-			&pickup, &ready, &delivered, &cancelled,
+			&pickup, &summary.DeliveryTimeMode, &deliveryRequested, &deliveryTarget,
+			&summary.DeliveryQueueDelayMinutes, &estimatedReady, &ready, &delivered, &cancelled,
 			&locationVerified, &locationDistance,
 		); err != nil {
 			return nil, err
@@ -4344,6 +4940,15 @@ func scanOrderSummaries(rows pgx.Rows) ([]core.OrderSummary, error) {
 		}
 		if pickup.Valid {
 			summary.PickupAt = &pickup.Time
+		}
+		if deliveryRequested.Valid {
+			summary.DeliveryRequestedAt = &deliveryRequested.Time
+		}
+		if deliveryTarget.Valid {
+			summary.DeliveryTargetAt = &deliveryTarget.Time
+		}
+		if estimatedReady.Valid {
+			summary.EstimatedReadyAt = &estimatedReady.Time
 		}
 		if delivered.Valid {
 			summary.DeliveredAt = &delivered.Time
@@ -4449,7 +5054,8 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 	}
 	pickupRows, err := s.pool.Query(ctx, `
 		SELECT id, pickup_at, pickup_original_at, pickup_cook_at, kitchen_started_at, courier_started_at,
-			pickup_address_snapshot, pickup_instructions_snapshot
+			pickup_address_snapshot, pickup_instructions_snapshot, delivery_time_mode, delivery_requested_at,
+			delivery_target_at, delivery_queue_delay_minutes, estimated_ready_at, estimated_ready_updated_at, estimated_ready_by
 		FROM orders WHERE id=ANY($1)
 	`, ids)
 	if err != nil {
@@ -4457,9 +5063,13 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 	}
 	for pickupRows.Next() {
 		var id uuid.UUID
-		var pickupAt, pickupOriginalAt, pickupCookAtValue, kitchenStartedAt, courierStartedAt sql.NullTime
+		var pickupAt, pickupOriginalAt, pickupCookAtValue, kitchenStartedAt, courierStartedAt, deliveryRequestedAt, deliveryTargetAt, estimatedReadyAt, estimatedReadyUpdatedAt sql.NullTime
+		var estimatedReadyBy uuid.NullUUID
 		var address, instructions string
-		if err := pickupRows.Scan(&id, &pickupAt, &pickupOriginalAt, &pickupCookAtValue, &kitchenStartedAt, &courierStartedAt, &address, &instructions); err != nil {
+		var deliveryMode string
+		var queueDelay int
+		if err := pickupRows.Scan(&id, &pickupAt, &pickupOriginalAt, &pickupCookAtValue, &kitchenStartedAt, &courierStartedAt, &address, &instructions,
+			&deliveryMode, &deliveryRequestedAt, &deliveryTargetAt, &queueDelay, &estimatedReadyAt, &estimatedReadyUpdatedAt, &estimatedReadyBy); err != nil {
 			pickupRows.Close()
 			return nil, err
 		}
@@ -4481,6 +5091,24 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 		}
 		order.PickupAddress = address
 		order.PickupInstructions = instructions
+		order.DeliveryTimeMode = deliveryMode
+		order.DeliveryQueueDelayMinutes = queueDelay
+		if deliveryRequestedAt.Valid {
+			order.DeliveryRequestedAt = &deliveryRequestedAt.Time
+		}
+		if deliveryTargetAt.Valid {
+			order.DeliveryTargetAt = &deliveryTargetAt.Time
+		}
+		if estimatedReadyAt.Valid {
+			order.EstimatedReadyAt = &estimatedReadyAt.Time
+		}
+		if estimatedReadyUpdatedAt.Valid {
+			order.EstimatedReadyUpdatedAt = &estimatedReadyUpdatedAt.Time
+		}
+		if estimatedReadyBy.Valid {
+			value := estimatedReadyBy.UUID
+			order.EstimatedReadyBy = &value
+		}
 	}
 	if err := pickupRows.Err(); err != nil {
 		pickupRows.Close()
@@ -4828,6 +5456,11 @@ func safeSettingsAudit(settings core.Settings) map[string]any {
 		"pickup_slot_minutes":               settings.PickupSlotMinutes,
 		"pickup_max_orders_per_slot":        settings.PickupMaxOrdersPerSlot,
 		"pickup_last_time":                  settings.PickupLastTime,
+		"delivery_timing_enabled":           settings.DeliveryTimingEnabled,
+		"delivery_min_lead_minutes":         settings.DeliveryMinLeadMinutes,
+		"delivery_slot_minutes":             settings.DeliverySlotMinutes,
+		"delivery_max_orders_per_slot":      settings.DeliveryMaxOrdersPerSlot,
+		"delivery_last_target_time":         settings.DeliveryLastTargetTime,
 		"version":                           settings.Version,
 	}
 }

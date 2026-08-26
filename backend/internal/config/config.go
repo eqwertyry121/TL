@@ -28,13 +28,18 @@ type Config struct {
 	ClientBotUsername         string
 	ClientBotToken            string
 	ClientMiniAppURL          string
-	TelegramAllowedUserIDs    []int64
 	StaffBotUsername          string
 	StaffBotToken             string
 	TelegramWebhookSecret     string
 	AllowedOrigins            []string
 	BootstrapOwnerTelegramID  int64
 	BootstrapOwnerTelegramIDs []int64
+	DeliveryTimingBetaIDs     []int64
+	DevSandboxMode            bool
+	DevSandboxAllowedIDs      []int64
+	DevSandboxMiniAppURL      string
+	DevSandboxWebhookURL      string
+	DevSandboxUpstreamURL     string
 	LocalRoleSwitcherEnabled  bool
 	EncryptionKey             []byte
 	PIIHashKey                []byte
@@ -68,6 +73,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	devSandboxMode, err := getBoolStrict("DEV_SANDBOX_MODE", false)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
 		Env:                      env,
 		BuildSHA:                 get("APP_BUILD_SHA", "dev"),
@@ -83,7 +92,6 @@ func Load() (Config, error) {
 		ClientBotUsername:        get("TELEGRAM_CLIENT_BOT_USERNAME", "TakoLako_main_bot"),
 		ClientBotToken:           os.Getenv("TELEGRAM_CLIENT_BOT_TOKEN"),
 		ClientMiniAppURL:         get("TELEGRAM_CLIENT_MINI_APP_URL", "https://takolako.site/main/"),
-		TelegramAllowedUserIDs:   positiveInt64CSV(os.Getenv("TELEGRAM_ALLOWED_USER_IDS")),
 		StaffBotUsername:         os.Getenv("TELEGRAM_STAFF_BOT_USERNAME"),
 		StaffBotToken:            os.Getenv("TELEGRAM_STAFF_BOT_TOKEN"),
 		TelegramWebhookSecret:    os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
@@ -99,8 +107,14 @@ func Load() (Config, error) {
 		NotificationBacklogAfter: getDuration("NOTIFICATION_BACKLOG_ALERT_AFTER", 60*time.Second),
 		FiscalProcessAccepted:    fiscalProcessAccepted,
 		PIIRetentionDays:         int(mustInt64(get("PII_RETENTION_DAYS", "730"))),
+		DevSandboxMode:           devSandboxMode,
+		DevSandboxMiniAppURL:     get("DEV_SANDBOX_MINI_APP_URL", "https://takolako.site/testbranch/main/"),
+		DevSandboxWebhookURL:     strings.TrimRight(strings.TrimSpace(os.Getenv("DEV_SANDBOX_WEBHOOK_URL")), "/"),
+		DevSandboxUpstreamURL:    strings.TrimRight(strings.TrimSpace(os.Getenv("DEV_SANDBOX_UPSTREAM_URL")), "/"),
 	}
 	cfg.BootstrapOwnerTelegramIDs = bootstrapOwnerTelegramIDs()
+	cfg.DeliveryTimingBetaIDs = telegramIDList("DELIVERY_TIMING_BETA_TELEGRAM_IDS", "")
+	cfg.DevSandboxAllowedIDs = telegramIDList("DEV_SANDBOX_ALLOWED_TELEGRAM_IDS", "1048084234")
 	if len(cfg.BootstrapOwnerTelegramIDs) > 0 {
 		cfg.BootstrapOwnerTelegramID = cfg.BootstrapOwnerTelegramIDs[0]
 	}
@@ -167,6 +181,9 @@ func Load() (Config, error) {
 	}
 	if cfg.PIIRetentionDays > 3650 {
 		cfg.PIIRetentionDays = 3650
+	}
+	if cfg.DevSandboxMode && len(cfg.DevSandboxAllowedIDs) == 0 {
+		return Config{}, fmt.Errorf("%w: DEV_SANDBOX_ALLOWED_TELEGRAM_IDS must not be empty in sandbox mode", core.ErrProductionUnsafeValue)
 	}
 	return cfg, nil
 }
@@ -238,26 +255,15 @@ func bootstrapOwnerTelegramIDs() []int64 {
 			raw = "1048084234,8241921060,8609105840,7604602332"
 		}
 	}
-	parts := strings.Split(raw, ",")
-	out := make([]int64, 0, len(parts))
-	seen := map[int64]bool{}
-	for _, part := range parts {
-		value := strings.TrimSpace(part)
-		if value == "" {
-			continue
-		}
-		id := mustInt64(value)
-		if id <= 0 || seen[id] {
-			continue
-		}
-		seen[id] = true
-		out = append(out, id)
-	}
-	return out
+	return parseTelegramIDList(raw)
 }
 
-func positiveInt64CSV(raw string) []int64 {
-	parts := strings.Split(strings.TrimSpace(raw), ",")
+func telegramIDList(key, fallback string) []int64 {
+	return parseTelegramIDList(get(key, fallback))
+}
+
+func parseTelegramIDList(raw string) []int64 {
+	parts := strings.Split(raw, ",")
 	out := make([]int64, 0, len(parts))
 	seen := map[int64]bool{}
 	for _, part := range parts {

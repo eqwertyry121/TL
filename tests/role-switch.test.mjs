@@ -7,6 +7,7 @@ test("production role links retain the Mini App cache-busting query", async () =
       protocol: "https:",
       hostname: "takolako.site",
       origin: "https://takolako.site",
+      pathname: "/admin/",
       search: "?v=release-123",
     },
   };
@@ -16,10 +17,18 @@ test("production role links retain the Mini App cache-busting query", async () =
   delete globalThis.window;
 });
 
-test("test Mini Apps allow only the primary owner", async () => {
-  const { testMiniAppAccessAllowed } = await import("../packages/api-client/src/role-switch.ts");
-  assert.equal(testMiniAppAccessAllowed("production", undefined), true);
-  assert.equal(testMiniAppAccessAllowed("test", 1048084234), true);
-  assert.equal(testMiniAppAccessAllowed("test", 8241921060), false);
-  assert.equal(testMiniAppAccessAllowed("test", undefined), false);
+test("sandbox role links stay inside the testbranch environment", async () => {
+  globalThis.window = {
+    location: {
+      protocol: "https:",
+      hostname: "takolako.site",
+      origin: "https://takolako.site",
+      pathname: "/testbranch/kitchen/",
+      search: "?v=dev-123",
+    },
+  };
+  const { roleUrl } = await import("../packages/api-client/src/role-switch.ts");
+  assert.equal(roleUrl("ADMIN"), "https://takolako.site/testbranch/admin/?v=dev-123");
+  assert.equal(roleUrl("CLIENT"), "https://takolako.site/testbranch/?v=dev-123");
+  delete globalThis.window;
 });

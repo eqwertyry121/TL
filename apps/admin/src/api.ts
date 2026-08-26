@@ -50,7 +50,7 @@ export interface AdminMenuResponse {
 }
 
 export interface AdminOrdersResponse {
-  orders: OrderSummary[];
+  orders: Order[];
   limit?: number;
   offset?: number;
   has_more?: boolean;
@@ -134,6 +134,11 @@ export interface SettingsInput {
   pickup_slot_minutes: number;
   pickup_max_orders_per_slot: number;
   pickup_last_time: string;
+  delivery_timing_enabled: boolean;
+  delivery_min_lead_minutes: number;
+  delivery_slot_minutes: number;
+  delivery_max_orders_per_slot: number;
+  delivery_last_target_time: string;
   version: number;
 }
 
@@ -722,6 +727,9 @@ async function getBlob(url: string, token?: string) {
 
 async function fetchAdminOrders(baseURL: string, token: string, filter: { status?: string; q?: string; date?: string; limit?: number; offset?: number }, signal?: AbortSignal): Promise<AdminOrdersResponse> {
   const request = adminOrdersRequest(filter);
+  if (!request.q) {
+    return get(`${baseURL}/api/v1/admin/orders?${new URLSearchParams(clean(request))}`, token, signal);
+  }
   try {
     return await post(`${baseURL}/api/v1/admin/orders/search`, cleanBody(request), token, signal);
   } catch (err) {
@@ -1307,6 +1315,11 @@ function seedSettings(): Settings {
     pickup_slot_minutes: 15,
     pickup_max_orders_per_slot: 3,
     pickup_last_time: "22:00",
+    delivery_timing_enabled: false,
+    delivery_min_lead_minutes: 40,
+    delivery_slot_minutes: 30,
+    delivery_max_orders_per_slot: 2,
+    delivery_last_target_time: "21:30",
     version: 1,
     schedule: defaultSchedule(),
   };
@@ -1358,6 +1371,10 @@ function runtimeFromSettings(settings: Settings) {
     pickup_min_lead_minutes: settings.pickup_min_lead_minutes,
     pickup_slot_minutes: settings.pickup_slot_minutes,
     pickup_last_time: settings.pickup_last_time,
+    delivery_timing_enabled: settings.delivery_timing_enabled,
+    delivery_min_lead_minutes: settings.delivery_min_lead_minutes,
+    delivery_slot_minutes: settings.delivery_slot_minutes,
+    delivery_last_target_time: settings.delivery_last_target_time,
   };
 }
 
@@ -1429,12 +1446,19 @@ function calculateAnalytics(range: AnalyticsRange): AdminAnalytics {
       cancelled_orders: orders.filter((order) => order.fulfillment_status === "CANCELLED").length,
       revenue_minor: revenue,
       average_check_minor: delivered.length ? Math.floor(revenue / delivered.length) : 0,
+      delivery_slot_fill_percent: 0,
+      average_delivery_queue_delay_minutes: average(orders.filter((order) => order.fulfillment_type === "delivery").map((order) => order.delivery_queue_delay_minutes || 0)),
+      average_ready_plan_deviation_minutes: average(orders.filter((order) => order.fulfillment_type === "delivery" && order.ready_at && order.delivery_target_at).map((order) => Math.round((new Date(order.ready_at!).getTime() - new Date(order.delivery_target_at!).getTime()) / 60000))),
     },
     statuses,
     payments,
     top_dishes: [...top.entries()].map(([title, value]) => ({ title, quantity: value.quantity, revenue_minor: value.revenue_minor })).sort((a, b) => b.quantity - a.quantity).slice(0, 10),
     daily_rows: daily,
   };
+}
+
+function average(values: number[]): number {
+  return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
 }
 
 function groupOrders(orders: Order[], pick: (order: Order) => string) {
@@ -1581,6 +1605,11 @@ function loadSettings(): Settings {
     pickup_slot_minutes: settings.pickup_slot_minutes || 15,
     pickup_max_orders_per_slot: settings.pickup_max_orders_per_slot || 3,
     pickup_last_time: settings.pickup_last_time || "22:00",
+    delivery_timing_enabled: settings.delivery_timing_enabled ?? false,
+    delivery_min_lead_minutes: settings.delivery_min_lead_minutes || 40,
+    delivery_slot_minutes: settings.delivery_slot_minutes || 30,
+    delivery_max_orders_per_slot: settings.delivery_max_orders_per_slot || 2,
+    delivery_last_target_time: settings.delivery_last_target_time || "21:30",
   };
   if (
     normalized.flat_delivery_fee_minor !== settings.flat_delivery_fee_minor ||

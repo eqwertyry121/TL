@@ -1,15 +1,15 @@
 services:
-  postgres:
+  postgres-dev:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: tk_delivery_test
-      POSTGRES_USER: tk_delivery_test
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: tk_delivery_dev
+      POSTGRES_USER: tk_delivery_dev
+      POSTGRES_PASSWORD: ${DEV_POSTGRES_PASSWORD}
     volumes:
-      - tk_delivery_test_pg:/var/lib/postgresql/data
+      - tk_delivery_dev_pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tk_delivery_test -d tk_delivery_test"]
+      test: ["CMD-SHELL", "pg_isready -U tk_delivery_dev -d tk_delivery_dev"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -17,9 +17,9 @@ services:
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "2"
 
-  app:
+  app-dev:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -27,17 +27,17 @@ services:
         APP_BUILD_SHA: ${APP_BUILD_SHA:-unknown}
     restart: unless-stopped
     depends_on:
-      postgres:
+      postgres-dev:
         condition: service_healthy
     env_file:
-      - .env.test
+      - .env.sandbox
     environment:
       HTTP_ADDR: :8080
       APP_BUILD_SHA: ${APP_BUILD_SHA:-unknown}
-      POSTGRES_DSN: postgres://tk_delivery_test:${POSTGRES_PASSWORD}@postgres:5432/tk_delivery_test?sslmode=disable
+      POSTGRES_DSN: postgres://tk_delivery_dev:${DEV_POSTGRES_PASSWORD}@postgres-dev:5432/tk_delivery_dev?sslmode=disable
       MEDIA_DIR: /app/uploads
     ports:
-      - "127.0.0.1:${APP_HOST_PORT:-18081}:8080"
+      - "127.0.0.1:${DEV_APP_HOST_PORT:-18081}:8080"
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -46,7 +46,7 @@ services:
     tmpfs:
       - /tmp:size=32m,mode=1777
     volumes:
-      - ${MEDIA_VOLUME_HOST_PATH}:/app/uploads
+      - ${DEV_MEDIA_VOLUME_HOST_PATH:-/srv/tk-delivery-dev/uploads}:/app/uploads
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ready >/dev/null || exit 1"]
       interval: 10s
@@ -57,7 +57,7 @@ services:
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "2"
 
 volumes:
-  tk_delivery_test_pg:
+  tk_delivery_dev_pg:

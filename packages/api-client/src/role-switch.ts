@@ -36,18 +36,6 @@ export function isOwnerTelegramId(value: unknown): boolean {
   return Number.isFinite(telegramUserId) && OWNER_TELEGRAM_IDS.some((id) => id === telegramUserId);
 }
 
-export function testMiniAppAccessAllowed(appEnv: unknown, telegramUserID: unknown): boolean {
-  return appEnv !== "test" || Number(telegramUserID) === OWNER_TELEGRAM_ID;
-}
-
-export function telegramMiniAppUserID(): number | undefined {
-  if (typeof window === "undefined") return undefined;
-  const telegramWindow = window as Window & {
-    Telegram?: { WebApp?: { initDataUnsafe?: { user?: { id?: number } } } };
-  };
-  return telegramWindow.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-}
-
 export function roleLinks(activeRole: Role): RoleLink[] {
   return (["CLIENT", "ADMIN", "KITCHEN", "COURIER"] as Role[]).map((role) => ({
     role,
@@ -59,9 +47,11 @@ export function roleLinks(activeRole: Role): RoleLink[] {
 
 export function roleUrl(role: Role): string {
   if (typeof window === "undefined") return "#";
-  const { protocol, hostname, origin, search } = window.location;
+  const { protocol, hostname, origin, pathname, search } = window.location;
   if (hostname === "127.0.0.1" || hostname === "localhost") {
     return `${protocol}//${hostname}:${localPorts[role]}/`;
   }
-  return `${origin}/${paths[role]}${search}`;
+  const currentPath = pathname || "/";
+  const basePath = currentPath === "/testbranch" || currentPath.startsWith("/testbranch/") ? "/testbranch/" : "/";
+  return `${origin}${basePath}${paths[role]}${search}`;
 }
