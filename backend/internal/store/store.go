@@ -4138,7 +4138,7 @@ func (s *Store) EstimateReady(ctx context.Context, sess core.Session, orderID uu
 	}
 	var target time.Time
 	if input.ReadyInMinutes != nil {
-		if *input.ReadyInMinutes < 10 || *input.ReadyInMinutes > 180 || *input.ReadyInMinutes%5 != 0 {
+		if *input.ReadyInMinutes < 5 || *input.ReadyInMinutes > 180 || *input.ReadyInMinutes%5 != 0 {
 			return core.Order{}, core.ErrInvalidInput
 		}
 		target = now.UTC().Add(time.Duration(*input.ReadyInMinutes) * time.Minute).Truncate(time.Minute)

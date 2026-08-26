@@ -357,7 +357,7 @@ paths:
               properties:
                 ready_in_minutes:
                   type: integer
-                  minimum: 10
+                  minimum: 5
                   maximum: 180
                 estimated_ready_at:
                   type: string
