@@ -424,6 +424,7 @@ function CourierOrderCard({ order, unread, busy, etaBusy, onSeen, onDelivered, o
           </div>
         </div>
         <div className="order-meta-line"><CustomerBadge order={order} /><span className="payment-chip">{paymentText(order)}</span></div>
+        {(order.delivery_requested_at || order.estimated_ready_at) && <div className="delivery-timing-compact">{order.delivery_requested_at && <span>Клиент просил к ~{new Date(order.delivery_requested_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</span>}{order.estimated_ready_at && <span>Кухня ожидала ~{new Date(order.estimated_ready_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</span>}</div>}
         <div className="address-compact"><MapPin size={18} /><span>{order.address || "Адрес не указан"}</span></div>
         {order.phone ? <a className="phone-compact" href={`tel:${order.phone}`} onClick={(event) => event.stopPropagation()}><Phone size={18} /><span>{order.phone}</span></a> : <div className="phone-compact is-disabled"><Phone size={18} /><span>Телефон не указан</span></div>}
         <ul className="items-compact" aria-label={`Состав заказа #${order.public_number}`}>

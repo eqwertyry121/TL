@@ -734,6 +734,17 @@ li {
   color: var(--color-secondary);
   box-shadow: inset 0 0 0 1px rgba(94, 107, 58, 0.22);
 }
+.delivery-plan { display:block; color:var(--color-muted); font-size:.78rem; font-weight:700; }
+.delivery-plan.overdue { color:var(--color-accent); }
+.kitchen-eta { display:grid; gap:.4rem; padding:.65rem; border:1px solid #e5d7c9; border-radius:.85rem; background:#fffaf2; }
+.kitchen-eta > span { font-size:.78rem; font-weight:800; color:var(--color-muted); }
+.kitchen-eta > div { display:flex; flex-wrap:wrap; gap:.35rem; }
+.kitchen-eta button { flex:1 1 4.5rem; min-height:2.45rem; border:1px solid #ddcdbf; border-radius:.7rem; background:#fff; color:var(--color-text); font-weight:800; }
+.kitchen-eta button.active { border-color:#7c2d38; background:#7c2d38; color:#fff; }
+@media (prefers-reduced-motion: reduce) { .kitchen-eta button { transition:none; } }
+.custom-eta-control { display:grid; grid-template-columns:1fr auto; gap:.4rem; align-items:end; }
+.custom-eta-control label { display:grid; gap:.2rem; }
+.custom-eta-control input { width:5.5rem; min-height:2.5rem; border:1px solid #ddcdbf; border-radius:.6rem; padding:.35rem .5rem; }
 
 .row-icon {
   min-width: 2.2rem;

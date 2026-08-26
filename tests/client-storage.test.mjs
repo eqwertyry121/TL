@@ -77,6 +77,8 @@ test("client storage helpers survive unavailable browser storage", () => {
       comment: "",
       fulfillmentType: "delivery",
       pickupAt: "",
+      deliveryTimeMode: "ASAP",
+      deliveryRequestedAt: "",
     });
     assert.doesNotThrow(() => saveCheckoutDraft({
       phone: "",
@@ -86,6 +88,8 @@ test("client storage helpers survive unavailable browser storage", () => {
       comment: "",
       fulfillmentType: "delivery",
       pickupAt: "",
+      deliveryTimeMode: "ASAP",
+      deliveryRequestedAt: "",
     }));
     assert.doesNotThrow(() => saveCheckoutProgress("", null, null));
     assert.equal(loadLocale("ru"), "ru");

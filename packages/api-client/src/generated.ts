@@ -3,6 +3,7 @@ export type FulfillmentStatus = "NEW" | "OUT_FOR_DELIVERY" | "READY_FOR_PICKUP" 
 export type FulfillmentType = "delivery" | "pickup";
 export type PaymentMethod = "cash" | "card" | "crypto";
 export type PaymentStatus = "CASH_PENDING" | "PAID" | "FAILED" | "REFUNDED";
+export type DeliveryTimeMode = "ASAP" | "SCHEDULED";
 
 export interface VersionInfo {
   service: string;
@@ -31,6 +32,10 @@ export interface Runtime {
   pickup_min_lead_minutes: number;
   pickup_slot_minutes: number;
   pickup_last_time: string;
+  delivery_timing_enabled: boolean;
+  delivery_min_lead_minutes: number;
+  delivery_slot_minutes: number;
+  delivery_last_target_time: string;
 }
 
 export interface ScheduleDay {
@@ -82,6 +87,7 @@ export interface Session {
   username?: string;
   first_name?: string;
   photo_url?: string;
+  delivery_timing_access?: boolean;
   active_role: Role;
   expires_at: string;
 }
@@ -193,6 +199,11 @@ export interface OrderSummary {
   courier_started_at?: string;
   ready_at?: string;
   pickup_at?: string;
+  delivery_time_mode?: DeliveryTimeMode;
+  delivery_requested_at?: string;
+  delivery_target_at?: string;
+  delivery_queue_delay_minutes?: number;
+  estimated_ready_at?: string;
   delivered_at?: string;
   cancelled_at?: string;
   cash_location_verified_at?: string;
@@ -219,6 +230,8 @@ export interface Order extends OrderSummary {
   pickup_cook_at?: string;
   pickup_address?: string;
   pickup_instructions?: string;
+  estimated_ready_updated_at?: string;
+  estimated_ready_by?: string;
   items: OrderItem[];
   events?: OrderEvent[];
 }
@@ -274,9 +287,24 @@ export interface Settings {
   pickup_slot_minutes: number;
   pickup_max_orders_per_slot: number;
   pickup_last_time: string;
+  delivery_timing_enabled: boolean;
+  delivery_min_lead_minutes: number;
+  delivery_slot_minutes: number;
+  delivery_max_orders_per_slot: number;
+  delivery_last_target_time: string;
   version: number;
   schedule?: ScheduleDay[];
 }
+
+export interface DeliverySlots {
+  timezone: "Europe/Belgrade";
+  date: string;
+  asap?: DeliveryASAP;
+  slots: DeliverySlot[];
+}
+
+export interface DeliveryASAP { target_at: string; wait_minutes: number; queue_delay_minutes: number; }
+export interface DeliverySlot { target_at: string; label: string; available: boolean; queue_delay_minutes: number; next_available_at?: string; }
 
 export interface AdminDashboard {
   runtime: Runtime;
@@ -365,6 +393,9 @@ export interface AnalyticsSummary {
   cancelled_orders: number;
   revenue_minor: number;
   average_check_minor: number;
+  delivery_slot_fill_percent: number;
+  average_delivery_queue_delay_minutes: number;
+  average_ready_plan_deviation_minutes: number;
 }
 
 export interface AnalyticsBreakdown {

@@ -351,6 +351,12 @@ func (w *Worker) buildMessage(ctx context.Context, current job) (string, int64, 
 			return "", 0, "", err
 		}
 		message := clientText(number, current.template, locale)
+		if current.template == "client_kitchen_eta_set" || current.template == "client_kitchen_eta_updated" {
+			message, err = w.kitchenETAText(ctx, current.orderID, number, locale, current.eventKey, current.template == "client_kitchen_eta_updated")
+			if err != nil {
+				return "", 0, "", err
+			}
+		}
 		if current.template == "client_order_ready_for_pickup" {
 			message, err = w.pickupReadyText(ctx, current.orderID, number, locale)
 			if err != nil {
@@ -406,6 +412,58 @@ func (w *Worker) buildMessage(ctx context.Context, current job) (string, int64, 
 		return w.staffToken, chatID, fmt.Sprintf("Нужно проверить заказ %s", current.orderID), nil
 	default:
 		return "", 0, "", fmt.Errorf("unknown_recipient_kind")
+	}
+}
+
+func (w *Worker) kitchenETAText(ctx context.Context, orderID uuid.UUID, number int, locale, eventKey string, updated bool) (string, error) {
+	var at time.Time
+	version := eventKey[strings.LastIndex(eventKey, ":")+1:]
+	var reason string
+	err := w.pool.QueryRow(ctx, `
+		SELECT reason FROM order_events
+		WHERE order_id=$1 AND action IN ('kitchen.estimate_ready', 'kitchen.update_estimated_ready')
+			AND reason LIKE $2
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, orderID, "version="+version+";at=%").Scan(&reason)
+	if err == nil {
+		value := strings.TrimPrefix(reason, "version="+version+";at=")
+		at, err = time.Parse(time.RFC3339, value)
+	}
+	if err != nil {
+		// Compatibility fallback for jobs created before ETA revisions were
+		// embedded into the immutable order event.
+		if queryErr := w.pool.QueryRow(ctx, `SELECT estimated_ready_at FROM orders WHERE id=$1 AND estimated_ready_at IS NOT NULL`, orderID).Scan(&at); queryErr != nil {
+			return "", queryErr
+		}
+	}
+	loc, err := time.LoadLocation("Europe/Belgrade")
+	if err != nil {
+		return "", err
+	}
+	clock := at.In(loc).Format("15:04")
+	minutes := int(time.Until(at).Minutes())
+	if minutes < 0 {
+		minutes = 0
+	}
+	locale = normalizeLocale(locale)
+	if updated {
+		switch locale {
+		case "sr":
+			return fmt.Sprintf("Vreme pripreme porudžbine #%d je ažurirano: okvirno oko %s.", number, clock), nil
+		case "en":
+			return fmt.Sprintf("The preparation time for order #%d was updated: approximately %s.", number, clock), nil
+		default:
+			return fmt.Sprintf("Время готовности заказа #%d обновилось: ориентировочно около %s.", number, clock), nil
+		}
+	}
+	switch locale {
+	case "sr":
+		return fmt.Sprintf("Porudžbina #%d biće spremna i predata kuriru za oko %d min, oko %s. Vreme je okvirno.", number, minutes, clock), nil
+	case "en":
+		return fmt.Sprintf("Order #%d should be ready and handed to the courier in about %d minutes, around %s. The time is approximate.", number, minutes, clock), nil
+	default:
+		return fmt.Sprintf("Заказ #%d будет готов и передан курьеру примерно через %d минут, около %s. Время ориентировочное.", number, minutes, clock), nil
 	}
 }
 

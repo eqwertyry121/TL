@@ -58,29 +58,40 @@ const (
 )
 
 var (
-	ErrForbidden               = errors.New("forbidden")
-	ErrInvalidRole             = errors.New("invalid role")
-	ErrInvalidInput            = errors.New("invalid input")
-	ErrRestaurantClosed        = errors.New("restaurant closed")
-	ErrManualDayOff            = errors.New("manual day off")
-	ErrItemUnavailable         = errors.New("item unavailable")
-	ErrInvalidQuantity         = errors.New("invalid quantity")
-	ErrOrderStatusConflict     = errors.New("order status conflict")
-	ErrActiveOrderExists       = errors.New("active order exists")
-	ErrIdempotencyConflict     = errors.New("idempotency conflict")
-	ErrCalculationExpired      = errors.New("calculation expired")
-	ErrPaymentNotConfirmed     = errors.New("payment not confirmed")
-	ErrTermsRequired           = errors.New("terms acceptance required")
-	ErrContactNotVerified      = errors.New("contact not verified")
-	ErrCashLocationRequired    = errors.New("cash location verification required")
-	ErrCashLocationOutside     = errors.New("cash location outside delivery radius")
-	ErrCashLocationInaccurate  = errors.New("cash location inaccurate")
-	ErrPickupUnavailable       = errors.New("pickup unavailable")
-	ErrPickupSlotUnavailable   = errors.New("pickup slot unavailable")
-	ErrReservationUnavailable  = errors.New("reservation unavailable")
-	ErrActiveReservationExists = errors.New("active reservation exists")
-	ErrProductionUnsafeValue   = errors.New("unsafe production config")
+	ErrForbidden                 = errors.New("forbidden")
+	ErrInvalidRole               = errors.New("invalid role")
+	ErrInvalidInput              = errors.New("invalid input")
+	ErrRestaurantClosed          = errors.New("restaurant closed")
+	ErrManualDayOff              = errors.New("manual day off")
+	ErrItemUnavailable           = errors.New("item unavailable")
+	ErrInvalidQuantity           = errors.New("invalid quantity")
+	ErrOrderStatusConflict       = errors.New("order status conflict")
+	ErrActiveOrderExists         = errors.New("active order exists")
+	ErrIdempotencyConflict       = errors.New("idempotency conflict")
+	ErrCalculationExpired        = errors.New("calculation expired")
+	ErrPaymentNotConfirmed       = errors.New("payment not confirmed")
+	ErrTermsRequired             = errors.New("terms acceptance required")
+	ErrContactNotVerified        = errors.New("contact not verified")
+	ErrCashLocationRequired      = errors.New("cash location verification required")
+	ErrCashLocationOutside       = errors.New("cash location outside delivery radius")
+	ErrCashLocationInaccurate    = errors.New("cash location inaccurate")
+	ErrPickupUnavailable         = errors.New("pickup unavailable")
+	ErrPickupSlotUnavailable     = errors.New("pickup slot unavailable")
+	ErrDeliveryTimingUnavailable = errors.New("delivery timing unavailable")
+	ErrDeliverySlotUnavailable   = errors.New("delivery slot unavailable")
+	ErrDeliveryTimeInvalid       = errors.New("delivery time invalid")
+	ErrReservationUnavailable    = errors.New("reservation unavailable")
+	ErrActiveReservationExists   = errors.New("active reservation exists")
+	ErrProductionUnsafeValue     = errors.New("unsafe production config")
 )
+
+type DeliverySlotUnavailableError struct {
+	NextAvailableAt   *time.Time
+	QueueDelayMinutes int
+}
+
+func (e *DeliverySlotUnavailableError) Error() string { return ErrDeliverySlotUnavailable.Error() }
+func (e *DeliverySlotUnavailableError) Unwrap() error { return ErrDeliverySlotUnavailable }
 
 type User struct {
 	ID             uuid.UUID `json:"id"`
@@ -92,16 +103,17 @@ type User struct {
 }
 
 type Session struct {
-	Token          string    `json:"token,omitempty"`
-	TokenHash      string    `json:"-"`
-	UserID         uuid.UUID `json:"user_id"`
-	TelegramUserID int64     `json:"telegram_user_id"`
-	Username       string    `json:"username,omitempty"`
-	FirstName      string    `json:"first_name,omitempty"`
-	PhotoURL       string    `json:"photo_url,omitempty"`
-	Audience       Audience  `json:"audience"`
-	ActiveRole     Role      `json:"active_role"`
-	ExpiresAt      time.Time `json:"expires_at"`
+	Token                string    `json:"token,omitempty"`
+	TokenHash            string    `json:"-"`
+	UserID               uuid.UUID `json:"user_id"`
+	TelegramUserID       int64     `json:"telegram_user_id"`
+	Username             string    `json:"username,omitempty"`
+	FirstName            string    `json:"first_name,omitempty"`
+	PhotoURL             string    `json:"photo_url,omitempty"`
+	DeliveryTimingAccess bool      `json:"delivery_timing_access"`
+	Audience             Audience  `json:"audience"`
+	ActiveRole           Role      `json:"active_role"`
+	ExpiresAt            time.Time `json:"expires_at"`
 }
 
 type Settings struct {
@@ -134,6 +146,11 @@ type Settings struct {
 	PickupSlotMinutes             int           `json:"pickup_slot_minutes"`
 	PickupMaxOrdersPerSlot        int           `json:"pickup_max_orders_per_slot"`
 	PickupLastTime                string        `json:"pickup_last_time"`
+	DeliveryTimingEnabled         bool          `json:"delivery_timing_enabled"`
+	DeliveryMinLeadMinutes        int           `json:"delivery_min_lead_minutes"`
+	DeliverySlotMinutes           int           `json:"delivery_slot_minutes"`
+	DeliveryMaxOrdersPerSlot      int           `json:"delivery_max_orders_per_slot"`
+	DeliveryLastTargetTime        string        `json:"delivery_last_target_time"`
 	Version                       int           `json:"version"`
 	Schedule                      []ScheduleDay `json:"schedule,omitempty"`
 }
@@ -159,6 +176,31 @@ type Runtime struct {
 	PickupMinLeadMinutes     int       `json:"pickup_min_lead_minutes"`
 	PickupSlotMinutes        int       `json:"pickup_slot_minutes"`
 	PickupLastTime           string    `json:"pickup_last_time"`
+	DeliveryTimingEnabled    bool      `json:"delivery_timing_enabled"`
+	DeliveryMinLeadMinutes   int       `json:"delivery_min_lead_minutes"`
+	DeliverySlotMinutes      int       `json:"delivery_slot_minutes"`
+	DeliveryLastTargetTime   string    `json:"delivery_last_target_time"`
+}
+
+type DeliveryASAP struct {
+	TargetAt          time.Time `json:"target_at"`
+	WaitMinutes       int       `json:"wait_minutes"`
+	QueueDelayMinutes int       `json:"queue_delay_minutes"`
+}
+
+type DeliverySlot struct {
+	TargetAt          time.Time  `json:"target_at"`
+	Label             string     `json:"label"`
+	Available         bool       `json:"available"`
+	QueueDelayMinutes int        `json:"queue_delay_minutes"`
+	NextAvailableAt   *time.Time `json:"next_available_at,omitempty"`
+}
+
+type DeliverySlots struct {
+	Timezone string         `json:"timezone"`
+	Date     string         `json:"date"`
+	ASAP     *DeliveryASAP  `json:"asap,omitempty"`
+	Slots    []DeliverySlot `json:"slots"`
 }
 
 type PickupSlot struct {
@@ -308,16 +350,18 @@ type CalculatedItem struct {
 }
 
 type Calculation struct {
-	Token              string           `json:"calculation_token,omitempty"`
-	Items              []CalculatedItem `json:"items"`
-	FulfillmentType    FulfillmentType  `json:"fulfillment_type"`
-	SubtotalMinor      int              `json:"subtotal_minor"`
-	DeliveryFeeMinor   int              `json:"delivery_fee_minor"`
-	TotalMinor         int              `json:"total_minor"`
-	Currency           string           `json:"currency"`
-	ExpiresAt          time.Time        `json:"expires_at"`
-	OrderSubtotalMinor int              `json:"order_subtotal_minor,omitempty"`
-	OrderTotalMinor    int              `json:"order_total_minor,omitempty"`
+	Token                     string           `json:"calculation_token,omitempty"`
+	Items                     []CalculatedItem `json:"items"`
+	FulfillmentType           FulfillmentType  `json:"fulfillment_type"`
+	SubtotalMinor             int              `json:"subtotal_minor"`
+	DeliveryFeeMinor          int              `json:"delivery_fee_minor"`
+	TotalMinor                int              `json:"total_minor"`
+	Currency                  string           `json:"currency"`
+	ExpiresAt                 time.Time        `json:"expires_at"`
+	OrderSubtotalMinor        int              `json:"order_subtotal_minor,omitempty"`
+	OrderTotalMinor           int              `json:"order_total_minor,omitempty"`
+	DeliveryTargetAt          *time.Time       `json:"delivery_target_at,omitempty"`
+	DeliveryQueueDelayMinutes int              `json:"delivery_queue_delay_minutes,omitempty"`
 }
 
 type CashLocationStatus string
@@ -379,6 +423,13 @@ type Order struct {
 	PickupCookAt               *time.Time        `json:"pickup_cook_at,omitempty"`
 	PickupAddress              string            `json:"pickup_address,omitempty"`
 	PickupInstructions         string            `json:"pickup_instructions,omitempty"`
+	DeliveryTimeMode           string            `json:"delivery_time_mode,omitempty"`
+	DeliveryRequestedAt        *time.Time        `json:"delivery_requested_at,omitempty"`
+	DeliveryTargetAt           *time.Time        `json:"delivery_target_at,omitempty"`
+	DeliveryQueueDelayMinutes  int               `json:"delivery_queue_delay_minutes"`
+	EstimatedReadyAt           *time.Time        `json:"estimated_ready_at,omitempty"`
+	EstimatedReadyUpdatedAt    *time.Time        `json:"estimated_ready_updated_at,omitempty"`
+	EstimatedReadyBy           *uuid.UUID        `json:"estimated_ready_by,omitempty"`
 	DeliveredAt                *time.Time        `json:"delivered_at,omitempty"`
 	CancelledAt                *time.Time        `json:"cancelled_at,omitempty"`
 	CashLocationVerifiedAt     *time.Time        `json:"cash_location_verified_at,omitempty"`
@@ -410,6 +461,11 @@ type OrderSummary struct {
 	CreatedAt                  time.Time         `json:"created_at"`
 	ReadyAt                    *time.Time        `json:"ready_at,omitempty"`
 	PickupAt                   *time.Time        `json:"pickup_at,omitempty"`
+	DeliveryTimeMode           string            `json:"delivery_time_mode,omitempty"`
+	DeliveryRequestedAt        *time.Time        `json:"delivery_requested_at,omitempty"`
+	DeliveryTargetAt           *time.Time        `json:"delivery_target_at,omitempty"`
+	DeliveryQueueDelayMinutes  int               `json:"delivery_queue_delay_minutes"`
+	EstimatedReadyAt           *time.Time        `json:"estimated_ready_at,omitempty"`
 	DeliveredAt                *time.Time        `json:"delivered_at,omitempty"`
 	CancelledAt                *time.Time        `json:"cancelled_at,omitempty"`
 	CashLocationVerifiedAt     *time.Time        `json:"cash_location_verified_at,omitempty"`
@@ -472,11 +528,14 @@ type AdminDashboard struct {
 }
 
 type AnalyticsSummary struct {
-	AllOrders         int `json:"all_orders"`
-	DeliveredOrders   int `json:"delivered_orders"`
-	CancelledOrders   int `json:"cancelled_orders"`
-	RevenueMinor      int `json:"revenue_minor"`
-	AverageCheckMinor int `json:"average_check_minor"`
+	AllOrders                        int `json:"all_orders"`
+	DeliveredOrders                  int `json:"delivered_orders"`
+	CancelledOrders                  int `json:"cancelled_orders"`
+	RevenueMinor                     int `json:"revenue_minor"`
+	AverageCheckMinor                int `json:"average_check_minor"`
+	DeliverySlotFillPercent          int `json:"delivery_slot_fill_percent"`
+	AverageDeliveryQueueDelayMinutes int `json:"average_delivery_queue_delay_minutes"`
+	AverageReadyPlanDeviationMinutes int `json:"average_ready_plan_deviation_minutes"`
 }
 
 type AnalyticsBreakdown struct {

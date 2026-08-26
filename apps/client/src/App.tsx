@@ -42,6 +42,7 @@ import {
   syncBackButton,
 } from "./telegram";
 import type { Api, AppData, Calculation, CashLocationChallenge, CartLine, CartState, CheckoutDraft, Locale, PickupSlots, Route, Session, VerifiedContact } from "./types";
+import type { DeliverySlots } from "@tk-delivery/api-client/generated";
 
 const api = createApi();
 const clientBotMiniAppURL = "https://t.me/TakoLako_main_bot?startapp";
@@ -97,6 +98,7 @@ function ClientMiniApp() {
   const [cashLocation, setCashLocation] = useState<CashLocationChallenge | null>(null);
   const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType>(() => draft.fulfillmentType || "delivery");
   const [pickupSlots, setPickupSlots] = useState<PickupSlots | null>(null);
+  const [deliverySlots, setDeliverySlots] = useState<DeliverySlots | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<Extract<PaymentMethod, "cash" | "crypto">>("cash");
   const [contactLoading, setContactLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -124,7 +126,7 @@ function ClientMiniApp() {
   const availableCartLines = useMemo(() => cartLines.filter((line) => itemLookup.has(line.itemId)), [cartLines, itemLookup]);
   const availableAdditionLines = useMemo(() => additionLines.filter((line) => itemLookup.has(line.itemId)), [additionLines, itemLookup]);
   const checkoutCartKey = useMemo(() => checkoutCartSignature(availableCartLines), [availableCartLines]);
-  const checkoutSignature = useMemo(() => checkoutCartKey ? `${fulfillmentType}:${draft.pickupAt}:${checkoutCartKey}` : "", [checkoutCartKey, draft.pickupAt, fulfillmentType]);
+  const checkoutSignature = useMemo(() => checkoutCartKey ? `${fulfillmentType}:${draft.pickupAt}:${draft.deliveryTimeMode}:${draft.deliveryRequestedAt}:${checkoutCartKey}` : "", [checkoutCartKey, draft.pickupAt, draft.deliveryRequestedAt, draft.deliveryTimeMode, fulfillmentType]);
   const additionSignature = useMemo(() => checkoutCartSignature(availableAdditionLines), [availableAdditionLines]);
   const cartQuantity = availableCartLines.reduce((sum, line) => sum + line.quantity, 0);
   const additionQuantity = availableAdditionLines.reduce((sum, line) => sum + line.quantity, 0);
@@ -136,6 +138,7 @@ function ClientMiniApp() {
   const dayOffBlocked = isDayOffRuntime(data.runtime) && route.name !== "booking" && !isOwnerTelegramId(data.session?.telegram_user_id);
   const paymentMethods = useMemo(() => checkoutPaymentMethods(data.runtime?.enabled_payments || []), [data.runtime?.enabled_payments]);
   const cashLocationRequired = data.runtime?.cash_location_required ?? true;
+  const deliveryTimingEnabled = data.runtime?.delivery_timing_enabled === true && data.session?.delivery_timing_access === true;
   const routedOrder = route.name === "order"
     ? data.orders.find((order) => order.id === route.id)
     : route.name === "add"
@@ -247,6 +250,24 @@ function ClientMiniApp() {
       .catch((err) => alive && setError(errorText(err, locale)));
     return () => { alive = false; };
   }, [token, route.name, fulfillmentType, locale, withAuth]);
+
+  useEffect(() => {
+    if (!token || route.name !== "checkout" || fulfillmentType !== "delivery" || !deliveryTimingEnabled) {
+      setDeliverySlots(null);
+      return;
+    }
+    let alive = true;
+    withAuth((authToken) => api.deliverySlots(authToken), token)
+      .then((slots) => {
+        if (!alive) return;
+        setDeliverySlots(slots);
+        if (draft.deliveryTimeMode === "SCHEDULED" && draft.deliveryRequestedAt && !slots.slots.some((slot) => slot.target_at === draft.deliveryRequestedAt && slot.available)) {
+          updateDraft({ deliveryRequestedAt: "" });
+        }
+      })
+      .catch((err) => alive && setError(errorText(err, locale)));
+    return () => { alive = false; };
+  }, [token, route.name, fulfillmentType, locale, withAuth, deliveryTimingEnabled]);
 
   useEffect(() => {
     if (!token || !checkoutSignature || restoredCheckoutSignature === checkoutSignature) return;
@@ -459,7 +480,7 @@ function ClientMiniApp() {
 
   function updateFulfillmentType(next: FulfillmentType) {
     setFulfillmentType(next);
-    updateDraft({ fulfillmentType: next, pickupAt: next === "pickup" ? draft.pickupAt : "" });
+    updateDraft({ fulfillmentType: next, pickupAt: next === "pickup" ? draft.pickupAt : "", deliveryTimeMode: "ASAP", deliveryRequestedAt: "" });
     setCalculation(null);
     setCashLocation(null);
     clearCheckoutProgress();
@@ -478,6 +499,10 @@ function ClientMiniApp() {
         authToken,
         availableCartLines.map((line) => ({ item_id: line.itemId, quantity: line.quantity })),
         fulfillmentType,
+        fulfillmentType === "delivery" && deliveryTimingEnabled ? {
+          delivery_time_mode: draft.deliveryTimeMode,
+          delivery_requested_at: draft.deliveryTimeMode === "SCHEDULED" ? draft.deliveryRequestedAt || undefined : undefined,
+        } : undefined,
       ),
       token,
     );
@@ -606,6 +631,8 @@ function ClientMiniApp() {
           comment: draft.comment.trim(),
           fulfillment_type: fulfillmentType,
           pickup_at: deliverySelected ? undefined : draft.pickupAt,
+          delivery_time_mode: deliverySelected && deliveryTimingEnabled ? draft.deliveryTimeMode : undefined,
+          delivery_requested_at: deliverySelected && deliveryTimingEnabled && draft.deliveryTimeMode === "SCHEDULED" ? draft.deliveryRequestedAt : undefined,
           payment_method: paymentMethod,
           cash_location_challenge_id: paymentMethod === "cash" ? cashLocation?.id : undefined,
           terms_accepted: termsAccepted,
@@ -632,6 +659,15 @@ function ClientMiniApp() {
           setPickupSlots(await withAuth((authToken) => api.pickupSlots(authToken), token));
         } catch {
           setPickupSlots({ timezone: "Europe/Belgrade", date: "", slots: [] });
+        }
+      }
+      if (deliverySelected && (code === "DELIVERY_SLOT_UNAVAILABLE" || code === "DELIVERY_TIMING_UNAVAILABLE")) {
+        updateDraft({ deliveryRequestedAt: "" });
+        resetPendingIdempotencyKey();
+        try {
+          setDeliverySlots(await withAuth((authToken) => api.deliverySlots(authToken), token));
+        } catch {
+          setDeliverySlots({ timezone: "Europe/Belgrade", date: "", slots: [] });
         }
       }
     } finally {
@@ -802,6 +838,8 @@ function ClientMiniApp() {
         locale={locale}
         fulfillmentType={fulfillmentType}
         pickupSlots={pickupSlots}
+        deliverySlots={deliverySlots}
+        deliveryTimingEnabled={deliveryTimingEnabled}
         pickupAddress={data.runtime?.pickup_address || "Tako Lako, Novi Sad"}
         pickupMapUrl={data.runtime?.pickup_map_url || ""}
         pickupEnabled={data.runtime?.pickup_enabled !== false}
@@ -1515,6 +1553,8 @@ function Checkout({
   locale,
   fulfillmentType,
   pickupSlots,
+  deliverySlots,
+  deliveryTimingEnabled,
   pickupAddress,
   pickupMapUrl,
   pickupEnabled,
@@ -1547,6 +1587,8 @@ function Checkout({
   locale: Locale;
   fulfillmentType: FulfillmentType;
   pickupSlots: PickupSlots | null;
+  deliverySlots: DeliverySlots | null;
+  deliveryTimingEnabled: boolean;
   pickupAddress: string;
   pickupMapUrl: string;
   pickupEnabled: boolean;
@@ -1572,7 +1614,7 @@ function Checkout({
 }) {
   useEffect(() => {
     if (lines.length) void onCalculate().catch(() => undefined);
-  }, [fulfillmentType, lines.length]);
+  }, [fulfillmentType, lines.length, draft.deliveryTimeMode, draft.deliveryRequestedAt]);
   if (!lines.length) return <div className="state">{t(locale, "emptyCart")}</div>;
   const deliverySelected = fulfillmentType === "delivery";
   const locationRequired = paymentMethod === "cash" && cashLocationRequired;
@@ -1619,6 +1661,36 @@ function Checkout({
               <p className="notice compact">{copy.entranceDeliveryNote}</p>
             </div>
           </>
+        )}
+        {deliverySelected && deliveryTimingEnabled && (
+          <section className="delivery-timing" aria-label="Когда приготовить заказ">
+            <strong>{locale === "en" ? "When should we prepare it?" : locale === "sr" ? "Kada da pripremimo porudžbinu?" : "Когда приготовить заказ?"}</strong>
+            <div className="delivery-timing-modes">
+              <button type="button" className={draft.deliveryTimeMode === "ASAP" ? "active" : ""} onClick={() => onDraft({ deliveryTimeMode: "ASAP", deliveryRequestedAt: "" })}>
+                {locale === "en" ? "As soon as possible" : locale === "sr" ? "Što pre" : "Как можно скорее"}
+              </button>
+              <button type="button" className={draft.deliveryTimeMode === "SCHEDULED" ? "active" : ""} onClick={() => onDraft({ deliveryTimeMode: "SCHEDULED" })}>
+                {locale === "en" ? "For a specific time" : locale === "sr" ? "Za određeno vreme" : "Ко времени"}
+              </button>
+            </div>
+            {draft.deliveryTimeMode === "ASAP" && deliverySlots?.asap && (
+              <p className="delivery-timing-summary">
+                {deliverySlots.asap.queue_delay_minutes > 0 ? (locale === "ru" ? "Сейчас очередь. " : "") : ""}
+                {locale === "en" ? "Approximate handoff to courier at " : locale === "sr" ? "Okvirna predaja kuriru oko " : "Ориентировочно передадим курьеру около "}<strong>{formatPickupTime(deliverySlots.asap.target_at)}</strong>
+                <small>{locale === "en" ? "Approximate wait: " : locale === "sr" ? "Okvirno čekanje: " : "Ожидание примерно "}{formatDeliveryWait(deliverySlots.asap.wait_minutes, locale)}</small>
+              </p>
+            )}
+            {draft.deliveryTimeMode === "SCHEDULED" && (
+              <div className="delivery-slots">
+                {deliverySlots?.slots.map((slot) => (
+                  <button type="button" key={slot.target_at} disabled={!slot.available} className={draft.deliveryRequestedAt === slot.target_at ? "active" : ""} onClick={() => onDraft({ deliveryRequestedAt: slot.target_at })}>
+                    {slot.label}{!slot.available ? ` · ${locale === "en" ? "busy" : locale === "sr" ? "zauzeto" : "занято"}` : ""}
+                  </button>
+                ))}
+              </div>
+            )}
+            <small>{locale === "en" ? "Approximate preparation and courier handoff time; delivery to your address takes additional time." : locale === "sr" ? "Vreme pripreme i predaje kuriru je okvirno; dostava do adrese traje dodatno." : "Время примерное: приготовим и передадим курьеру, дорога до адреса займёт дополнительное время."}</small>
+          </section>
         )}
         {!deliverySelected && (
           <section className="pickup-checkout" aria-label={copy.pickupTitle}>
@@ -1726,6 +1798,14 @@ function Checkout({
           </div>
         )}
       </div>
+      {deliverySelected && deliveryTimingEnabled && calculation?.delivery_target_at && (
+        <div className="delivery-timing-final">
+          <span>{draft.deliveryTimeMode === "SCHEDULED"
+            ? (locale === "en" ? "Requested time" : locale === "sr" ? "Željeno vreme" : "Желаемое время")
+            : (locale === "en" ? "As soon as possible" : locale === "sr" ? "Što pre" : "Как можно скорее")}</span>
+          <strong>· ~{formatPickupTime(calculation.delivery_target_at)}</strong>
+        </div>
+      )}
       <Totals subtotal={calculation?.subtotal_minor || subtotal} total={calculation?.total_minor || total} locale={locale} />
       <label className="terms-check">
         <input type="checkbox" checked={termsAccepted} onChange={(event) => onTermsAccepted(event.target.checked)} />
@@ -1736,7 +1816,7 @@ function Checkout({
           </a>
         </span>
       </label>
-      <button className="primary full" disabled={!checkoutOpen || submitting || !contactVerified || !locationVerified || !termsAccepted || (!deliverySelected && (!pickupEnabled || !draft.pickupAt))} onClick={onSubmit}>
+      <button className="primary full" disabled={!checkoutOpen || submitting || !contactVerified || !locationVerified || !termsAccepted || (!deliverySelected && (!pickupEnabled || !draft.pickupAt)) || (deliverySelected && deliveryTimingEnabled && draft.deliveryTimeMode === "SCHEDULED" && !draft.deliveryRequestedAt)} onClick={onSubmit}>
         {submitting ? "..." : `${!deliverySelected && draft.pickupAt ? `${copy.placePickupOrder} ${formatPickupTime(draft.pickupAt)} ` : paymentMethod === "crypto" ? copy.placeCryptoTestOrder : t(locale, "placeOrder")}· ${money(calculation?.total_minor || total)}`}
       </button>
     </div>
@@ -2065,6 +2145,14 @@ function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; 
           <p>{localizedStatus(order, locale)}</p>
         </div>
       </div>
+      {order.fulfillment_type === "delivery" && order.fulfillment_status === "NEW" && (order.estimated_ready_at || order.delivery_target_at) && (
+        <div className="notice delivery-order-timing">
+          <strong>{order.estimated_ready_at
+            ? (locale === "en" ? "Kitchen plans to hand the order to the courier around " : locale === "sr" ? "Kuhinja planira predaju kuriru oko " : "Кухня планирует передать заказ курьеру около ")
+            : (locale === "en" ? "Approximate courier handoff at " : locale === "sr" ? "Okvirna predaja kuriru oko " : "Ориентировочно передадим курьеру около ")}{formatPickupTime(order.estimated_ready_at || order.delivery_target_at)}</strong>
+          <small>{locale === "en" ? "The time is approximate and may change." : locale === "sr" ? "Vreme je okvirno i može se promeniti." : "Время примерное и может измениться."}</small>
+        </div>
+      )}
       {order.fulfillment_status === "NEW" && (
         <div className={order.can_add_items ? "add-order-cta" : "add-order-cta disabled"}>
           <div>
@@ -2633,11 +2721,23 @@ function sameRuntime(current: Runtime | null, incoming: Runtime): boolean {
     && current.pickup_map_url === incoming.pickup_map_url
     && current.pickup_min_lead_minutes === incoming.pickup_min_lead_minutes
     && current.pickup_slot_minutes === incoming.pickup_slot_minutes
-    && current.pickup_last_time === incoming.pickup_last_time;
+    && current.pickup_last_time === incoming.pickup_last_time
+    && current.delivery_timing_enabled === incoming.delivery_timing_enabled
+    && current.delivery_min_lead_minutes === incoming.delivery_min_lead_minutes
+    && current.delivery_slot_minutes === incoming.delivery_slot_minutes
+    && current.delivery_last_target_time === incoming.delivery_last_target_time;
 }
 
 function errorText(err: unknown, locale: Locale = "ru"): string {
   const code = typeof err === "object" && err && "code" in err ? String((err as { code: unknown }).code) : String((err as Error)?.message || err);
+  const details = typeof err === "object" && err && "details" in err ? (err as { details?: Record<string, unknown> }).details : undefined;
+  if (code === "DELIVERY_SLOT_UNAVAILABLE" && typeof details?.next_available_at === "string") {
+    const next = formatPickupTime(details.next_available_at);
+    const delay = Number(details.queue_delay_minutes || 0);
+    if (locale === "en") return `That time just filled up. Nearest available: ${next}${delay ? `, about ${delay} min later` : ""}.`;
+    if (locale === "sr") return `Taj termin je upravo popunjen. Najbliži slobodan: ${next}${delay ? `, oko ${delay} min kasnije` : ""}.`;
+    return `На это время уже набралась очередь. Ближайшее свободное — ${next}${delay ? `, ожидание около ${delay} мин` : ""}.`;
+  }
   const messages = {
     ru: {
       MANUAL_DAY_OFF: "Сегодня выходной",
@@ -2656,6 +2756,9 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       CASH_LOCATION_INACCURATE: "Геолокация неточная. Повторите проверку у окна или на улице.",
       PICKUP_UNAVAILABLE: "Самовывоз сейчас недоступен",
       PICKUP_SLOT_UNAVAILABLE: "Это время уже недоступно. Выберите другой слот.",
+		DELIVERY_TIMING_UNAVAILABLE: "На сегодня свободного времени уже нет.",
+		DELIVERY_SLOT_UNAVAILABLE: "На это время уже набралась очередь. Выберите ближайший свободный вариант.",
+		DELIVERY_TIME_INVALID: "Выберите доступное время из списка.",
 			RESERVATION_UNAVAILABLE: "Это время только что заняли. Выберите другое.",
 			ACTIVE_RESERVATION_EXISTS: "У вас уже есть активная бронь.",
       INVALID_INPUT: "Поделитесь телефоном через Telegram и заполните адрес",
@@ -2680,6 +2783,9 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       CASH_LOCATION_INACCURATE: "Geolokacija nije dovoljno precizna. Ponovite proveru pored prozora ili napolju.",
       PICKUP_UNAVAILABLE: "Lično preuzimanje trenutno nije dostupno",
       PICKUP_SLOT_UNAVAILABLE: "Ovaj termin više nije dostupan. Izaberite drugi.",
+		DELIVERY_TIMING_UNAVAILABLE: "Danas više nema slobodnih termina.",
+		DELIVERY_SLOT_UNAVAILABLE: "Ovaj termin je popunjen. Izaberite sledeći slobodan.",
+		DELIVERY_TIME_INVALID: "Izaberite dostupno vreme sa liste.",
 			RESERVATION_UNAVAILABLE: "Ovaj termin je upravo rezervisan. Izaberite drugi.",
 			ACTIVE_RESERVATION_EXISTS: "Već imate aktivnu rezervaciju.",
       INVALID_INPUT: "Podelite telefon preko Telegrama i unesite adresu",
@@ -2704,6 +2810,9 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       CASH_LOCATION_INACCURATE: "Geolocation is not accurate enough. Repeat the check near a window or outside.",
       PICKUP_UNAVAILABLE: "Pickup is currently unavailable",
       PICKUP_SLOT_UNAVAILABLE: "This pickup time is no longer available. Choose another slot.",
+		DELIVERY_TIMING_UNAVAILABLE: "There are no delivery preparation slots left today.",
+		DELIVERY_SLOT_UNAVAILABLE: "That time just filled up. Choose the nearest available slot.",
+		DELIVERY_TIME_INVALID: "Choose an available time from the list.",
 			RESERVATION_UNAVAILABLE: "This time was just booked. Choose another one.",
 			ACTIVE_RESERVATION_EXISTS: "You already have an active reservation.",
       INVALID_INPUT: "Share your phone through Telegram and enter the address",
@@ -2714,6 +2823,16 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
   } satisfies Record<Locale, Record<string, string>>;
   const localeMessages: Record<string, string> = messages[locale];
   return localeMessages[code] || localeMessages.SERVER_UNAVAILABLE;
+}
+
+function formatDeliveryWait(minutes: number, locale: Locale): string {
+  const safeMinutes = Math.max(0, Math.round(minutes));
+  if (safeMinutes < 60) return locale === "ru" ? `${safeMinutes} мин` : `${safeMinutes} min`;
+  const hours = Math.floor(safeMinutes / 60);
+  const rest = safeMinutes % 60;
+  if (locale === "en") return `${hours} h${rest ? ` ${rest} min` : ""}`;
+  if (locale === "sr") return `${hours} č${rest ? ` ${rest} min` : ""}`;
+  return `${hours} ч${rest ? ` ${rest} мин` : ""}`;
 }
 
 function delay(ms: number): Promise<void> {

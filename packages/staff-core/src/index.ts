@@ -28,6 +28,7 @@ export interface StaffApi {
   resetCourierDelivery(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
   startKitchenPreparation(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
   resetKitchenPreparation(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
+  estimateKitchenReady(token: string, id: string, input: { ready_in_minutes?: number; estimated_ready_at?: string; expected_version: number }, idempotencyKey: string): Promise<Order>;
   markReady(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
   markPickupCollected(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
   markDelivered(token: string, id: string, idempotencyKey: string, expectedVersion: number): Promise<Order>;
@@ -192,6 +193,7 @@ function realApi(baseURL: string, appEnv: string): StaffApi {
     resetCourierDelivery: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/courier/orders/${id}/delivery/reset`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
     startKitchenPreparation: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/start`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
     resetKitchenPreparation: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/preparation/reset`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
+    estimateKitchenReady: (token, id, input, idempotencyKey) => post(`${baseURL}/api/v1/kitchen/orders/${id}/estimate-ready`, input, token, { "Idempotency-Key": idempotencyKey }),
     markReady: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/ready`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
     markPickupCollected: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/kitchen/orders/${id}/picked-up`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
     markDelivered: (token, id, idempotencyKey, expectedVersion) => post(`${baseURL}/api/v1/courier/orders/${id}/delivered`, { expected_version: expectedVersion }, token, { "Idempotency-Key": idempotencyKey }),
@@ -235,6 +237,16 @@ function demoApi(role: StaffRole): StaffApi {
     async resetKitchenPreparation(_token, id) {
       return updateDemoPreparation(id, false);
     },
+    async estimateKitchenReady(_token, id, input) {
+      const orders = loadDemoOrders();
+      const order = orders.find((entry) => entry.id === id);
+      if (!order) throw new Error("ORDER_NOT_FOUND");
+      order.estimated_ready_at = input.estimated_ready_at || new Date(Date.now() + (input.ready_in_minutes || 30) * 60000).toISOString();
+      order.estimated_ready_updated_at = new Date().toISOString();
+      order.version += 1;
+      saveDemoOrders(orders);
+      return stripDemo(order);
+    },
     async markReady(_token, id) {
       const order = loadDemoOrders().find((entry) => entry.id === id);
       return transitionDemoOrder(id, "NEW", orderFulfillmentType(order!) === "pickup" ? "READY_FOR_PICKUP" : "OUT_FOR_DELIVERY");
@@ -263,6 +275,7 @@ function unconfiguredApi(): StaffApi {
     resetCourierDelivery: fail,
     startKitchenPreparation: fail,
     resetKitchenPreparation: fail,
+    estimateKitchenReady: fail,
     markReady: fail,
     markPickupCollected: fail,
     markDelivered: fail,

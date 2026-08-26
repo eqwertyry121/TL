@@ -168,6 +168,17 @@ paths:
           description: Available scheduled pickup slots for the current restaurant day, calculated from server time, lead time and per-slot capacity.
         "409":
           description: Pickup is disabled or the restaurant is not accepting orders.
+  /delivery/slots:
+    get:
+      responses:
+        "200":
+          description: Current-day approximate delivery preparation slots and nearest ASAP target. Does not expose order counts or customer data.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliverySlots"
+        "409":
+          description: Delivery timing is disabled or no slot remains today.
   /reservations/availability:
     get:
       parameters:
@@ -203,6 +214,23 @@ paths:
           description: Client reservation cancelled and the table released.
   /orders/calculate:
     post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items, fulfillment_type]
+              properties:
+                fulfillment_type:
+                  type: string
+                  enum: [delivery, pickup]
+                delivery_time_mode:
+                  type: string
+                  enum: [ASAP, SCHEDULED]
+                delivery_requested_at:
+                  type: string
+                  format: date-time
       responses:
         "200":
           description: Server-side cart calculation. Request body may include fulfillment_type=delivery|pickup; pickup always has zero delivery fee.
@@ -253,6 +281,14 @@ paths:
                   type: string
                   format: date-time
                   description: Required for pickup and forbidden for delivery. Must be one of the currently available slots.
+                delivery_time_mode:
+                  type: string
+                  enum: [ASAP, SCHEDULED]
+                  description: Delivery only. Defaults to ASAP while the timing feature is enabled.
+                delivery_requested_at:
+                  type: string
+                  format: date-time
+                  description: Required only for SCHEDULED and must match a current-day slot.
                 terms_accepted:
                   type: boolean
                   const: true
@@ -306,6 +342,32 @@ paths:
       responses:
         "200":
           description: Delivery moves to OUT_FOR_DELIVERY and notifies client/courier. Pickup moves to READY_FOR_PICKUP and notifies only the client.
+  /kitchen/orders/{id}/estimate-ready:
+    post:
+      parameters:
+        - $ref: "#/components/parameters/orderId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_version]
+              properties:
+                ready_in_minutes:
+                  type: integer
+                  minimum: 10
+                  maximum: 180
+                estimated_ready_at:
+                  type: string
+                  format: date-time
+                expected_version:
+                  type: integer
+                  minimum: 1
+      responses:
+        "200":
+          description: Saves an approximate kitchen-ready time for a NEW delivery order with expected_version protection and queues a localized client notification without changing fulfillment status.
   /kitchen/orders/{id}/start:
     post:
       parameters:
@@ -686,6 +748,34 @@ components:
       type: http
       scheme: bearer
   schemas:
+    DeliverySlots:
+      type: object
+      required: [timezone, date, slots]
+      properties:
+        timezone:
+          type: string
+          enum: [Europe/Belgrade]
+        date:
+          type: string
+          format: date
+        asap:
+          type: object
+          required: [target_at, wait_minutes, queue_delay_minutes]
+          properties:
+            target_at: { type: string, format: date-time }
+            wait_minutes: { type: integer }
+            queue_delay_minutes: { type: integer }
+        slots:
+          type: array
+          items:
+            type: object
+            required: [target_at, label, available, queue_delay_minutes]
+            properties:
+              target_at: { type: string, format: date-time }
+              label: { type: string }
+              available: { type: boolean }
+              queue_delay_minutes: { type: integer }
+              next_available_at: { type: string, format: date-time }
     VersionInfo:
       type: object
       additionalProperties: false
@@ -734,7 +824,7 @@ components:
     AnalyticsSummary:
       type: object
       additionalProperties: false
-      required: [all_orders, delivered_orders, cancelled_orders, revenue_minor, average_check_minor]
+      required: [all_orders, delivered_orders, cancelled_orders, revenue_minor, average_check_minor, delivery_slot_fill_percent, average_delivery_queue_delay_minutes, average_ready_plan_deviation_minutes]
       properties:
         all_orders:
           type: integer
@@ -745,6 +835,12 @@ components:
         revenue_minor:
           type: integer
         average_check_minor:
+          type: integer
+        delivery_slot_fill_percent:
+          type: integer
+        average_delivery_queue_delay_minutes:
+          type: integer
+        average_ready_plan_deviation_minutes:
           type: integer
     AnalyticsBreakdown:
       type: object

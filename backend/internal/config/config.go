@@ -34,6 +34,7 @@ type Config struct {
 	AllowedOrigins            []string
 	BootstrapOwnerTelegramID  int64
 	BootstrapOwnerTelegramIDs []int64
+	DeliveryTimingBetaIDs     []int64
 	LocalRoleSwitcherEnabled  bool
 	EncryptionKey             []byte
 	PIIHashKey                []byte
@@ -99,6 +100,7 @@ func Load() (Config, error) {
 		PIIRetentionDays:         int(mustInt64(get("PII_RETENTION_DAYS", "730"))),
 	}
 	cfg.BootstrapOwnerTelegramIDs = bootstrapOwnerTelegramIDs()
+	cfg.DeliveryTimingBetaIDs = telegramIDList("DELIVERY_TIMING_BETA_TELEGRAM_IDS", "")
 	if len(cfg.BootstrapOwnerTelegramIDs) > 0 {
 		cfg.BootstrapOwnerTelegramID = cfg.BootstrapOwnerTelegramIDs[0]
 	}
@@ -236,6 +238,14 @@ func bootstrapOwnerTelegramIDs() []int64 {
 			raw = "1048084234,8241921060,8609105840,7604602332"
 		}
 	}
+	return parseTelegramIDList(raw)
+}
+
+func telegramIDList(key, fallback string) []int64 {
+	return parseTelegramIDList(get(key, fallback))
+}
+
+func parseTelegramIDList(raw string) []int64 {
 	parts := strings.Split(raw, ",")
 	out := make([]int64, 0, len(parts))
 	seen := map[int64]bool{}
