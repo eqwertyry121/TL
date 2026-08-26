@@ -1849,7 +1849,7 @@ func TestDeliveryTimingCapacityAndKitchenETARevision(t *testing.T) {
 	if err != nil || replayed.Version != updated.Version {
 		t.Fatalf("ETA replay = version %d, err=%v", replayed.Version, err)
 	}
-	exact := now.UTC().Add(5 * time.Minute).Truncate(time.Minute)
+	exact := now.UTC().Truncate(5 * time.Minute).Add(5 * time.Minute)
 	exactUpdated, err := st.EstimateReady(ctx, kitchenSession, first.ID, store.EstimateReadyInput{EstimatedReadyAt: &exact, ExpectedVersion: updated.Version}, "idem-delivery-exact-eta", "hash-delivery-exact-eta", now)
 	if err != nil || exactUpdated.EstimatedReadyAt == nil || !exactUpdated.EstimatedReadyAt.Equal(exact) {
 		t.Fatalf("exact five-minute ETA = %+v, err=%v", exactUpdated.EstimatedReadyAt, err)
