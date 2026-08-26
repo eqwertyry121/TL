@@ -1757,20 +1757,16 @@ func TestDeliveryTimingCapacityAndKitchenETARevision(t *testing.T) {
 	st, pool := newIntegrationStore(t, ctx)
 	defer pool.Close()
 
+	now := time.Now().UTC()
+	testTimezone := middayTestTimezone(now)
 	if _, err := pool.Exec(ctx, `
 		UPDATE app_settings
-		SET delivery_timing_enabled=true, delivery_min_lead_minutes=10,
+		SET timezone=$1, delivery_timing_enabled=true, delivery_min_lead_minutes=10,
 			delivery_slot_minutes=10, delivery_max_orders_per_slot=1,
 			delivery_last_target_time='23:50'
-	`); err != nil {
+	`, testTimezone); err != nil {
 		t.Fatalf("enable delivery timing: %v", err)
 	}
-	loc, err := time.LoadLocation("Europe/Belgrade")
-	if err != nil {
-		t.Fatal(err)
-	}
-	localNow := time.Now().In(loc)
-	now := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 12, 0, 0, 0, loc).UTC()
 
 	firstSession, firstInput := prepareCashOrderForCart(t, ctx, st, clientTelegramID, "+38160111901", "Delivery timing one", []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now)
 	slots, err := st.DeliverySlots(ctx, firstSession, now)
@@ -1821,6 +1817,18 @@ func TestDeliveryTimingCapacityAndKitchenETARevision(t *testing.T) {
 	var jobs int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM notification_jobs WHERE order_id=$1 AND template='client_kitchen_eta_set'`, first.ID).Scan(&jobs); err != nil || jobs != 1 {
 		t.Fatalf("ETA notification jobs = %d, err=%v", jobs, err)
+	}
+}
+
+func middayTestTimezone(now time.Time) string {
+	offsetHours := 12 - now.UTC().Hour()
+	switch {
+	case offsetHours == 0:
+		return "UTC"
+	case offsetHours > 0:
+		return fmt.Sprintf("Etc/GMT-%d", offsetHours)
+	default:
+		return fmt.Sprintf("Etc/GMT+%d", -offsetHours)
 	}
 }
 
