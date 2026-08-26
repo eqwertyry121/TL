@@ -1232,7 +1232,7 @@ p {
 }
 
 .home-counters {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .home-counter {
@@ -1257,6 +1257,13 @@ p {
   font-family: var(--font-display);
   font-size: clamp(2rem, 6vw, 3rem);
   line-height: 0.9;
+}
+
+.home-counter small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.25;
 }
 
 .today-metrics {
@@ -2404,6 +2411,10 @@ p {
   .today-metrics span {
     font-size: 0.72rem;
     line-height: 1.15;
+  }
+
+  .home-counter small {
+    font-size: 0.67rem;
   }
 
   .home-counter strong {

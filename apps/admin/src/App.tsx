@@ -801,7 +801,8 @@ function HomeTab({
 }) {
   const accepting = dashboard.runtime.accepting_orders;
   const notificationErrors = dashboard.notification_errors ?? [];
-  const activeOrders = dashboard.new_orders + dashboard.out_for_delivery + dashboard.ready_for_pickup;
+  const readyOrders = dashboard.out_for_delivery + dashboard.ready_for_pickup;
+  const activeOrders = dashboard.new_orders + readyOrders;
   const averageCheck = dashboard.orders_today > 0 ? Math.round(dashboard.revenue_today_minor / dashboard.orders_today) : 0;
   const orderWindow = dashboard.runtime.order_open_time && dashboard.runtime.order_cutoff_time
     ? `${dashboard.runtime.order_open_time}–${dashboard.runtime.order_cutoff_time}`
@@ -815,7 +816,7 @@ function HomeTab({
           <p>{accepting ? `Сегодня ${orderWindow}` : `${compactRuntimeReason(dashboard.runtime.reason)} · ${orderWindow}`}</p>
         </div>
         <button className={settings.manual_day_off ? "primary" : "danger-button"} onClick={() => void onDayOff(!settings.manual_day_off)}>
-          {settings.manual_day_off ? "Возобновить приём" : "Закрыть на техобслуживание"}
+          {settings.manual_day_off ? "Возобновить приём" : "Остановить приём"}
         </button>
       </div>
 
@@ -833,13 +834,10 @@ function HomeTab({
             <span>На кухне</span>
             <strong>{dashboard.new_orders}</strong>
           </button>
-          <button className="home-counter" type="button" onClick={() => onOpenOrders("active")}>
-            <span>В доставке</span>
-            <strong>{dashboard.out_for_delivery}</strong>
-          </button>
           <button className="home-counter" type="button" onClick={() => onOpenOrders("ready")}>
-            <span>Самовывоз готов</span>
-            <strong>{dashboard.ready_for_pickup}</strong>
+            <span>Готово</span>
+            <strong>{readyOrders}</strong>
+            <small>Доставка {dashboard.out_for_delivery} · Самовывоз {dashboard.ready_for_pickup}</small>
           </button>
         </div>
       </div>

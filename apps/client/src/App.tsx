@@ -836,6 +836,7 @@ function ClientMiniApp() {
         subtotal={subtotal}
         total={total}
         checkoutOpen={checkoutOpen}
+        checkoutClosedLabel={checkoutClosedText(data.runtime, locale)}
         locale={locale}
         fulfillmentType={fulfillmentType}
         pickupSlots={pickupSlots}
@@ -1553,6 +1554,7 @@ function Checkout({
   subtotal,
   total,
   checkoutOpen,
+  checkoutClosedLabel,
   locale,
   fulfillmentType,
   pickupSlots,
@@ -1587,6 +1589,7 @@ function Checkout({
   subtotal: number;
   total: number;
   checkoutOpen: boolean;
+  checkoutClosedLabel: string;
   locale: Locale;
   fulfillmentType: FulfillmentType;
   pickupSlots: PickupSlots | null;
@@ -1626,21 +1629,41 @@ function Checkout({
   const termsHref = termsUrl.trim() || routeToHash({ name: "terms" });
   const termsExternal = /^https?:\/\//i.test(termsHref);
   const copy = checkoutCopy(locale);
-  const itemCount = lines.reduce((sum, line) => sum + line.quantity, 0);
-  const checkoutTotal = calculation?.total_minor || total;
+  const summaryLines = calculation?.items.length
+    ? calculation.items.map((line) => ({
+        id: line.item_id,
+        title: line.title,
+        quantity: line.quantity,
+        totalMinor: line.line_total_minor,
+      }))
+    : lines.map((line) => ({
+        id: line.itemId,
+        title: line.title,
+        quantity: line.quantity,
+        totalMinor: line.quantity * line.unitPriceMinor,
+      }));
+  const itemCount = summaryLines.reduce((sum, line) => sum + line.quantity, 0);
+  const checkoutTotal = calculation?.total_minor ?? total;
+  const addressReady = !deliverySelected || Boolean(draft.street.trim() && draft.houseNumber.trim());
+  const phoneReady = contactVerified && Boolean(draft.phone.trim());
+  const pickupTimeReady = deliverySelected || (pickupEnabled && Boolean(draft.pickupAt));
+  const deliveryTimeReady = !deliverySelected || !deliveryTimingEnabled || draft.deliveryTimeMode !== "SCHEDULED" || Boolean(draft.deliveryRequestedAt);
+  const canSubmit = checkoutOpen && !submitting && addressReady && phoneReady && locationVerified && pickupTimeReady && deliveryTimeReady && termsAccepted;
   const checkoutHint = !checkoutOpen
-    ? checkoutClosedText(undefined, locale)
-    : !contactVerified
-      ? copy.nextPhone
-      : !locationVerified
-        ? copy.nextLocation
-        : !deliverySelected && (!pickupEnabled || !draft.pickupAt)
-          ? copy.nextPickupTime
-          : deliverySelected && deliveryTimingEnabled && draft.deliveryTimeMode === "SCHEDULED" && !draft.deliveryRequestedAt
-            ? copy.nextDeliveryTime
-            : !termsAccepted
-              ? copy.nextTerms
-              : copy.readyToOrder;
+    ? checkoutClosedLabel
+    : !addressReady
+      ? copy.nextAddress
+      : !pickupTimeReady
+        ? copy.nextPickupTime
+        : !deliveryTimeReady
+          ? copy.nextDeliveryTime
+          : !phoneReady
+            ? copy.nextPhone
+            : !locationVerified
+              ? copy.nextLocation
+              : !termsAccepted
+                ? copy.nextTerms
+                : copy.readyToOrder;
   return (
     <div className="page narrow checkout-page">
       <div className="checkout-heading">
@@ -1652,12 +1675,12 @@ function Checkout({
       </div>
       <details className="checkout-order-summary">
         <summary>
-          <span><strong>{copy.yourOrder}</strong><small>{lines.length} {checkoutPositionsLabel(lines.length, locale)}</small></span>
+          <span><strong>{copy.yourOrder}</strong><small>{summaryLines.length} {checkoutPositionsLabel(summaryLines.length, locale)}</small></span>
           <strong>{money(checkoutTotal)}</strong>
         </summary>
         <div className="checkout-order-lines">
-          {lines.map((line) => (
-            <div key={line.itemId}><span><b>{line.quantity}×</b> {line.title}</span><strong>{money(line.quantity * line.unitPriceMinor)}</strong></div>
+          {summaryLines.map((line) => (
+            <div key={line.id}><span><b>{line.quantity}×</b> {line.title}</span><strong>{money(line.totalMinor)}</strong></div>
           ))}
           <a href="#/cart">{copy.editCart}</a>
         </div>
@@ -1847,7 +1870,7 @@ function Checkout({
             <strong>· ~{formatPickupTime(calculation.delivery_target_at)}</strong>
           </div>
         )}
-        <Totals subtotal={calculation?.subtotal_minor || subtotal} total={checkoutTotal} locale={locale} />
+        <Totals subtotal={calculation?.subtotal_minor ?? subtotal} total={checkoutTotal} locale={locale} />
         <label className="terms-check">
           <input type="checkbox" checked={termsAccepted} onChange={(event) => onTermsAccepted(event.target.checked)} />
           <span>
@@ -1859,8 +1882,8 @@ function Checkout({
         </label>
       </section>
       <div className={checkoutHint === copy.readyToOrder ? "checkout-action-bar is-ready" : "checkout-action-bar"}>
-        <div><small>{checkoutHint}</small><strong>{money(checkoutTotal)}</strong></div>
-        <button className="primary" disabled={!checkoutOpen || submitting || !contactVerified || !locationVerified || !termsAccepted || (!deliverySelected && (!pickupEnabled || !draft.pickupAt)) || (deliverySelected && deliveryTimingEnabled && draft.deliveryTimeMode === "SCHEDULED" && !draft.deliveryRequestedAt)} onClick={onSubmit}>
+        <div><small aria-live="polite">{checkoutHint}</small><strong>{money(checkoutTotal)}</strong></div>
+        <button className="primary" disabled={!canSubmit} onClick={onSubmit}>
           {submitting ? "..." : !deliverySelected && draft.pickupAt ? `${copy.placePickupOrder} ${formatPickupTime(draft.pickupAt)}` : paymentMethod === "crypto" ? copy.placeCryptoTestOrder : t(locale, "placeOrder")}
         </button>
       </div>
@@ -1879,6 +1902,7 @@ function checkoutCopy(locale: Locale) {
       confirmStep: "Подтверждение",
       confirmStepHint: "телефон, геолокация и итог",
       commentPlaceholder: "Например: позвоните за 5 минут",
+      nextAddress: "Заполните улицу и номер",
       nextPhone: "Следующий шаг: телефон",
       nextLocation: "Следующий шаг: геолокация",
       nextPickupTime: "Выберите время самовывоза",
@@ -1954,6 +1978,7 @@ function checkoutCopy(locale: Locale) {
       confirmStep: "Potvrda",
       confirmStepHint: "telefon, lokacija i iznos",
       commentPlaceholder: "Na primer: pozovite 5 minuta ranije",
+      nextAddress: "Unesite ulicu i broj",
       nextPhone: "Sledeće: potvrdite telefon",
       nextLocation: "Sledeće: potvrdite lokaciju",
       nextPickupTime: "Izaberite vreme preuzimanja",
@@ -2029,6 +2054,7 @@ function checkoutCopy(locale: Locale) {
       confirmStep: "Confirmation",
       confirmStepHint: "phone, location and total",
       commentPlaceholder: "For example: call 5 minutes before",
+      nextAddress: "Enter the street and house number",
       nextPhone: "Next: confirm phone",
       nextLocation: "Next: confirm location",
       nextPickupTime: "Choose a pickup time",
