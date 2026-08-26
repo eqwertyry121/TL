@@ -90,6 +90,7 @@ function demoApi(): Api {
       username: profile.username,
       first_name: profile.first_name,
       photo_url: profile.photo_url,
+      delivery_timing_access: true,
       active_role: "CLIENT",
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     } satisfies Session;
@@ -671,7 +672,7 @@ function seedDemoSettings(): Settings {
     pickup_slot_minutes: 15,
     pickup_max_orders_per_slot: 3,
     pickup_last_time: "22:00",
-    delivery_timing_enabled: false,
+    delivery_timing_enabled: true,
     delivery_min_lead_minutes: 40,
     delivery_slot_minutes: 30,
     delivery_max_orders_per_slot: 2,

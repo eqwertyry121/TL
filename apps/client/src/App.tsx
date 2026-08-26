@@ -1629,10 +1629,10 @@ function Checkout({
   onCalculate: () => Promise<Calculation | null>;
   onSubmit: () => Promise<void>;
 }) {
+  const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(() => verifiedContact?.verified ? 3 : 1);
   useEffect(() => {
     if (lines.length) void onCalculate().catch(() => undefined);
   }, [fulfillmentType, lines.length, draft.deliveryTimeMode, draft.deliveryRequestedAt]);
-  if (!lines.length) return <div className="state">{t(locale, "emptyCart")}</div>;
   const deliverySelected = fulfillmentType === "delivery";
   const locationRequired = paymentMethod === "cash" && cashLocationRequired;
   const locationVerified = !locationRequired || cashLocation?.status === "VERIFIED";
@@ -1640,6 +1640,7 @@ function Checkout({
   const termsHref = termsUrl.trim() || routeToHash({ name: "terms" });
   const termsExternal = /^https?:\/\//i.test(termsHref);
   const copy = checkoutCopy(locale);
+  const timingCopy = deliveryTimingCopy(locale);
   const summaryLines = calculation?.items.length
     ? calculation.items.map((line) => ({
         id: line.item_id,
@@ -1659,6 +1660,7 @@ function Checkout({
   const phoneReady = contactVerified && Boolean(draft.phone.trim());
   const pickupTimeReady = deliverySelected || (pickupEnabled && Boolean(draft.pickupAt));
   const deliveryTimeReady = !deliverySelected || !deliveryTimingEnabled || draft.deliveryTimeMode !== "SCHEDULED" || Boolean(draft.deliveryRequestedAt);
+  const receivingReady = addressReady && pickupTimeReady && deliveryTimeReady;
   const canSubmit = checkoutOpen && !submitting && addressReady && phoneReady && locationVerified && pickupTimeReady && deliveryTimeReady && termsAccepted;
   const checkoutHint = !checkoutOpen
     ? checkoutClosedLabel
@@ -1675,6 +1677,10 @@ function Checkout({
               : !termsAccepted
                 ? copy.nextTerms
                 : copy.readyToOrder;
+  useEffect(() => {
+    if (checkoutStep > 1 && !receivingReady) setCheckoutStep(1);
+  }, [checkoutStep, receivingReady]);
+  if (!lines.length) return <div className="state">{t(locale, "emptyCart")}</div>;
   return (
     <div className="page narrow checkout-page">
       <div className="checkout-heading">
@@ -1696,8 +1702,23 @@ function Checkout({
           <a href="#/cart">{copy.editCart}</a>
         </div>
       </details>
-      <div className="form checkout-section checkout-primary-section">
-        <div className="checkout-section-head"><span>1</span><div><strong>{copy.receivingStep}</strong><small>{copy.receivingStepHint}</small></div></div>
+      <nav className="checkout-progress" aria-label={copy.checkoutProgressLabel}>
+        {([1, 2, 3] as const).map((step) => (
+          <button
+            key={step}
+            type="button"
+            className={checkoutStep === step ? "active" : checkoutStep > step ? "complete" : ""}
+            disabled={(step === 2 || step === 3) && !receivingReady}
+            onClick={() => setCheckoutStep(step)}
+          >
+            <span>{checkoutStep > step ? <Icon name="check" size={14} /> : step}</span>
+            <small>{step === 1 ? copy.receivingStep : step === 2 ? copy.paymentTitle : copy.confirmStep}</small>
+          </button>
+        ))}
+      </nav>
+      {checkoutStep === 1 ? (
+      <div className="form checkout-section checkout-primary-section checkout-stage">
+        <div className="checkout-stage-title"><strong>{copy.receivingStep}</strong><small>{copy.receivingStepHint}</small></div>
         <div className="fulfillment-selector">
           <span>{copy.fulfillmentTitle}</span>
           <div>
@@ -1729,27 +1750,27 @@ function Checkout({
                 <span>{t(locale, "entrance")}</span>
                 <input value={draft.entrance} maxLength={24} inputMode="text" onChange={(event) => onDraft({ entrance: event.target.value })} />
               </label>
-              <p className="notice compact">{copy.entranceDeliveryNote}</p>
+              <small className="entrance-note">{copy.entranceDeliveryNote}</small>
             </div>
           </>
         )}
         {deliverySelected && deliveryTimingEnabled && (
-          <section className="delivery-timing" aria-label="Когда приготовить заказ">
-            <strong>{locale === "en" ? "When should we prepare it?" : locale === "sr" ? "Kada da pripremimo porudžbinu?" : "Когда приготовить заказ?"}</strong>
+          <section className="delivery-timing" aria-label={timingCopy.title}>
+            <div className="delivery-timing-head"><strong>{timingCopy.title}</strong><small>{timingCopy.approximate}</small></div>
             <div className="delivery-timing-modes">
               <button type="button" className={draft.deliveryTimeMode === "ASAP" ? "active" : ""} onClick={() => onDraft({ deliveryTimeMode: "ASAP", deliveryRequestedAt: "" })}>
-                {locale === "en" ? "As soon as possible" : locale === "sr" ? "Što pre" : "Как можно скорее"}
+                {timingCopy.asap}
               </button>
               <button type="button" className={draft.deliveryTimeMode === "SCHEDULED" ? "active" : ""} onClick={() => onDraft({ deliveryTimeMode: "SCHEDULED" })}>
-                {locale === "en" ? "For a specific time" : locale === "sr" ? "Za određeno vreme" : "Ко времени"}
+                {timingCopy.chooseTime}
               </button>
             </div>
             {draft.deliveryTimeMode === "ASAP" && deliverySlots?.asap && (
-              <p className="delivery-timing-summary">
-                {deliverySlots.asap.queue_delay_minutes > 0 ? (locale === "ru" ? "Сейчас очередь. " : "") : ""}
-                {locale === "en" ? "Approximate handoff to courier at " : locale === "sr" ? "Okvirna predaja kuriru oko " : "Ориентировочно передадим курьеру около "}<strong>{formatPickupTime(deliverySlots.asap.target_at)}</strong>
-                <small>{locale === "en" ? "Approximate wait: " : locale === "sr" ? "Okvirno čekanje: " : "Ожидание примерно "}{formatDeliveryWait(deliverySlots.asap.wait_minutes, locale)}</small>
-              </p>
+              <div className="delivery-timing-summary">
+                <span>{timingCopy.readyAround}</span>
+                <strong>~{formatPickupTime(deliverySlots.asap.target_at)}</strong>
+                <small>{deliverySlots.asap.queue_delay_minutes > 0 ? timingCopy.queue : timingCopy.wait} {formatDeliveryWait(deliverySlots.asap.wait_minutes, locale)}</small>
+              </div>
             )}
             {draft.deliveryTimeMode === "SCHEDULED" && (
               <div className="delivery-slots">
@@ -1760,7 +1781,7 @@ function Checkout({
                 ))}
               </div>
             )}
-            <small>{locale === "en" ? "Approximate preparation and courier handoff time; delivery to your address takes additional time." : locale === "sr" ? "Vreme pripreme i predaje kuriru je okvirno; dostava do adrese traje dodatno." : "Время примерное: приготовим и передадим курьеру, дорога до адреса займёт дополнительное время."}</small>
+            <small className="delivery-timing-note">{timingCopy.note}</small>
           </section>
         )}
         {!deliverySelected && (
@@ -1802,9 +1823,20 @@ function Checkout({
           <span>{t(locale, "comment")}</span>
           <textarea value={draft.comment} maxLength={300} placeholder={copy.commentPlaceholder} onChange={(event) => onDraft({ comment: event.target.value })} />
         </label>
+        <button className="primary checkout-continue" type="button" disabled={!receivingReady} onClick={() => setCheckoutStep(2)}>
+          {receivingReady ? copy.continueButton : checkoutHint}
+        </button>
       </div>
-      <section className="checkout-section checkout-payment-section">
-        <div className="checkout-section-head"><span>2</span><div><strong>{copy.paymentTitle}</strong><small>{copy.paymentStepHint}</small></div></div>
+      ) : (
+        <button className="checkout-step-summary" type="button" onClick={() => setCheckoutStep(1)}>
+          <span><Icon name="check" size={16} /></span>
+          <div><strong>{copy.receivingStep}</strong><small>{deliverySelected ? `${draft.street.trim()} ${draft.houseNumber.trim()}` : `${copy.pickupTitle} · ${formatPickupTime(draft.pickupAt)}`}</small></div>
+          <em>{copy.changeButton}</em>
+        </button>
+      )}
+      {checkoutStep === 2 ? (
+      <section className="checkout-section checkout-payment-section checkout-stage">
+        <div className="checkout-stage-title"><strong>{copy.paymentTitle}</strong><small>{copy.paymentStepHint}</small></div>
         <div className="payment-selector">
           <div>
           {paymentMethods.map((method) => (
@@ -1834,9 +1866,18 @@ function Checkout({
             <p>{copy.cryptoNotice}</p>
           )}
         </div>
+        <button className="primary checkout-continue" type="button" onClick={() => setCheckoutStep(3)}>{copy.continueButton}</button>
       </section>
-      <section className="checkout-section checkout-confirm-section">
-        <div className="checkout-section-head"><span>3</span><div><strong>{copy.confirmStep}</strong><small>{copy.confirmStepHint}</small></div></div>
+      ) : checkoutStep === 3 ? (
+        <button className="checkout-step-summary" type="button" onClick={() => setCheckoutStep(2)}>
+          <span><Icon name="check" size={16} /></span>
+          <div><strong>{copy.paymentTitle}</strong><small>{paymentMethodTitle(paymentMethod, locale)}</small></div>
+          <em>{copy.changeButton}</em>
+        </button>
+      ) : null}
+      {checkoutStep === 3 && (
+      <section className="checkout-section checkout-confirm-section checkout-stage">
+        <div className="checkout-stage-title"><strong>{copy.confirmStep}</strong><small>{copy.confirmStepHint}</small></div>
         <div className={contactVerified && locationVerified ? "required-checks verified" : "required-checks"}>
         <div className="required-checks-head">
           <strong>{copy.requiredSteps}</strong>
@@ -1892,14 +1933,52 @@ function Checkout({
           </span>
         </label>
       </section>
+      )}
+      {checkoutStep === 3 && (
       <div className={checkoutHint === copy.readyToOrder ? "checkout-action-bar is-ready" : "checkout-action-bar"}>
         <div><small aria-live="polite">{checkoutHint}</small><strong>{money(checkoutTotal)}</strong></div>
         <button className="primary" disabled={!canSubmit} onClick={onSubmit}>
           {submitting ? "..." : !deliverySelected && draft.pickupAt ? `${copy.placePickupOrder} ${formatPickupTime(draft.pickupAt)}` : paymentMethod === "crypto" ? copy.placeCryptoTestOrder : t(locale, "placeOrder")}
         </button>
       </div>
+      )}
     </div>
   );
+}
+
+function deliveryTimingCopy(locale: Locale) {
+  return {
+    ru: {
+      title: "Когда желательно получить?",
+      approximate: "примерно",
+      asap: "Как можно скорее",
+      chooseTime: "Выбрать время",
+      readyAround: "Приготовим примерно к",
+      wait: "Ожидание",
+      queue: "С учётом очереди",
+      note: "Это ориентир готовности. Курьеру потребуется время на дорогу.",
+    },
+    sr: {
+      title: "Kada želite porudžbinu?",
+      approximate: "okvirno",
+      asap: "Što pre",
+      chooseTime: "Izaberi vreme",
+      readyAround: "Pripremićemo oko",
+      wait: "Čekanje",
+      queue: "Sa redom čekanja",
+      note: "Ovo je okvirno vreme pripreme. Kuriru je potrebno dodatno vreme za put.",
+    },
+    en: {
+      title: "When would you like it?",
+      approximate: "approximately",
+      asap: "As soon as possible",
+      chooseTime: "Choose a time",
+      readyAround: "We will prepare it around",
+      wait: "Wait",
+      queue: "Including the queue",
+      note: "This is an approximate preparation time. The courier needs additional travel time.",
+    },
+  }[locale];
 }
 
 function checkoutCopy(locale: Locale) {
@@ -1909,6 +1988,9 @@ function checkoutCopy(locale: Locale) {
       editCart: "Изменить корзину",
       receivingStep: "Получение",
       receivingStepHint: "способ, адрес и время",
+      checkoutProgressLabel: "Этапы оформления",
+      continueButton: "Продолжить",
+      changeButton: "Изменить",
       paymentStepHint: "выберите один вариант",
       confirmStep: "Подтверждение",
       confirmStepHint: "телефон, геолокация и итог",
@@ -1985,6 +2067,9 @@ function checkoutCopy(locale: Locale) {
       editCart: "Izmeni korpu",
       receivingStep: "Preuzimanje",
       receivingStepHint: "način, adresa i vreme",
+      checkoutProgressLabel: "Koraci poručivanja",
+      continueButton: "Nastavi",
+      changeButton: "Izmeni",
       paymentStepHint: "izaberite jednu opciju",
       confirmStep: "Potvrda",
       confirmStepHint: "telefon, lokacija i iznos",
@@ -2061,6 +2146,9 @@ function checkoutCopy(locale: Locale) {
       editCart: "Edit cart",
       receivingStep: "Receiving",
       receivingStepHint: "method, address and time",
+      checkoutProgressLabel: "Checkout steps",
+      continueButton: "Continue",
+      changeButton: "Change",
       paymentStepHint: "choose one option",
       confirmStep: "Confirmation",
       confirmStepHint: "phone, location and total",
