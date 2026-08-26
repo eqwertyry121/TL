@@ -3,7 +3,7 @@ import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry"
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
 import { clientLabel, createStaffApi, isAuthError, money, openTelegramLink, problemLink, sameOrderSnapshot, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
-import { AlertTriangle, Check, ChevronDown, Clock3, MoreVertical, RefreshCw, WifiOff } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Clock3, MoreVertical, RefreshCw, Timer, WifiOff } from "lucide-react";
 import { useDrag } from "@use-gesture/react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
@@ -618,64 +618,86 @@ function KitchenTiming({
   const pickup = order.fulfillment_type === "pickup";
   const target = order.pickup_at || order.delivery_target_at;
   const exactOptions = readyTimeOptions();
-  const [exactOpen, setExactOpen] = useState(false);
+  const [timePicker, setTimePicker] = useState<"minutes" | "clock" | null>(null);
+  const quickOptions = [5, 10, 20, 30, 40, 60];
 
   return (
     <section className={`kitchen-timing${pickup ? " pickup" : ""}`} aria-label="Время заказа" onClick={(event) => event.stopPropagation()}>
-      <div className="kitchen-timing-summary">
-        <div>
-          <small>Поступил</small>
-          <b>{timeHHMM(order.created_at)}</b>
-          <span>{elapsedShort(order.created_at)}</span>
-        </div>
-        <div>
-          <small>{pickup ? "Заберут" : order.delivery_time_mode === "SCHEDULED" ? "Клиент" : "План"}</small>
-          <b>{target ? `${pickup ? "" : "~"}${timeHHMM(target)}` : "Сейчас"}</b>
-          {pickup && target && <span>{pickupCountdown(order)}</span>}
-          {!pickup && Boolean(order.delivery_queue_delay_minutes) && <span>Очередь +{order.delivery_queue_delay_minutes} мин</span>}
-        </div>
-        {!pickup && (
+      {pickup ? (
+        <div className="kitchen-timing-summary">
           <div>
-            <small>Кухня</small>
-            <b>{order.estimated_ready_at ? `~${timeHHMM(order.estimated_ready_at)}` : "Не выбрано"}</b>
+            <small>Поступил</small>
+            <b>{timeHHMM(order.created_at)}</b>
+            <span>{elapsedShort(order.created_at)}</span>
           </div>
-        )}
-      </div>
+          <div>
+            <small>Заберут</small>
+            <b>{target ? timeHHMM(target) : "Сейчас"}</b>
+            {target && <span>{pickupCountdown(order)}</span>}
+          </div>
+        </div>
+      ) : (
+        <div className="delivery-time-status">
+          <span>Клиент просил</span>
+          <strong>{target ? `примерно к ${timeHHMM(target)}` : "как можно скорее"}</strong>
+          {Boolean(order.delivery_queue_delay_minutes) && <small>Очередь +{order.delivery_queue_delay_minutes} мин</small>}
+        </div>
+      )}
       {!pickup && (
         <div className="kitchen-timing-actions" aria-label="Сообщить время готовности">
-          <span>Готов через</span>
-          <div>
-            {order.delivery_time_mode === "SCHEDULED" && order.delivery_target_at && <button type="button" disabled={Boolean(etaBusy)} className={order.estimated_ready_at === order.delivery_target_at ? "active" : ""} onClick={() => onEstimateReady(order, undefined, order.delivery_target_at)}>К {timeHHMM(order.delivery_target_at)}</button>}
-            {[5, 10, 20, 30, 40, 60].map((minutes) => (
-              <button type="button" key={minutes} disabled={Boolean(etaBusy)} className={etaMatchesMinutes(order, minutes) ? "active" : ""} onClick={() => onEstimateReady(order, minutes)}>{etaBusy === `${order.id}:${minutes}` ? "…" : `+${minutes}`}</button>
-            ))}
+          <div className="kitchen-time-question">
+            <strong>Когда будет готов?</strong>
+            <span>{order.estimated_ready_at ? `Клиенту сообщили: примерно к ${timeHHMM(order.estimated_ready_at)}` : "Время клиенту ещё не сообщали"}</span>
           </div>
-          <div className="custom-eta-control">
+          <div className="kitchen-time-buttons">
             <button
               type="button"
-              className="exact-time-trigger"
               disabled={Boolean(etaBusy)}
-              aria-label="Точное время готовности"
-              aria-expanded={exactOpen}
-              onClick={() => setExactOpen((open) => !open)}
+              aria-expanded={timePicker === "minutes"}
+              onClick={() => setTimePicker("minutes")}
+            >
+              <Timer size={16} />
+              <span><strong>Через…</strong><small>5–60 минут</small></span>
+              <ChevronDown size={16} />
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(etaBusy)}
+              aria-expanded={timePicker === "clock"}
+              onClick={() => setTimePicker("clock")}
             >
               <Clock3 size={16} />
-              <span>{etaBusy === `${order.id}:target` ? "Отправляю…" : order.estimated_ready_at ? `Готов к ${timeHHMM(order.estimated_ready_at)}` : "Готов к точному времени"}</span>
+              <span><strong>Ко времени…</strong><small>например 14:45</small></span>
               <ChevronDown size={16} />
             </button>
           </div>
-          {exactOpen && createPortal(
-            <div className="ready-time-backdrop" onClick={() => setExactOpen(false)}>
+          {timePicker && createPortal(
+            <div className="ready-time-backdrop" onClick={() => setTimePicker(null)}>
               <section className="ready-time-sheet" role="dialog" aria-modal="true" aria-label="Выбор времени готовности" onClick={(event) => event.stopPropagation()}>
                 <header>
                   <div>
-                    <small>План клиента: {target ? `~${timeHHMM(target)}` : "как можно скорее"}</small>
-                    <strong>Когда будет готово?</strong>
+                    <small>Клиент просил: {target ? `примерно к ${timeHHMM(target)}` : "как можно скорее"}</small>
+                    <strong>{timePicker === "minutes" ? "Через сколько будет готов?" : "К какому времени будет готов?"}</strong>
                   </div>
-                  <button type="button" onClick={() => setExactOpen(false)} aria-label="Закрыть">×</button>
+                  <button type="button" onClick={() => setTimePicker(null)} aria-label="Закрыть">×</button>
                 </header>
                 <div className="ready-time-list" role="listbox" aria-label="Время готовности">
-                  {exactOptions.map((option) => {
+                  {timePicker === "minutes" ? quickOptions.map((minutes) => (
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={etaMatchesMinutes(order, minutes)}
+                      className={etaMatchesMinutes(order, minutes) ? "active" : ""}
+                      key={minutes}
+                      onClick={() => {
+                        setTimePicker(null);
+                        onEstimateReady(order, minutes);
+                      }}
+                    >
+                      <span>{minutes} минут</span>
+                      {etaMatchesMinutes(order, minutes) && <Check size={17} />}
+                    </button>
+                  )) : exactOptions.map((option) => {
                     const selected = sameReadyTime(order.estimated_ready_at, option.at);
                     return (
                       <button
@@ -685,7 +707,7 @@ function KitchenTiming({
                         className={selected ? "active" : ""}
                         key={option.at}
                         onClick={() => {
-                          setExactOpen(false);
+                          setTimePicker(null);
                           onEstimateReady(order, undefined, option.at);
                         }}
                       >

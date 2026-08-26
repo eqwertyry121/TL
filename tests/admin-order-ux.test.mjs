@@ -22,17 +22,21 @@ test("kitchen keeps a native Telegram link fallback", async () => {
   assert.match(source, /if \(openTelegramLink\(href\)\) event\.preventDefault\(\)/);
 });
 
-test("kitchen exact ready time opens in a compact bottom sheet", async () => {
+test("kitchen ready time uses two clear actions and a compact bottom sheet", async () => {
   const source = await readFile(new URL("../apps/kitchen/src/App.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../apps/kitchen/src/styles.css", import.meta.url), "utf8");
 
-  assert.match(source, /aria-expanded=\{exactOpen\}/);
+  assert.match(source, /Когда будет готов\?/);
+  assert.match(source, /<strong>Через…<\/strong><small>5–60 минут<\/small>/);
+  assert.match(source, /<strong>Ко времени…<\/strong><small>например 14:45<\/small>/);
+  assert.match(source, /timePicker === "minutes"/);
   assert.match(source, /createPortal\(/);
   assert.match(source, /className="ready-time-sheet"/);
   assert.match(source, /className="ready-time-list"/);
   assert.match(source, /readyTimeOptions\(\)/);
   assert.match(source, /setMinutes\(Math\.floor\(first\.getMinutes\(\) \/ 5\) \* 5 \+ 5/);
-  assert.match(source, /План клиента:/);
+  assert.match(source, /Клиент просил:/);
+  assert.doesNotMatch(source, /<small>Кухня<\/small>/);
   assert.match(source, /onEstimateReady\(order, undefined, option\.at\)/);
   assert.match(styles, /\.ready-time-backdrop/);
   assert.match(styles, /\.ready-time-sheet/);

@@ -796,71 +796,101 @@ li {
 
 .kitchen-timing-actions {
   display: grid;
-  gap: .24rem;
+  gap: .42rem;
 }
 
-.kitchen-timing-actions > span {
+.delivery-time-status {
+  display: flex;
+  align-items: baseline;
+  gap: .34rem;
+  min-width: 0;
   color: var(--color-muted);
-  font-size: .66rem;
+  font-size: .7rem;
   font-weight: 800;
 }
 
-.kitchen-timing-actions > div {
-  display: flex;
-  gap: .25rem;
-  min-width: 0;
+.delivery-time-status strong {
+  color: var(--accent);
+  font-size: .82rem;
+  font-weight: 950;
 }
 
-.kitchen-timing-actions button {
-  flex: 1 1 0;
-  min-width: 0;
-  min-height: 1.92rem;
-  border: 1px solid #ddcdbf;
-  border-radius: .52rem;
-  padding-inline: .15rem;
-  background: rgba(255, 253, 248, .72);
+.delivery-time-status small {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: .65rem;
+  white-space: nowrap;
+}
+
+.kitchen-time-question {
+  display: grid;
+  gap: .08rem;
+}
+
+.kitchen-time-question strong {
   color: var(--color-text);
-  font-size: .69rem;
-  font-weight: 900;
+  font-size: .82rem;
+  font-weight: 950;
 }
 
-.kitchen-timing-actions button.active {
-  border-color: #7c2d38;
-  background: #7c2d38;
-  color: #fff;
+.kitchen-time-question span {
+  color: var(--color-muted);
+  font-size: .68rem;
+  font-weight: 800;
 }
 
-@media (prefers-reduced-motion: reduce) { .kitchen-timing-actions button { transition:none; } }
-
-.custom-eta-control {
-  min-width: 0;
+.kitchen-time-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .38rem;
 }
 
-.kitchen-timing-actions .exact-time-trigger {
+.kitchen-time-buttons button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: .42rem;
-  width: 100%;
-  min-height: 2.2rem;
-  padding: .32rem .62rem;
-  border-color: rgba(124, 45, 56, .2);
+  gap: .28rem;
+  min-width: 0;
+  min-height: 2.35rem;
+  border: 1px solid rgba(124, 45, 56, .2);
+  border-radius: .65rem;
+  padding: .35rem .58rem;
   background: linear-gradient(180deg, rgba(255, 253, 248, .98), rgba(248, 241, 229, .9));
   color: var(--accent);
-  box-shadow: 0 .28rem .7rem rgba(107, 31, 42, .06);
-}
-
-.exact-time-trigger span {
-  min-width: 0;
-  overflow: hidden;
-  font-size: .74rem;
+  font-size: .72rem;
   font-weight: 900;
   text-align: left;
+  box-shadow: 0 .2rem .5rem rgba(107, 31, 42, .05);
+}
+
+.kitchen-time-buttons button > span {
+  display: grid;
+  min-width: 0;
+  gap: .02rem;
+}
+
+.kitchen-time-buttons button strong {
+  overflow: hidden;
+  font-size: .74rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.exact-time-trigger svg:last-child { transition: transform 180ms ease; }
+.kitchen-time-buttons button small {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: .59rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kitchen-time-buttons button:active {
+  transform: scale(.985);
+  background: rgba(124, 45, 56, .08);
+}
+
+@media (prefers-reduced-motion: reduce) { .kitchen-time-buttons button { transition:none; } }
 
 .ready-time-backdrop {
   position: fixed;
