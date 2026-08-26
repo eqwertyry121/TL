@@ -200,7 +200,6 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/me", s.me)
 			r.Get("/contact", s.contact)
 			r.Get("/pickup/slots", s.pickupSlots)
-			r.Get("/delivery/slots", s.deliverySlots)
 			r.Get("/reservations/availability", s.reservationAvailability)
 			r.Get("/reservations/mine", s.myReservation)
 			r.Post("/reservations", s.createReservation)
@@ -219,7 +218,6 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/kitchen/orders/{id}/start", s.startKitchenPreparation)
 			r.Post("/kitchen/orders/{id}/preparation/reset", s.resetKitchenPreparation)
 			r.Post("/kitchen/orders/{id}/ready", s.markReady)
-			r.Post("/kitchen/orders/{id}/estimate-ready", s.estimateReady)
 			r.Post("/kitchen/orders/{id}/picked-up", s.markPickupCollected)
 
 			r.Get("/courier/orders", s.courierOrders)
@@ -401,10 +399,6 @@ func (s *Server) runtimePayload(ctx context.Context) (core.Runtime, int, error) 
 		PickupMinLeadMinutes:     settings.PickupMinLeadMinutes,
 		PickupSlotMinutes:        settings.PickupSlotMinutes,
 		PickupLastTime:           settings.PickupLastTime,
-		DeliveryTimingEnabled:    settings.DeliveryTimingEnabled,
-		DeliveryMinLeadMinutes:   settings.DeliveryMinLeadMinutes,
-		DeliverySlotMinutes:      settings.DeliverySlotMinutes,
-		DeliveryLastTargetTime:   settings.DeliveryLastTargetTime,
 	}, settings.Version, nil
 }
 
@@ -990,31 +984,19 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) calculate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Items               []core.CartItemInput `json:"items"`
-		FulfillmentType     core.FulfillmentType `json:"fulfillment_type"`
-		DeliveryTimeMode    string               `json:"delivery_time_mode"`
-		DeliveryRequestedAt *time.Time           `json:"delivery_requested_at"`
+		Items           []core.CartItemInput `json:"items"`
+		FulfillmentType core.FulfillmentType `json:"fulfillment_type"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, err)
 		return
 	}
-	calc, err := s.store.CalculateForFulfillmentTiming(r.Context(), mustSession(r), req.Items, req.FulfillmentType,
-		store.DeliveryTimingInput{Mode: req.DeliveryTimeMode, RequestedAt: req.DeliveryRequestedAt}, s.now())
+	calc, err := s.store.CalculateForFulfillment(r.Context(), mustSession(r), req.Items, req.FulfillmentType, s.now())
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, calc)
-}
-
-func (s *Server) deliverySlots(w http.ResponseWriter, r *http.Request) {
-	slots, err := s.store.DeliverySlots(r.Context(), mustSession(r), s.now())
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeConditionalJSON(w, r, http.StatusOK, slots, "private, max-age=5")
 }
 
 func (s *Server) pickupSlots(w http.ResponseWriter, r *http.Request) {
@@ -1597,30 +1579,6 @@ func (s *Server) markReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	order, err := s.store.MarkReady(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash(raw), req.ExpectedVersion)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, order)
-}
-
-func (s *Server) estimateReady(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	var req store.EstimateReadyInput
-	if err := json.Unmarshal(raw, &req); err != nil {
-		writeError(w, err)
-		return
-	}
-	order, err := s.store.EstimateReady(r.Context(), mustSession(r), id, req, r.Header.Get("Idempotency-Key"), bodyHash(raw), s.now())
 	if err != nil {
 		writeError(w, err)
 		return
@@ -2663,12 +2621,6 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code, messageKey = http.StatusConflict, "PICKUP_UNAVAILABLE", "pickup_unavailable"
 	case errors.Is(err, core.ErrPickupSlotUnavailable):
 		status, code, messageKey = http.StatusConflict, "PICKUP_SLOT_UNAVAILABLE", "pickup_slot_unavailable"
-	case errors.Is(err, core.ErrDeliveryTimingUnavailable):
-		status, code, messageKey = http.StatusConflict, "DELIVERY_TIMING_UNAVAILABLE", "delivery_timing_unavailable"
-	case errors.Is(err, core.ErrDeliverySlotUnavailable):
-		status, code, messageKey = http.StatusConflict, "DELIVERY_SLOT_UNAVAILABLE", "delivery_slot_unavailable"
-	case errors.Is(err, core.ErrDeliveryTimeInvalid):
-		status, code, messageKey = http.StatusBadRequest, "DELIVERY_TIME_INVALID", "delivery_time_invalid"
 	case errors.Is(err, core.ErrReservationUnavailable):
 		status, code, messageKey = http.StatusConflict, "RESERVATION_UNAVAILABLE", "reservation_unavailable"
 	case errors.Is(err, core.ErrActiveReservationExists):
@@ -2681,19 +2633,11 @@ func writeError(w http.ResponseWriter, err error) {
 	if !known {
 		slog.Default().Error("http handler error", "error", redactedInternalError(err))
 	}
-	payload := map[string]any{
-		"code":        code,
-		"message_key": messageKey,
-	}
-	var deliverySlotErr *core.DeliverySlotUnavailableError
-	if errors.As(err, &deliverySlotErr) {
-		payload["queue_delay_minutes"] = deliverySlotErr.QueueDelayMinutes
-		if deliverySlotErr.NextAvailableAt != nil {
-			payload["next_available_at"] = deliverySlotErr.NextAvailableAt
-		}
-	}
 	writeJSON(w, status, map[string]any{
-		"error": payload,
+		"error": map[string]any{
+			"code":        code,
+			"message_key": messageKey,
+		},
 	})
 }
 

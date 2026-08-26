@@ -823,8 +823,6 @@ li {
   align-items: center;
   gap: 0.42rem;
 }
-.delivery-timing-compact { display:flex; flex-wrap:wrap; gap:.35rem; color:var(--color-muted); font-size:.78rem; font-weight:700; }
-.delivery-timing-compact span { padding:.25rem .45rem; border-radius:.55rem; background:#f4eadc; }
 
 .order-meta-line .customer-badge {
   max-width: min(100%, 18rem);

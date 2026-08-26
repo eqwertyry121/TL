@@ -30,7 +30,6 @@ export function App() {
   const [offline, setOffline] = useState(false);
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState("");
-  const [etaBusy, setEtaBusy] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [activeWindow, setActiveWindow] = useState<"delivery" | "pickup">("delivery");
   const [activeLane, setActiveLane] = useState<"new" | "in_progress" | "ready">("new");
@@ -46,7 +45,7 @@ export function App() {
   const deliveryOrders = useMemo(() => orders.filter((order) => order.fulfillment_type !== "pickup" && order.fulfillment_status === "NEW"), [orders]);
   const pickupOrders = useMemo(() => orders.filter((order) => order.fulfillment_type === "pickup" && order.fulfillment_status === "NEW"), [orders]);
   const pickupReadyOrders = useMemo(() => orders.filter(isPickupReady), [orders]);
-  const sortedDeliveryOrders = useMemo(() => [...deliveryOrders].sort((a, b) => new Date(a.delivery_target_at || a.created_at).getTime() - new Date(b.delivery_target_at || b.created_at).getTime()), [deliveryOrders]);
+  const sortedDeliveryOrders = useMemo(() => [...deliveryOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [deliveryOrders]);
   const sortedPickupOrders = useMemo(() => [...pickupOrders].sort((a, b) => pickupTimestamp(a) - pickupTimestamp(b)), [pickupOrders]);
   const sortedPickupReadyOrders = useMemo(() => [...pickupReadyOrders].sort((a, b) => new Date(a.ready_at || a.created_at).getTime() - new Date(b.ready_at || b.created_at).getTime()), [pickupReadyOrders]);
   const visibleNewOrders = useMemo(() => (activeWindow === "delivery" ? sortedDeliveryOrders : sortedPickupOrders).filter((order) => !order.kitchen_started_at), [activeWindow, sortedDeliveryOrders, sortedPickupOrders]);
@@ -190,26 +189,6 @@ export function App() {
     }
   }
 
-  async function estimateReady(order: Order, minutes?: number, estimatedReadyAt?: string) {
-    if (etaBusy || order.fulfillment_type !== "delivery" || order.fulfillment_status !== "NEW") return;
-    const target = estimatedReadyAt || new Date(Date.now() + (minutes || 30) * 60000).toISOString();
-    if (order.estimated_ready_at && Math.abs(new Date(order.estimated_ready_at).getTime() - new Date(target).getTime()) < 60000) return;
-    setEtaBusy(`${order.id}:${minutes || "target"}`);
-    setActionError("");
-    try {
-      const updated = await withAuth((authToken) => api.estimateKitchenReady(authToken, order.id, {
-        ...(estimatedReadyAt ? { estimated_ready_at: estimatedReadyAt } : { ready_in_minutes: minutes }),
-        expected_version: order.version,
-      }, `eta-${order.id}-${order.version}-${minutes || estimatedReadyAt}`));
-      setOrders((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
-    } catch (err) {
-      setActionError(staffActionErrorText(err));
-      await refresh();
-    } finally {
-      setEtaBusy("");
-    }
-  }
-
   async function startPreparation(order: Order) {
     if (busy === order.id || order.kitchen_started_at || order.fulfillment_status !== "NEW") return;
     markSeen(order);
@@ -282,12 +261,10 @@ export function App() {
       <PreparationBoard
         activeLane={activeLane}
         busy={busy}
-        etaBusy={etaBusy}
         inProgressOrders={visibleInProgressOrders}
         newOrders={visibleNewOrders}
         onLaneChange={setActiveLane}
         onMarkReady={markReady}
-        onEstimateReady={estimateReady}
         onPickupCollected={markPickupCollected}
         onResetPreparation={resetPreparation}
         onSeen={markSeen}
@@ -306,12 +283,10 @@ type KitchenLane = "new" | "in_progress" | "ready";
 function PreparationBoard({
   activeLane,
   busy,
-  etaBusy,
   inProgressOrders,
   newOrders,
   onLaneChange,
   onMarkReady,
-  onEstimateReady,
   onPickupCollected,
   onResetPreparation,
   onSeen,
@@ -322,12 +297,10 @@ function PreparationBoard({
 }: {
   activeLane: KitchenLane;
   busy: string;
-  etaBusy: string;
   inProgressOrders: Order[];
   newOrders: Order[];
   onLaneChange(lane: KitchenLane): void;
   onMarkReady(order: Order): void;
-  onEstimateReady(order: Order, minutes?: number, estimatedReadyAt?: string): void;
   onPickupCollected(order: Order): void;
   onResetPreparation(order: Order): void;
   onSeen(order: Order): void;
@@ -361,12 +334,10 @@ function PreparationBoard({
                     order={order}
                     seenIds={seenIds}
                     busy={busy}
-                    etaBusy={etaBusy}
                     canStart={lane.id === "new"}
                     onSeen={onSeen}
                     onStart={onStartPreparation}
                     onPrimary={lane.id === "ready" ? onPickupCollected : onMarkReady}
-                    onEstimateReady={onEstimateReady}
                     onResetPreparation={onResetPreparation}
                   />
                 ))}
@@ -397,23 +368,19 @@ function SwipeableOrderCard({
   order,
   seenIds,
   busy,
-  etaBusy,
   canStart,
   onSeen,
   onStart,
   onPrimary,
-  onEstimateReady,
   onResetPreparation,
 }: {
   order: Order;
   seenIds: Set<string>;
   busy: string;
-  etaBusy: string;
   canStart: boolean;
   onSeen(order: Order): void;
   onStart(order: Order): void;
   onPrimary(order: Order): void;
-  onEstimateReady(order: Order, minutes?: number, estimatedReadyAt?: string): void;
   onResetPreparation(order: Order): void;
 }) {
   const shellRef = useRef<HTMLDivElement>(null);
@@ -520,10 +487,8 @@ function SwipeableOrderCard({
           order={order}
           seenIds={seenIds}
           busy={busy}
-          etaBusy={etaBusy}
           onSeen={onSeen}
           onPrimary={onPrimary}
-          onEstimateReady={onEstimateReady}
           onResetPreparation={onResetPreparation}
         />
       </div>
@@ -535,19 +500,15 @@ function KitchenOrderCard({
   order,
   seenIds,
   busy,
-  etaBusy,
   onSeen,
   onPrimary,
-  onEstimateReady,
   onResetPreparation,
 }: {
   order: Order;
   seenIds: Set<string>;
   busy: string;
-  etaBusy: string;
   onSeen(order: Order): void;
   onPrimary(order: Order): void;
-  onEstimateReady(order: Order, minutes?: number, estimatedReadyAt?: string): void;
   onResetPreparation(order: Order): void;
 }) {
   const unread = !seenIds.has(seenKey(order));
@@ -562,13 +523,12 @@ function KitchenOrderCard({
           <div className="order-title">
             <strong>Заказ #{order.public_number}</strong>
             <span>{pickup ? pickupTimingText(order) : kitchenTimeText(order)}</span>
-            {!pickup && order.delivery_target_at && <span className={new Date(order.delivery_target_at).getTime() < Date.now() ? "delivery-plan overdue" : "delivery-plan"}>{order.delivery_time_mode === "SCHEDULED" ? "Клиент просил к" : "План"} ~{timeHHMM(order.delivery_target_at)}{order.delivery_queue_delay_minutes ? ` · очередь +${order.delivery_queue_delay_minutes} мин` : ""}</span>}
           </div>
           <div className="order-side">
             {order.kitchen_started_at
               ? <span className="progress-badge">В процессе</span>
               : <span className={unread ? "new-badge" : "read-badge"}>{unread ? "Новый" : "Прочитано"}</span>}
-            <Menu order={order} busy={busy === order.id} onResetPreparation={onResetPreparation} onEstimateReady={onEstimateReady} />
+            <Menu order={order} busy={busy === order.id} onResetPreparation={onResetPreparation} />
           </div>
         </div>
         <div className="order-meta-line">
@@ -589,17 +549,6 @@ function KitchenOrderCard({
         </ul>
         {addedAt && <p className="addition-note">Дозаказ добавлен в {timeHHMM(addedAt)}</p>}
         {order.customer_comment && <p className="comment compact-comment"><AlertTriangle size={16} /> {order.customer_comment}</p>}
-        {!pickup && (
-          <div className="kitchen-eta" onClick={(event) => event.stopPropagation()}>
-            <span>{order.estimated_ready_at ? `Сообщено: около ${timeHHMM(order.estimated_ready_at)}` : "Сообщить готовность"}</span>
-            <div>
-              {order.delivery_time_mode === "SCHEDULED" && order.delivery_target_at && <button type="button" disabled={Boolean(etaBusy)} className={order.estimated_ready_at === order.delivery_target_at ? "active" : ""} onClick={() => onEstimateReady(order, undefined, order.delivery_target_at)}>К {timeHHMM(order.delivery_target_at)}</button>}
-              {[20, 30, 45, 60].map((minutes) => (
-                <button type="button" key={minutes} disabled={Boolean(etaBusy)} className={etaMatchesMinutes(order, minutes) ? "active" : ""} onClick={() => onEstimateReady(order, minutes)}>{etaBusy === `${order.id}:${minutes}` ? "…" : `${minutes} мин`}</button>
-              ))}
-            </div>
-          </div>
-        )}
         <button
           className="primary compact-action"
           disabled={busy === order.id}
@@ -635,12 +584,6 @@ function pickupUrgencyClass(order: Order): string {
   if (minutes <= 15) return "pickup-now";
   if (minutes <= 30) return "pickup-soon";
   return "";
-}
-
-function etaMatchesMinutes(order: Order, minutes: number): boolean {
-  if (!order.estimated_ready_at || !order.estimated_ready_updated_at) return false;
-  const delta = new Date(order.estimated_ready_at).getTime() - new Date(order.estimated_ready_updated_at).getTime();
-  return Math.abs(delta - minutes * 60000) < 90000;
 }
 
 function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {
@@ -695,10 +638,8 @@ function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
   );
 }
 
-function Menu({ order, busy, onResetPreparation, onEstimateReady }: { order: Order; busy: boolean; onResetPreparation(order: Order): void; onEstimateReady(order: Order, minutes?: number): void }) {
+function Menu({ order, busy, onResetPreparation }: { order: Order; busy: boolean; onResetPreparation(order: Order): void }) {
   const [open, setOpen] = useState(false);
-  const [customMinutes, setCustomMinutes] = useState(30);
-  const [customOpen, setCustomOpen] = useState(false);
   return (
     <div className="menu">
       <button
@@ -724,12 +665,6 @@ function Menu({ order, busy, onResetPreparation, onEstimateReady }: { order: Ord
             >
               Вернуть в новые
             </button>
-          )}
-          {order.fulfillment_type === "delivery" && order.fulfillment_status === "NEW" && (
-            customOpen ? <div className="custom-eta-control">
-              <label><span>Минут</span><input type="number" min={10} max={180} step={5} value={customMinutes} onChange={(event) => setCustomMinutes(Number(event.target.value))} /></label>
-              <button type="button" disabled={busy || customMinutes < 10 || customMinutes > 180 || customMinutes % 5 !== 0} onClick={() => { setOpen(false); setCustomOpen(false); onEstimateReady(order, customMinutes); }}>Отправить</button>
-            </div> : <button type="button" disabled={busy} onClick={() => setCustomOpen(true)}>Другое время</button>
           )}
           <a href={problemLink(order)} target="_blank" rel="noreferrer">Сообщить о проблеме</a>
           <span>Сумма: {money(order.total_minor)}</span>

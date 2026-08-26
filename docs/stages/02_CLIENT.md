@@ -177,13 +177,6 @@ cash-flow.
   отдельный статус `READY_FOR_PICKUP` после готовности;
 - полное поведение определено в [PICKUP_SPEC.md](../PICKUP_SPEC.md).
 
-### Желаемое время доставки
-
-Для delivery текущего рабочего дня допускается узкий выбор `Как можно скорее`
-или доступного ориентировочного времени. Это не обещание приезда минута в
-минуту и не заказ на будущую дату. Полный UX, slot capacity и backend contract:
-[DELIVERY_TIMING_SPEC.md](../DELIVERY_TIMING_SPEC.md).
-
 ## 8. Submit и дубли
 
 - При первом submit создаётся UUID Idempotency-Key.
@@ -323,8 +316,7 @@ Real Telegram Android/iOS/Desktop smoke:
 - Kitchen/Courier UI.
 - Рабочая card/crypto оплата. Информационная frontend-карточка будущей оплаты
   картой допустима, но не участвует в оформлении заказа.
-- Promo/loyalty и общий preorder на будущие даты. Желаемое время delivery
-  текущего дня регулируется отдельным timing spec.
+- Promo/loyalty/preorder.
 - Повтор заказа одной кнопкой.
 
 ## Критерий выхода

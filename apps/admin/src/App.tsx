@@ -1779,14 +1779,6 @@ function OrderDetailPanel({
         <OrderTimeRow label="Начали готовить" value={order.kitchen_started_at} />
         {!deliveryOrder && <OrderTimeRow label="Готовить к" value={order.pickup_cook_at} />}
         {!deliveryOrder && <OrderTimeRow label="Клиент заберёт" value={order.pickup_at} />}
-        {deliveryOrder && order.delivery_time_mode && <div className="order-time-row"><span>Режим времени</span><strong>{order.delivery_time_mode === "SCHEDULED" ? "Ко времени" : "Как можно скорее"}</strong></div>}
-        {deliveryOrder && <OrderTimeRow label="Выбрал клиент" value={order.delivery_requested_at} />}
-        {deliveryOrder && <OrderTimeRow label="План backend" value={order.delivery_target_at} />}
-        {deliveryOrder && Boolean(order.delivery_queue_delay_minutes) && <div className="order-time-row"><span>Очередь при заказе</span><strong>+{order.delivery_queue_delay_minutes} мин</strong></div>}
-        {deliveryOrder && <OrderTimeRow label="Оценка кухни" value={order.estimated_ready_at} />}
-        {deliveryOrder && <OrderTimeRow label="Оценка обновлена" value={order.estimated_ready_updated_at} />}
-        {deliveryOrder && order.estimated_ready_by && <div className="order-time-row"><span>Изменил ETA</span><strong>{order.estimated_ready_by}</strong></div>}
-        {deliveryOrder && order.ready_at && order.delivery_target_at && <div className="order-time-row"><span>Отклонение от плана</span><strong>{Math.round((new Date(order.ready_at).getTime() - new Date(order.delivery_target_at).getTime()) / 60000)} мин</strong></div>}
         <OrderTimeRow label={deliveryOrder ? "Передан курьеру" : "Готов к самовывозу"} value={order.ready_at} />
         {deliveryOrder && <OrderTimeRow label="Курьер начал доставку" value={order.courier_started_at} />}
         <OrderTimeRow label={deliveryOrder ? "Доставлен" : "Выдан"} value={order.delivered_at} />

@@ -112,11 +112,6 @@ Kitchen показывает два окна: `ДОСТАВКА` и `САМОВ�
 Kitchen не нажимает «Принять» и не ставит business-status `PREPARING`.
 `kitchen_started_at` является только внутренней отметкой начала приготовления.
 
-Kitchen может одним нажатием сообщить клиенту ориентировочное время готовности.
-Это отдельный timestamp, который не меняет status, не заменяет `ЗАКАЗ ГОТОВ` и
-не ставит `kitchen_started_at`. UX, API и notification contract определены в
-[DELIVERY_TIMING_SPEC.md](../DELIVERY_TIMING_SPEC.md).
-
 ## 5. Kitchen звук и экран
 
 - Один заметный сигнал только при появлении нового order ID: готовая MP3-запись

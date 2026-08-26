@@ -19,9 +19,6 @@ export function AnalyticsSection({ analytics, range, onRange, onExport }: { anal
         <Metric title="Отменены" value={analytics.summary.cancelled_orders} />
         <Metric title="Выручка" value={money(analytics.summary.revenue_minor)} />
         <Metric title="Средний чек" value={money(analytics.summary.average_check_minor)} />
-        <Metric title="Загрузка delivery-слотов" value={`${analytics.summary.delivery_slot_fill_percent}%`} />
-        <Metric title="Средняя очередь" value={`${analytics.summary.average_delivery_queue_delay_minutes} мин`} />
-        <Metric title="Отклонение готовности" value={`${analytics.summary.average_ready_plan_deviation_minutes} мин`} />
       </div>
       <section className="panel analytics-payments">
         <div><h2>Оплата</h2><p className="muted">Заказы и выручка по способам оплаты.</p></div>
@@ -132,17 +129,6 @@ export function SettingsSection({ settings, demoMode, onSave }: { settings: Sett
             <Textarea label="Английский" value={form.pickup_instructions_en} onChange={(pickup_instructions_en) => setForm({ ...form, pickup_instructions_en })} />
           </div>
         </details>
-      </div>
-
-      <div className="panel settings-card">
-        <div className="settings-card-head"><h2>Время доставки</h2></div>
-        <label className="check"><input type="checkbox" checked={form.delivery_timing_enabled} onChange={(event) => setForm({ ...form, delivery_timing_enabled: event.target.checked })} /> Разрешить выбор времени</label>
-        <div className="form-grid three">
-          <NumberInput label="Минимум, мин" value={form.delivery_min_lead_minutes} onChange={(delivery_min_lead_minutes) => setForm({ ...form, delivery_min_lead_minutes })} />
-          <NumberInput label="Шаг, мин" value={form.delivery_slot_minutes} onChange={(delivery_slot_minutes) => setForm({ ...form, delivery_slot_minutes })} />
-          <NumberInput label="Заказов на слот" value={form.delivery_max_orders_per_slot} onChange={(delivery_max_orders_per_slot) => setForm({ ...form, delivery_max_orders_per_slot })} />
-        </div>
-        <label><span>Последнее время</span><input type="time" value={form.delivery_last_target_time} onChange={(event) => setForm({ ...form, delivery_last_target_time: event.target.value })} /></label>
       </div>
 
       <div className="panel settings-card">

@@ -34,7 +34,6 @@ type Config struct {
 	AllowedOrigins            []string
 	BootstrapOwnerTelegramID  int64
 	BootstrapOwnerTelegramIDs []int64
-	DeliveryTimingBetaIDs     []int64
 	DevSandboxMode            bool
 	DevSandboxAllowedIDs      []int64
 	DevSandboxMiniAppURL      string
@@ -113,7 +112,6 @@ func Load() (Config, error) {
 		DevSandboxUpstreamURL:    strings.TrimRight(strings.TrimSpace(os.Getenv("DEV_SANDBOX_UPSTREAM_URL")), "/"),
 	}
 	cfg.BootstrapOwnerTelegramIDs = bootstrapOwnerTelegramIDs()
-	cfg.DeliveryTimingBetaIDs = telegramIDList("DELIVERY_TIMING_BETA_TELEGRAM_IDS", "")
 	cfg.DevSandboxAllowedIDs = telegramIDList("DEV_SANDBOX_ALLOWED_TELEGRAM_IDS", "1048084234")
 	if len(cfg.BootstrapOwnerTelegramIDs) > 0 {
 		cfg.BootstrapOwnerTelegramID = cfg.BootstrapOwnerTelegramIDs[0]
@@ -255,14 +253,6 @@ func bootstrapOwnerTelegramIDs() []int64 {
 			raw = "1048084234,8241921060,8609105840,7604602332"
 		}
 	}
-	return parseTelegramIDList(raw)
-}
-
-func telegramIDList(key, fallback string) []int64 {
-	return parseTelegramIDList(get(key, fallback))
-}
-
-func parseTelegramIDList(raw string) []int64 {
 	parts := strings.Split(raw, ",")
 	out := make([]int64, 0, len(parts))
 	seen := map[int64]bool{}

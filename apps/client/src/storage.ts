@@ -68,8 +68,6 @@ const emptyCheckoutDraft = (): CheckoutDraft => ({
   comment: "",
   fulfillmentType: "delivery",
   pickupAt: "",
-  deliveryTimeMode: "ASAP",
-  deliveryRequestedAt: "",
 });
 
 export function loadCart(): CartState {
