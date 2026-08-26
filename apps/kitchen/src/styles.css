@@ -833,9 +833,7 @@ li {
 @media (prefers-reduced-motion: reduce) { .kitchen-timing-actions button { transition:none; } }
 
 .custom-eta-control {
-  display: grid;
   min-width: 0;
-  gap: .28rem;
 }
 
 .kitchen-timing-actions .exact-time-trigger {
@@ -863,27 +861,102 @@ li {
 }
 
 .exact-time-trigger svg:last-child { transition: transform 180ms ease; }
-.custom-eta-control.is-open .exact-time-trigger svg:last-child { transform: rotate(180deg); }
 
-.ready-time-options {
-  display: grid !important;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: .25rem !important;
-  max-height: 9.7rem;
-  padding: .38rem;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border: 1px solid rgba(124, 45, 56, .14);
-  border-radius: .65rem;
-  background: rgba(255, 253, 248, .96);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8);
-  scrollbar-width: thin;
+.ready-time-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  align-items: end;
+  justify-items: center;
+  padding: .75rem;
+  background: rgba(38, 26, 23, .38);
+  backdrop-filter: blur(3px);
+  touch-action: none;
+  animation: ready-backdrop-in 160ms ease-out both;
 }
 
-.kitchen-timing-actions .ready-time-options button {
-  min-height: 2rem;
-  padding: .28rem .18rem;
-  font-size: .72rem;
+.ready-time-sheet {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(100%, 28rem);
+  max-height: min(72vh, 34rem);
+  overflow: hidden;
+  border: 1px solid rgba(124, 45, 56, .14);
+  border-radius: 1.15rem;
+  background: #fffaf2;
+  box-shadow: 0 1.4rem 3rem rgba(38, 26, 23, .24);
+  animation: ready-sheet-in 220ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.ready-time-sheet header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .9rem 1rem .72rem;
+  border-bottom: 1px solid rgba(124, 45, 56, .1);
+}
+
+.ready-time-sheet header div { display: grid; gap: .08rem; }
+.ready-time-sheet header small { color: var(--color-muted); font-size: .7rem; font-weight: 800; }
+.ready-time-sheet header strong { color: var(--color-text); font-size: 1rem; }
+
+.ready-time-sheet header button {
+  display: grid;
+  place-items: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(124, 45, 56, .08);
+  color: var(--accent);
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.ready-time-list {
+  display: grid;
+  gap: .18rem;
+  padding: .45rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  touch-action: pan-y;
+}
+
+.ready-time-list button {
+  display: flex;
+  min-height: 2.65rem;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  border-radius: .7rem;
+  padding: .45rem .75rem;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: .94rem;
+  font-weight: 900;
+  text-align: left;
+}
+
+.ready-time-list button:active,
+.ready-time-list button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+@media (min-width: 48rem) {
+  .ready-time-backdrop { align-items: center; }
+}
+
+@keyframes ready-backdrop-in { from { opacity: 0; } }
+@keyframes ready-sheet-in { from { opacity: 0; transform: translateY(1.2rem); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ready-time-backdrop,
+  .ready-time-sheet { animation: none; }
 }
 
 .row-icon {

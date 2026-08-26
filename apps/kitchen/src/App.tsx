@@ -6,6 +6,7 @@ import { clientLabel, createStaffApi, isAuthError, money, openTelegramLink, prob
 import { AlertTriangle, Check, ChevronDown, Clock3, MoreVertical, RefreshCw, WifiOff } from "lucide-react";
 import { useDrag } from "@use-gesture/react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 const api = createStaffApi("KITCHEN");
 const kitchenSeenOrdersKey = "tk-kitchen-seen-orders-v2";
@@ -649,7 +650,7 @@ function KitchenTiming({
               <button type="button" key={minutes} disabled={Boolean(etaBusy)} className={etaMatchesMinutes(order, minutes) ? "active" : ""} onClick={() => onEstimateReady(order, minutes)}>{etaBusy === `${order.id}:${minutes}` ? "…" : `+${minutes}`}</button>
             ))}
           </div>
-          <div className={`custom-eta-control${exactOpen ? " is-open" : ""}`}>
+          <div className="custom-eta-control">
             <button
               type="button"
               className="exact-time-trigger"
@@ -659,29 +660,45 @@ function KitchenTiming({
               onClick={() => setExactOpen((open) => !open)}
             >
               <Clock3 size={16} />
-              <span>{etaBusy === `${order.id}:target` ? "Отправляю…" : order.estimated_ready_at ? `Готов к ${timeHHMM(order.estimated_ready_at)}` : "Выбрать точное время"}</span>
+              <span>{etaBusy === `${order.id}:target` ? "Отправляю…" : order.estimated_ready_at ? `Готов к ${timeHHMM(order.estimated_ready_at)}` : "Готов к точному времени"}</span>
               <ChevronDown size={16} />
             </button>
-            {exactOpen && (
-              <div className="ready-time-options" role="listbox" aria-label="Время готовности">
-                {exactOptions.map((option) => (
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={sameReadyTime(order.estimated_ready_at, option.at)}
-                    className={sameReadyTime(order.estimated_ready_at, option.at) ? "active" : ""}
-                    key={option.at}
-                    onClick={() => {
-                      setExactOpen(false);
-                      onEstimateReady(order, undefined, option.at);
-                    }}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
+          {exactOpen && createPortal(
+            <div className="ready-time-backdrop" onClick={() => setExactOpen(false)}>
+              <section className="ready-time-sheet" role="dialog" aria-modal="true" aria-label="Выбор времени готовности" onClick={(event) => event.stopPropagation()}>
+                <header>
+                  <div>
+                    <small>Заказ #{order.public_number}</small>
+                    <strong>Когда будет готово?</strong>
+                  </div>
+                  <button type="button" onClick={() => setExactOpen(false)} aria-label="Закрыть">×</button>
+                </header>
+                <div className="ready-time-list" role="listbox" aria-label="Время готовности">
+                  {exactOptions.map((option) => {
+                    const selected = sameReadyTime(order.estimated_ready_at, option.at);
+                    return (
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        className={selected ? "active" : ""}
+                        key={option.at}
+                        onClick={() => {
+                          setExactOpen(false);
+                          onEstimateReady(order, undefined, option.at);
+                        }}
+                      >
+                        <span>{option.label}</span>
+                        {selected && <Check size={17} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>,
+            document.body,
+          )}
         </div>
       )}
     </section>

@@ -22,16 +22,19 @@ test("kitchen keeps a native Telegram link fallback", async () => {
   assert.match(source, /if \(openTelegramLink\(href\)\) event\.preventDefault\(\)/);
 });
 
-test("kitchen can send an exact ready time from a compact custom picker", async () => {
+test("kitchen exact ready time opens in a compact bottom sheet", async () => {
   const source = await readFile(new URL("../apps/kitchen/src/App.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../apps/kitchen/src/styles.css", import.meta.url), "utf8");
 
   assert.match(source, /aria-expanded=\{exactOpen\}/);
-  assert.match(source, /className="ready-time-options"/);
+  assert.match(source, /createPortal\(/);
+  assert.match(source, /className="ready-time-sheet"/);
+  assert.match(source, /className="ready-time-list"/);
   assert.match(source, /readyTimeOptions\(\)/);
   assert.match(source, /onEstimateReady\(order, undefined, option\.at\)/);
-  assert.match(styles, /\.custom-eta-control/);
-  assert.match(styles, /\.ready-time-options/);
+  assert.match(styles, /\.ready-time-backdrop/);
+  assert.match(styles, /\.ready-time-sheet/);
+  assert.match(styles, /\.ready-time-list/);
 });
 
 test("checkout readiness includes required delivery address before enabling submit", async () => {
