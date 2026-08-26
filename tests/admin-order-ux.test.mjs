@@ -35,12 +35,25 @@ test("kitchen ready time uses two clear actions and a compact bottom sheet", asy
   assert.match(source, /className="ready-time-list"/);
   assert.match(source, /readyTimeOptions\(\)/);
   assert.match(source, /setMinutes\(Math\.floor\(first\.getMinutes\(\) \/ 5\) \* 5 \+ 5/);
-  assert.match(source, /Клиент просил:/);
+  assert.match(source, /Заказ нужен как можно скорее/);
   assert.doesNotMatch(source, /<small>Кухня<\/small>/);
   assert.match(source, /onEstimateReady\(order, undefined, option\.at\)/);
   assert.match(styles, /\.ready-time-backdrop/);
   assert.match(styles, /\.ready-time-sheet/);
   assert.match(styles, /\.ready-time-list/);
+});
+
+test("ASAP delivery never exposes the internal capacity slot as a kitchen promise", async () => {
+  const client = await readFile(new URL("../apps/client/src/App.tsx", import.meta.url), "utf8");
+  const kitchen = await readFile(new URL("../apps/kitchen/src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(client, /Сразу передадим заказ кухне/);
+  assert.match(client, /Заказ сразу передан кухне/);
+  assert.match(client, /order\.delivery_time_mode === "SCHEDULED" && \(order\.delivery_requested_at \|\| order\.delivery_target_at\)/);
+  assert.doesNotMatch(client, /deliverySlots\.asap\.wait_minutes/);
+  assert.match(kitchen, /order\.delivery_time_mode === "SCHEDULED"/);
+  assert.match(kitchen, /Приоритет/);
+  assert.match(kitchen, /как можно скорее/);
 });
 
 test("checkout readiness includes required delivery address before enabling submit", async () => {

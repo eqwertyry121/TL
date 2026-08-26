@@ -2381,10 +2381,9 @@ textarea {
 .delivery-timing-modes button.active,.delivery-slots button.active { border-color:#7c2d38; background:rgba(124,45,56,.1); color:#641d28; box-shadow:inset 0 0 0 1px rgba(124,45,56,.12); }
 .delivery-slots { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.45rem; }
 .delivery-slots button:disabled { opacity:.52; background:#eee5da; color:#756b64; }
-.delivery-timing-summary { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; gap:.1rem .6rem; border-radius:.75rem; padding:.55rem .65rem; background:#f7efe4; line-height:1.25; }
-.delivery-timing-summary span { color:var(--muted); font-size:.75rem; }
-.delivery-timing-summary strong { font-size:1rem; }
-.delivery-timing-summary small { grid-column:1/-1; color:var(--muted); font-size:.7rem; }
+.delivery-timing-summary { display:grid; gap:.12rem; border-radius:.75rem; padding:.55rem .65rem; background:#f7efe4; line-height:1.25; }
+.delivery-timing-summary strong { font-size:.82rem; }
+.delivery-timing-summary small { color:var(--muted); font-size:.7rem; }
 .delivery-timing-note { color:var(--muted); font-size:.7rem; line-height:1.3; }
 .delivery-timing-final { display:flex; align-items:baseline; gap:.25rem; padding:.7rem .85rem; border:1px solid var(--line); border-radius:.9rem; background:rgba(255,255,255,.45); }
 .delivery-order-timing { display:grid; gap:.3rem; }

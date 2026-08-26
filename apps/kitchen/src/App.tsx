@@ -616,7 +616,11 @@ function KitchenTiming({
   onEstimateReady(order: Order, minutes?: number, estimatedReadyAt?: string): void;
 }) {
   const pickup = order.fulfillment_type === "pickup";
-  const target = order.pickup_at || order.delivery_target_at;
+  const target = pickup
+    ? order.pickup_at
+    : order.delivery_time_mode === "SCHEDULED"
+      ? order.delivery_requested_at || order.delivery_target_at
+      : undefined;
   const exactOptions = readyTimeOptions();
   const [timePicker, setTimePicker] = useState<"minutes" | "clock" | null>(null);
   const quickOptions = [5, 10, 20, 30, 40, 60];
@@ -638,8 +642,8 @@ function KitchenTiming({
         </div>
       ) : (
         <div className="delivery-time-status">
-          <span>Клиент просил</span>
-          <strong>{target ? `примерно к ${timeHHMM(target)}` : "как можно скорее"}</strong>
+          <span>{target ? "Клиент выбрал" : "Приоритет"}</span>
+          <strong>{target ? `доставка примерно к ${timeHHMM(target)}` : "как можно скорее"}</strong>
           {Boolean(order.delivery_queue_delay_minutes) && <small>Очередь +{order.delivery_queue_delay_minutes} мин</small>}
         </div>
       )}
@@ -676,7 +680,7 @@ function KitchenTiming({
               <section className="ready-time-sheet" role="dialog" aria-modal="true" aria-label="Выбор времени готовности" onClick={(event) => event.stopPropagation()}>
                 <header>
                   <div>
-                    <small>Клиент просил: {target ? `примерно к ${timeHHMM(target)}` : "как можно скорее"}</small>
+                    <small>{target ? `Клиент выбрал доставку примерно к ${timeHHMM(target)}` : "Заказ нужен как можно скорее"}</small>
                     <strong>{timePicker === "minutes" ? "Через сколько будет готов?" : "К какому времени будет готов?"}</strong>
                   </div>
                   <button type="button" onClick={() => setTimePicker(null)} aria-label="Закрыть">×</button>

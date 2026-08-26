@@ -1736,7 +1736,7 @@ function Checkout({
         )}
         {deliverySelected && deliveryTimingEnabled && (
           <section className="delivery-timing" aria-label={timingCopy.title}>
-            <div className="delivery-timing-head"><strong>{timingCopy.title}</strong><small>{timingCopy.approximate}</small></div>
+            <div className="delivery-timing-head"><strong>{timingCopy.title}</strong></div>
             <div className="delivery-timing-modes">
               <button type="button" className={draft.deliveryTimeMode === "ASAP" ? "active" : ""} onClick={() => onDraft({ deliveryTimeMode: "ASAP", deliveryRequestedAt: "" })}>
                 {timingCopy.asap}
@@ -1745,11 +1745,10 @@ function Checkout({
                 {timingCopy.chooseTime}
               </button>
             </div>
-            {draft.deliveryTimeMode === "ASAP" && deliverySlots?.asap && (
+            {draft.deliveryTimeMode === "ASAP" && (
               <div className="delivery-timing-summary">
-                <span>{timingCopy.readyAround}</span>
-                <strong>~{formatPickupTime(deliverySlots.asap.target_at)}</strong>
-                <small>{deliverySlots.asap.queue_delay_minutes > 0 ? timingCopy.queue : timingCopy.wait} {formatDeliveryWait(deliverySlots.asap.wait_minutes, locale)}</small>
+                <strong>{timingCopy.asapImmediate}</strong>
+                <small>{timingCopy.asapUpdate}</small>
               </div>
             )}
             {draft.deliveryTimeMode === "SCHEDULED" && (
@@ -1877,9 +1876,9 @@ function Checkout({
         {deliverySelected && deliveryTimingEnabled && calculation?.delivery_target_at && (
           <div className="delivery-timing-final">
             <span>{draft.deliveryTimeMode === "SCHEDULED"
-              ? (locale === "en" ? "Requested time" : locale === "sr" ? "Željeno vreme" : "Желаемое время")
+              ? (locale === "en" ? "Requested delivery" : locale === "sr" ? "Željena dostava" : "Желаемая доставка")
               : (locale === "en" ? "As soon as possible" : locale === "sr" ? "Što pre" : "Как можно скорее")}</span>
-            <strong>· ~{formatPickupTime(calculation.delivery_target_at)}</strong>
+            {draft.deliveryTimeMode === "SCHEDULED" && <strong>· ~{formatPickupTime(calculation.delivery_target_at)}</strong>}
           </div>
         )}
         <Totals subtotal={calculation?.subtotal_minor ?? subtotal} total={checkoutTotal} locale={locale} />
@@ -1906,34 +1905,28 @@ function Checkout({
 function deliveryTimingCopy(locale: Locale) {
   return {
     ru: {
-      title: "Когда желательно получить?",
-      approximate: "примерно",
+      title: "Когда доставить?",
       asap: "Как можно скорее",
-      chooseTime: "Выбрать время",
-      readyAround: "Приготовим примерно к",
-      wait: "Ожидание",
-      queue: "С учётом очереди",
-      note: "Это ориентир готовности. Курьеру потребуется время на дорогу.",
+      chooseTime: "Ко времени",
+      asapImmediate: "Сразу передадим заказ кухне",
+      asapUpdate: "После оформления кухня сообщит примерное время готовности.",
+      note: "«Ко времени» — пожелание, а не гарантия приезда минута в минуту.",
     },
     sr: {
-      title: "Kada želite porudžbinu?",
-      approximate: "okvirno",
+      title: "Kada želite dostavu?",
       asap: "Što pre",
-      chooseTime: "Izaberi vreme",
-      readyAround: "Pripremićemo oko",
-      wait: "Čekanje",
-      queue: "Sa redom čekanja",
-      note: "Ovo je okvirno vreme pripreme. Kuriru je potrebno dodatno vreme za put.",
+      chooseTime: "Do vremena",
+      asapImmediate: "Odmah šaljemo porudžbinu kuhinji",
+      asapUpdate: "Posle poručivanja kuhinja će javiti okvirno vreme pripreme.",
+      note: "Vreme je želja, a ne garancija dolaska u minut.",
     },
     en: {
-      title: "When would you like it?",
-      approximate: "approximately",
+      title: "When should we deliver?",
       asap: "As soon as possible",
-      chooseTime: "Choose a time",
-      readyAround: "We will prepare it around",
-      wait: "Wait",
-      queue: "Including the queue",
-      note: "This is an approximate preparation time. The courier needs additional travel time.",
+      chooseTime: "By a time",
+      asapImmediate: "We will send the order to the kitchen immediately",
+      asapUpdate: "After checkout, the kitchen will share an approximate preparation time.",
+      note: "A selected time is a preference, not a minute-perfect arrival guarantee.",
     },
   }[locale];
 }
@@ -2336,12 +2329,24 @@ function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; 
           <p>{localizedStatus(order, locale)}</p>
         </div>
       </div>
-      {order.fulfillment_type === "delivery" && order.fulfillment_status === "NEW" && (order.estimated_ready_at || order.delivery_target_at) && (
+      {order.fulfillment_type === "delivery" && order.fulfillment_status === "NEW" && (
         <div className="notice delivery-order-timing">
-          <strong>{order.estimated_ready_at
-            ? (locale === "en" ? "Kitchen plans to hand the order to the courier around " : locale === "sr" ? "Kuhinja planira predaju kuriru oko " : "Кухня планирует передать заказ курьеру около ")
-            : (locale === "en" ? "Approximate courier handoff at " : locale === "sr" ? "Okvirna predaja kuriru oko " : "Ориентировочно передадим курьеру около ")}{formatPickupTime(order.estimated_ready_at || order.delivery_target_at)}</strong>
-          <small>{locale === "en" ? "The time is approximate and may change." : locale === "sr" ? "Vreme je okvirno i može se promeniti." : "Время примерное и может измениться."}</small>
+          {order.estimated_ready_at ? (
+            <>
+              <strong>{locale === "en" ? "The kitchen expects the order to be ready around " : locale === "sr" ? "Kuhinja očekuje da će porudžbina biti spremna oko " : "Кухня планирует закончить примерно к "}{formatPickupTime(order.estimated_ready_at)}</strong>
+              <small>{locale === "en" ? "The time is approximate and may change." : locale === "sr" ? "Vreme je okvirno i može se promeniti." : "Время примерное и может измениться."}</small>
+            </>
+          ) : order.delivery_time_mode === "SCHEDULED" && (order.delivery_requested_at || order.delivery_target_at) ? (
+            <>
+              <strong>{locale === "en" ? "Requested delivery around " : locale === "sr" ? "Željena dostava oko " : "Вы выбрали доставку примерно к "}{formatPickupTime(order.delivery_requested_at || order.delivery_target_at)}</strong>
+              <small>{locale === "en" ? "The kitchen will share the preparation time separately." : locale === "sr" ? "Kuhinja će posebno javiti vreme pripreme." : "Кухня отдельно сообщит время готовности."}</small>
+            </>
+          ) : (
+            <>
+              <strong>{locale === "en" ? "The order was sent to the kitchen immediately" : locale === "sr" ? "Porudžbina je odmah poslata kuhinji" : "Заказ сразу передан кухне"}</strong>
+              <small>{locale === "en" ? "The kitchen will soon share an approximate preparation time." : locale === "sr" ? "Kuhinja će uskoro javiti okvirno vreme pripreme." : "Кухня скоро сообщит примерное время готовности."}</small>
+            </>
+          )}
         </div>
       )}
       {order.fulfillment_status === "NEW" && (
@@ -3014,16 +3019,6 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
   } satisfies Record<Locale, Record<string, string>>;
   const localeMessages: Record<string, string> = messages[locale];
   return localeMessages[code] || localeMessages.SERVER_UNAVAILABLE;
-}
-
-function formatDeliveryWait(minutes: number, locale: Locale): string {
-  const safeMinutes = Math.max(0, Math.round(minutes));
-  if (safeMinutes < 60) return locale === "ru" ? `${safeMinutes} мин` : `${safeMinutes} min`;
-  const hours = Math.floor(safeMinutes / 60);
-  const rest = safeMinutes % 60;
-  if (locale === "en") return `${hours} h${rest ? ` ${rest} min` : ""}`;
-  if (locale === "sr") return `${hours} č${rest ? ` ${rest} min` : ""}`;
-  return `${hours} ч${rest ? ` ${rest} мин` : ""}`;
 }
 
 function delay(ms: number): Promise<void> {
