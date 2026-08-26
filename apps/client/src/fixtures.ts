@@ -5,6 +5,8 @@ export const demoRuntime: Runtime = {
   timezone: "Europe/Belgrade",
   accepting_orders: true,
   reason: "open",
+  order_open_time: "13:00",
+  order_cutoff_time: "21:00",
   day_off_banner: "ВЫХОДНОЙ",
   flat_delivery_fee_minor: 0,
   currency: "RSD",

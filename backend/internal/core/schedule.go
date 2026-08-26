@@ -40,6 +40,17 @@ func CanAcceptOrder(now time.Time, settings Settings) AcceptResult {
 	return AcceptResult{OK: true, Reason: "open", NextOpening: time.Time{}}
 }
 
+// ScheduleDayAt returns the restaurant schedule entry for the local calendar
+// day represented by now. Callers use it to explain the active order window
+// without duplicating timezone and default-schedule handling.
+func ScheduleDayAt(now time.Time, settings Settings) ScheduleDay {
+	loc, err := time.LoadLocation(settings.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	return normalizedSchedule(settings.Schedule)[int(now.In(loc).Weekday())]
+}
+
 func nextOpening(localNow time.Time, schedule map[int]ScheduleDay) time.Time {
 	for day := 0; day < 8; day++ {
 		weekday := int(time.Date(localNow.Year(), localNow.Month(), localNow.Day()+day, 0, 0, 0, 0, localNow.Location()).Weekday())

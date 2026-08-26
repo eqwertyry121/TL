@@ -827,7 +827,7 @@ function ClientMiniApp() {
         onSubmit={submitAddition}
       />
     ) : route.name === "cart" ? (
-      <Cart lines={cartLines} itemLookup={itemLookup} subtotal={subtotal} total={total} checkoutOpen={checkoutOpen} activeOrder={activeOrder} locale={locale} onSetLine={setLine} onRemoveLine={removeCartLine} />
+      <Cart lines={cartLines} itemLookup={itemLookup} subtotal={subtotal} total={total} checkoutOpen={checkoutOpen} checkoutClosedLabel={checkoutClosedText(data.runtime, locale)} activeOrder={activeOrder} locale={locale} onSetLine={setLine} onRemoveLine={removeCartLine} />
     ) : route.name === "checkout" ? (
       activeOrder ? <ActiveOrderLock order={activeOrder} locale={locale} /> : <Checkout
         lines={availableCartLines}
@@ -1078,7 +1078,7 @@ function Shell({
             )}
           </div>
         </div>
-        {showClosedBanner && <div className="closed-banner">{t(locale, "checkoutClosed")}</div>}
+        {showClosedBanner && <div className="closed-banner">{checkoutClosedText(runtime, locale)}</div>}
         <nav className="nav">
           <a className={route.name === "menu" ? "active" : ""} href="#/">
             {t(locale, "menu")}
@@ -1474,6 +1474,7 @@ function Cart({
   subtotal,
   total,
   checkoutOpen,
+  checkoutClosedLabel,
   activeOrder,
   locale,
   onSetLine,
@@ -1484,6 +1485,7 @@ function Cart({
   subtotal: number;
   total: number;
   checkoutOpen: boolean;
+  checkoutClosedLabel: string;
   activeOrder?: OrderSummary;
   locale: Locale;
   onSetLine: (item: MenuItem, quantity: number) => void;
@@ -1521,7 +1523,7 @@ function Cart({
         <ActiveOrderLock order={activeOrder} locale={locale} compact />
       ) : (
         <button className="primary full" disabled={!checkoutOpen || !hasAvailableLines} onClick={() => navigate({ name: "checkout" })}>
-          {!checkoutOpen ? t(locale, "checkoutClosed") : hasAvailableLines ? `${t(locale, "goCheckout")} · ${money(total)}` : t(locale, "noAvailableItems")}
+          {!checkoutOpen ? checkoutClosedLabel : hasAvailableLines ? `${t(locale, "goCheckout")} · ${money(total)}` : t(locale, "noAvailableItems")}
         </button>
       )}
     </div>
@@ -2114,6 +2116,17 @@ function timeHHMM(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function checkoutClosedText(runtime: Runtime | undefined, locale: Locale): string {
+  const openTime = runtime?.order_open_time;
+  const cutoffTime = runtime?.order_cutoff_time;
+  if (runtime?.reason !== "schedule_closed" || !openTime || !cutoffTime) {
+    return t(locale, "checkoutClosed");
+  }
+  if (locale === "sr") return `Porudžbine možete napraviti od ${openTime} do ${cutoffTime}`;
+  if (locale === "en") return `Orders can be placed from ${openTime} to ${cutoffTime}`;
+  return `Заказать можно с ${openTime} до ${cutoffTime}`;
 }
 
 function additionBlockedText(order: Order): string {

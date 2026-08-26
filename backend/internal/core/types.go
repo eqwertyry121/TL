@@ -161,6 +161,8 @@ type Runtime struct {
 	AcceptingOrders          bool      `json:"accepting_orders"`
 	Reason                   string    `json:"reason"`
 	NextOpening              time.Time `json:"next_opening"`
+	OrderOpenTime            string    `json:"order_open_time"`
+	OrderCutoffTime          string    `json:"order_cutoff_time"`
 	DayOffBanner             string    `json:"day_off_banner"`
 	FlatDeliveryFeeMinor     int       `json:"flat_delivery_fee_minor"`
 	Currency                 string    `json:"currency"`

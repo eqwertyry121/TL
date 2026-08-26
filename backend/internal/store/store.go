@@ -3711,6 +3711,7 @@ func (s *Store) AdminDashboard(ctx context.Context, sess core.Session, now time.
 		return core.AdminDashboard{}, err
 	}
 	accept := core.CanAcceptOrder(now, settings)
+	scheduleDay := core.ScheduleDayAt(now, settings)
 	payments := []string{}
 	if settings.CashEnabled {
 		payments = append(payments, "cash")
@@ -3727,6 +3728,8 @@ func (s *Store) AdminDashboard(ctx context.Context, sess core.Session, now time.
 		AcceptingOrders:          accept.OK,
 		Reason:                   accept.Reason,
 		NextOpening:              accept.NextOpening,
+		OrderOpenTime:            scheduleDay.OpenTime,
+		OrderCutoffTime:          scheduleDay.OrderCutoffTime,
 		DayOffBanner:             settings.DayOffBanner,
 		FlatDeliveryFeeMinor:     settings.FlatDeliveryFeeMinor,
 		Currency:                 settings.Currency,

@@ -1347,12 +1347,15 @@ function seedStaff(): StaffMember[] {
 
 function runtimeFromSettings(settings: Settings) {
   const accepting = demoAcceptingState(settings);
+  const today = settings.schedule?.find((day) => day.day_of_week === new Date().getDay());
   return {
     server_time: nowISO(),
     timezone: settings.timezone,
     accepting_orders: accepting.ok,
     reason: accepting.reason,
     next_opening: accepting.nextOpening,
+    order_open_time: today?.open_time ?? "",
+    order_cutoff_time: today?.order_cutoff_time ?? "",
     day_off_banner: settings.day_off_banner,
     flat_delivery_fee_minor: 0,
     currency: settings.currency,

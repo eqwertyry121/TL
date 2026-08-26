@@ -17,6 +17,8 @@ export interface Runtime {
   accepting_orders: boolean;
   reason: string;
   next_opening?: string;
+  order_open_time: string;
+  order_cutoff_time: string;
   day_off_banner: string;
   flat_delivery_fee_minor: number;
   currency: "RSD";
