@@ -57,8 +57,9 @@ const sessionKey contextKey = "session"
 const serverTimingKey contextKey = "server_timing"
 
 const (
-	runtimeCacheTTL = 5 * time.Second
-	menuCacheTTL    = 30 * time.Second
+	runtimeCacheTTL                 = 5 * time.Second
+	menuCacheTTL                    = 30 * time.Second
+	primaryDevOwnerTelegramID int64 = 1048084234
 )
 
 type runtimeCacheEntry struct {
@@ -937,6 +938,13 @@ func (s *Server) isDevSandboxAllowedTelegramID(telegramUserID int64) bool {
 	return false
 }
 
+func (s *Server) allowsConcurrentDevOrders(session core.Session) bool {
+	return s.cfg.DevSandboxMode &&
+		session.ActiveRole == core.RoleClient &&
+		session.TelegramUserID == primaryDevOwnerTelegramID &&
+		s.isDevSandboxAllowedTelegramID(session.TelegramUserID)
+}
+
 func (s *Server) devSandboxProxy() (http.Handler, error) {
 	target, err := url.Parse(s.cfg.DevSandboxUpstreamURL)
 	if err != nil || target.Scheme == "" || target.Host == "" {
@@ -1088,7 +1096,9 @@ func (s *Server) createOrder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	order, err := s.store.CreateCashOrder(r.Context(), mustSession(r), req, r.Header.Get("Idempotency-Key"), bodyHash(raw), s.now())
+	session := mustSession(r)
+	req.AllowConcurrentActiveOrders = s.allowsConcurrentDevOrders(session)
+	order, err := s.store.CreateCashOrder(r.Context(), session, req, r.Header.Get("Idempotency-Key"), bodyHash(raw), s.now())
 	if err != nil {
 		writeError(w, err)
 		return

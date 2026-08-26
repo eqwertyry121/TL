@@ -1752,6 +1752,41 @@ func TestServerSideTextLimits(t *testing.T) {
 	}
 }
 
+func TestDevConcurrentOrdersBypassSingleActiveGuard(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	now := time.Now().UTC()
+	firstSession, firstInput := prepareCashOrderForCart(t, ctx, st, clientTelegramID, "+38160111911", "DEV concurrent one", []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now)
+	firstInput.AllowConcurrentActiveOrders = true
+	first, err := st.CreateCashOrder(ctx, firstSession, firstInput, "idem-dev-concurrent-one", "hash-dev-concurrent-one", now)
+	if err != nil {
+		t.Fatalf("create first concurrent DEV order: %v", err)
+	}
+
+	secondSession, secondInput := prepareCashOrderForCart(t, ctx, st, clientTelegramID, "+38160111912", "DEV concurrent two", []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now.Add(time.Second))
+	secondInput.AllowConcurrentActiveOrders = true
+	second, err := st.CreateCashOrder(ctx, secondSession, secondInput, "idem-dev-concurrent-two", "hash-dev-concurrent-two", now.Add(time.Second))
+	if err != nil {
+		t.Fatalf("create second concurrent DEV order: %v", err)
+	}
+	if first.ID == second.ID {
+		t.Fatal("concurrent DEV orders must be distinct")
+	}
+
+	var activeCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM orders
+		WHERE client_user_id=$1 AND fulfillment_status='NEW'
+	`, firstSession.UserID).Scan(&activeCount); err != nil {
+		t.Fatalf("count concurrent DEV orders: %v", err)
+	}
+	if activeCount != 2 {
+		t.Fatalf("active concurrent DEV orders = %d, want 2", activeCount)
+	}
+}
+
 func TestDeliveryTimingCapacityAndKitchenETARevision(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)

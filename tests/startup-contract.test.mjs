@@ -24,6 +24,15 @@ test("client DEV sandbox never falls back to the production bot card", () => {
   assertIncludes(appSource, "route.name === \"menu\" && !data.session && !devSandbox");
 });
 
+test("only the primary DEV owner can bypass the active-order checkout lock", () => {
+  const appSource = readSource("apps/client/src/App.tsx");
+
+  assertIncludes(appSource, "const allowConcurrentDevOrders = devSandbox && data.session?.telegram_user_id === 1048084234");
+  assertIncludes(appSource, "if (activeOrder && !allowConcurrentDevOrders)");
+  assertIncludes(appSource, "activeOrder={allowConcurrentDevOrders ? undefined : activeOrder}");
+  assertIncludes(appSource, "activeOrder && !allowConcurrentDevOrders ? <ActiveOrderLock");
+});
+
 test("kitchen and courier startup use one role bootstrap request", () => {
   const kitchenSource = readSource("apps/kitchen/src/App.tsx");
   const courierSource = readSource("apps/courier/src/App.tsx");

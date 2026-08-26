@@ -890,6 +890,24 @@ func TestDevSandboxAllowlistAndMiniAppURL(t *testing.T) {
 	}
 }
 
+func TestConcurrentDevOrdersAreRestrictedToPrimarySandboxOwner(t *testing.T) {
+	ownerSession := core.Session{TelegramUserID: 1048084234, ActiveRole: core.RoleClient}
+	otherSession := core.Session{TelegramUserID: 8241921060, ActiveRole: core.RoleClient}
+
+	sandbox := New(config.Config{DevSandboxMode: true, DevSandboxAllowedIDs: []int64{1048084234}}, nil, slog.Default())
+	if !sandbox.allowsConcurrentDevOrders(ownerSession) {
+		t.Fatal("primary DEV owner must be allowed to create concurrent test orders")
+	}
+	if sandbox.allowsConcurrentDevOrders(otherSession) {
+		t.Fatal("other Telegram users must keep the active-order restriction")
+	}
+
+	production := New(config.Config{Env: "production", DevSandboxAllowedIDs: []int64{1048084234}}, nil, slog.Default())
+	if production.allowsConcurrentDevOrders(ownerSession) {
+		t.Fatal("production must always keep the active-order restriction")
+	}
+}
+
 func TestDevSandboxInternalRouterDefersPublicHeadersToOuterProxy(t *testing.T) {
 	server := New(config.Config{
 		BuildSHA:       "dev-release",

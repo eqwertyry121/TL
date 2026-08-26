@@ -136,6 +136,7 @@ function ClientMiniApp() {
   const total = subtotal;
   const checkoutOpen = Boolean(data.runtime?.accepting_orders);
   const activeOrder = data.orders.find((order) => !isTerminalOrderStatus(order.fulfillment_status));
+  const allowConcurrentDevOrders = devSandbox && data.session?.telegram_user_id === 1048084234;
   const dayOffBlocked = isDayOffRuntime(data.runtime) && (data.runtime?.reason === "manual_day_off" || route.name !== "booking") && !isOwnerTelegramId(data.session?.telegram_user_id);
   const paymentMethods = useMemo(() => checkoutPaymentMethods(data.runtime?.enabled_payments || []), [data.runtime?.enabled_payments]);
   const cashLocationRequired = data.runtime?.cash_location_required ?? true;
@@ -587,7 +588,7 @@ function ClientMiniApp() {
 
   async function submitOrder() {
     if (!token || submitting) return;
-    if (activeOrder) {
+    if (activeOrder && !allowConcurrentDevOrders) {
       setError(activeOrderExistsText(locale));
       replaceRoute({ name: "order", id: activeOrder.id });
       return;
@@ -827,9 +828,9 @@ function ClientMiniApp() {
         onSubmit={submitAddition}
       />
     ) : route.name === "cart" ? (
-      <Cart lines={cartLines} itemLookup={itemLookup} subtotal={subtotal} total={total} checkoutOpen={checkoutOpen} checkoutClosedLabel={checkoutClosedText(data.runtime, locale)} activeOrder={activeOrder} locale={locale} onSetLine={setLine} onRemoveLine={removeCartLine} />
+      <Cart lines={cartLines} itemLookup={itemLookup} subtotal={subtotal} total={total} checkoutOpen={checkoutOpen} checkoutClosedLabel={checkoutClosedText(data.runtime, locale)} activeOrder={allowConcurrentDevOrders ? undefined : activeOrder} locale={locale} onSetLine={setLine} onRemoveLine={removeCartLine} />
     ) : route.name === "checkout" ? (
-      activeOrder ? <ActiveOrderLock order={activeOrder} locale={locale} /> : <Checkout
+      activeOrder && !allowConcurrentDevOrders ? <ActiveOrderLock order={activeOrder} locale={locale} /> : <Checkout
         lines={availableCartLines}
         draft={draft}
         calculation={calculation}

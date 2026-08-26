@@ -61,19 +61,20 @@ var ownerTesterTelegramIDs = map[int64]struct{}{
 }
 
 type CreateOrderInput struct {
-	CalculationToken        string               `json:"calculation_token"`
-	CashLocationChallengeID string               `json:"cash_location_challenge_id"`
-	Phone                   string               `json:"phone"`
-	Address                 string               `json:"address"`
-	Comment                 string               `json:"comment"`
-	FulfillmentType         core.FulfillmentType `json:"fulfillment_type"`
-	PickupAt                *time.Time           `json:"pickup_at"`
-	DeliveryTimeMode        string               `json:"delivery_time_mode"`
-	DeliveryRequestedAt     *time.Time           `json:"delivery_requested_at"`
-	PaymentMethod           core.PaymentMethod   `json:"payment_method"`
-	TermsAccepted           bool                 `json:"terms_accepted"`
-	TermsVersion            string               `json:"terms_version"`
-	Locale                  string               `json:"locale"`
+	CalculationToken            string               `json:"calculation_token"`
+	CashLocationChallengeID     string               `json:"cash_location_challenge_id"`
+	Phone                       string               `json:"phone"`
+	Address                     string               `json:"address"`
+	Comment                     string               `json:"comment"`
+	FulfillmentType             core.FulfillmentType `json:"fulfillment_type"`
+	PickupAt                    *time.Time           `json:"pickup_at"`
+	DeliveryTimeMode            string               `json:"delivery_time_mode"`
+	DeliveryRequestedAt         *time.Time           `json:"delivery_requested_at"`
+	PaymentMethod               core.PaymentMethod   `json:"payment_method"`
+	TermsAccepted               bool                 `json:"terms_accepted"`
+	TermsVersion                string               `json:"terms_version"`
+	Locale                      string               `json:"locale"`
+	AllowConcurrentActiveOrders bool                 `json:"-"`
 }
 
 type DeliveryTimingInput struct {
@@ -2546,17 +2547,19 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		return s.OrderByID(ctx, orderID, true)
 	}
 
-	var hasActiveOrder bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM orders
-			WHERE client_user_id=$1 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP')
-		)
-	`, sess.UserID).Scan(&hasActiveOrder); err != nil {
-		return core.Order{}, err
-	}
-	if hasActiveOrder {
-		return core.Order{}, core.ErrActiveOrderExists
+	if !input.AllowConcurrentActiveOrders {
+		var hasActiveOrder bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM orders
+				WHERE client_user_id=$1 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP')
+			)
+		`, sess.UserID).Scan(&hasActiveOrder); err != nil {
+			return core.Order{}, err
+		}
+		if hasActiveOrder {
+			return core.Order{}, core.ErrActiveOrderExists
+		}
 	}
 
 	tokenHash := hashString(input.CalculationToken)
@@ -2642,14 +2645,14 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 			total_minor, currency, phone_ciphertext, phone_hash, address_ciphertext, customer_comment, locale,
 			terms_version, terms_accepted_at, cash_location_challenge_id, cash_location_verified_at, cash_location_distance_meters,
 			pickup_at, pickup_original_at, pickup_cook_at, pickup_address_snapshot, pickup_instructions_snapshot,
-			delivery_time_mode, delivery_requested_at, delivery_target_at, delivery_queue_delay_minutes
+			delivery_time_mode, delivery_requested_at, delivery_target_at, delivery_queue_delay_minutes, dev_concurrent_order
 		)
-		VALUES ($1, $2, 'NEW', 'cash', 'CASH_PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15, $16, $16, $17, $18, $19, $20, $21, $22, $23)
+		VALUES ($1, $2, 'NEW', 'cash', 'CASH_PENDING', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14, $15, $16, $16, $17, $18, $19, $20, $21, $22, $23, $24)
 		RETURNING id, public_number, created_at
 	`, sess.UserID, string(fulfillmentType), subtotal, delivery, total, currency, phoneCipher, phoneHash, addressCipher, comment, localeOrDefault(input.Locale),
 		termsVersion, uuidSQL(cashLocationChallengeID), timeSQL(cashLocationVerifiedAt), intSQL(cashLocationDistance),
 		timeSQL(pickupAt), timeSQL(pickupCookAtValue), pickupAddressForOrder(fulfillmentType, settings), pickupInstructionsForLocale(fulfillmentType, settings, input.Locale),
-		deliveryTimeMode, timeSQL(deliveryRequestedAt), timeSQL(deliveryTargetAt), deliveryQueueDelayMinutes).
+		deliveryTimeMode, timeSQL(deliveryRequestedAt), timeSQL(deliveryTargetAt), deliveryQueueDelayMinutes, input.AllowConcurrentActiveOrders).
 		Scan(&orderID, &publicNumber, &createdAt)
 	if err != nil {
 		if isUniqueViolation(err, "idx_orders_one_active_per_client") {
