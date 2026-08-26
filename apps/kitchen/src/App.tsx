@@ -2,7 +2,7 @@ import type { Order, Role } from "@tk-delivery/api-client/generated";
 import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
-import { clientLabel, createStaffApi, isAuthError, money, openTelegramLink, problemLink, sameOrderSnapshot, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
+import { clientLabel, createStaffApi, isAuthError, money, openTelegramLink, paymentText, problemLink, sameOrderSnapshot, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
 import { AlertTriangle, Check, MoreVertical, RefreshCw, WifiOff } from "lucide-react";
 import { useDrag } from "@use-gesture/react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
@@ -569,6 +569,12 @@ function KitchenOrderCard({
             <Menu order={order} busy={busy === order.id} onResetPreparation={onResetPreparation} onEstimateReady={onEstimateReady} />
           </div>
         </div>
+        <div className="order-meta-line">
+          <CustomerBadge order={order} />
+          <span className={pickup ? "fulfillment-chip pickup" : "fulfillment-chip"}>{pickup ? "Самовывоз" : "Доставка"}</span>
+          <span className="payment-chip">{paymentText(order)}</span>
+        </div>
+        <KitchenTiming order={order} etaBusy={etaBusy} onEstimateReady={onEstimateReady} />
         <ul className="items-compact" aria-label={`Блюда заказа #${order.public_number}`}>
           {order.items.map((item, index) => (
             <li className={item.addition_id ? "is-added-item" : ""} key={`${item.menu_item_id}-${index}`}>
@@ -580,14 +586,6 @@ function KitchenOrderCard({
             </li>
           ))}
         </ul>
-        <div className="order-meta-line">
-          <CustomerBadge order={order} />
-          <i aria-hidden="true">·</i>
-          <span>{pickup ? "Самовывоз" : "Доставка"}</span>
-          <i aria-hidden="true">·</i>
-          <span>{compactPaymentText(order)} · {money(order.total_minor)}</span>
-        </div>
-        <KitchenTiming order={order} etaBusy={etaBusy} onEstimateReady={onEstimateReady} />
         {addedAt && <p className="addition-note">Дозаказ добавлен в {timeHHMM(addedAt)}</p>}
         {order.customer_comment && <p className="comment compact-comment"><AlertTriangle size={16} /> {order.customer_comment}</p>}
         <button
@@ -618,34 +616,30 @@ function KitchenTiming({
   const target = order.pickup_at || order.delivery_target_at;
   return (
     <section className={`kitchen-timing${pickup ? " pickup" : ""}`} aria-label="Время заказа" onClick={(event) => event.stopPropagation()}>
+      <div className="kitchen-timing-head">
+        <strong>ВРЕМЯ</strong>
+        <span>Поступил {timeHHMM(order.created_at)} · {elapsedShort(order.created_at)}</span>
+      </div>
       <div className="kitchen-timing-summary">
         <div>
-          <small>Поступил</small>
-          <b>{timeHHMM(order.created_at)}</b>
-          <span>{elapsedShort(order.created_at)}</span>
-        </div>
-        <div>
-          <small>{pickup ? "Заберут" : order.delivery_time_mode === "SCHEDULED" ? "Клиент" : "План"}</small>
+          <small>{pickup ? "ЗАБЕРУТ" : order.delivery_time_mode === "SCHEDULED" ? "КЛИЕНТ" : "ПЛАН"}</small>
           <b>{target ? `${pickup ? "" : "~"}${timeHHMM(target)}` : "Сейчас"}</b>
           {pickup && target && <span>{pickupCountdown(order)}</span>}
           {!pickup && Boolean(order.delivery_queue_delay_minutes) && <span>Очередь +{order.delivery_queue_delay_minutes} мин</span>}
         </div>
         {!pickup && (
           <div>
-            <small>Кухня</small>
+            <small>КУХНЯ</small>
             <b>{order.estimated_ready_at ? `~${timeHHMM(order.estimated_ready_at)}` : "Не выбрано"}</b>
           </div>
         )}
       </div>
       {!pickup && (
         <div className="kitchen-timing-actions" aria-label="Сообщить время готовности">
-          <span>Готов через</span>
-          <div>
-            {order.delivery_time_mode === "SCHEDULED" && order.delivery_target_at && <button type="button" disabled={Boolean(etaBusy)} className={order.estimated_ready_at === order.delivery_target_at ? "active" : ""} onClick={() => onEstimateReady(order, undefined, order.delivery_target_at)}>К {timeHHMM(order.delivery_target_at)}</button>}
-            {[5, 10, 20, 30, 40, 60].map((minutes) => (
-              <button type="button" key={minutes} disabled={Boolean(etaBusy)} className={etaMatchesMinutes(order, minutes) ? "active" : ""} onClick={() => onEstimateReady(order, minutes)}>{etaBusy === `${order.id}:${minutes}` ? "…" : `+${minutes}`}</button>
-            ))}
-          </div>
+          {order.delivery_time_mode === "SCHEDULED" && order.delivery_target_at && <button type="button" disabled={Boolean(etaBusy)} className={order.estimated_ready_at === order.delivery_target_at ? "active" : ""} onClick={() => onEstimateReady(order, undefined, order.delivery_target_at)}>К {timeHHMM(order.delivery_target_at)}</button>}
+          {[20, 30, 45, 60].map((minutes) => (
+            <button type="button" key={minutes} disabled={Boolean(etaBusy)} className={etaMatchesMinutes(order, minutes) ? "active" : ""} onClick={() => onEstimateReady(order, minutes)}>{etaBusy === `${order.id}:${minutes}` ? "…" : `+${minutes}`}</button>
+          ))}
         </div>
       )}
     </section>
@@ -684,6 +678,7 @@ function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {
   return (
     <span className="order-avatar" aria-hidden="true">
       {order.client_photo_url ? <img src={order.client_photo_url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : <span>{clientInitials(order)}</span>}
+      <small>#{order.public_number}</small>
       {unread && <i />}
     </span>
   );
@@ -691,7 +686,15 @@ function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {
 
 function CustomerBadge({ order }: { order: Order }) {
   const href = telegramUserLink(order);
-  const content = <b>{clientLabel(order)}</b>;
+  const content = (
+    <>
+      <span className="customer-avatar">
+        <span>{clientInitials(order)}</span>
+        {order.client_photo_url && <img src={order.client_photo_url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />}
+      </span>
+      <b>{clientLabel(order)}</b>
+    </>
+  );
   if (!href) return <div className="customer-badge" title={clientLabel(order)}>{content}</div>;
   return (
     <a
@@ -709,13 +712,6 @@ function CustomerBadge({ order }: { order: Order }) {
       {content}
     </a>
   );
-}
-
-function compactPaymentText(order: Order): string {
-  if (order.payment_method === "cash") return "Наличные";
-  if (order.payment_method === "card") return "Карта";
-  if (order.payment_method === "crypto") return "Crypto";
-  return "Оплачено";
 }
 
 function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {

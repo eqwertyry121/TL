@@ -1806,7 +1806,7 @@ func TestDeliveryTimingCapacityAndKitchenETARevision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create kitchen session: %v", err)
 	}
-	minutes := 5
+	minutes := 30
 	updated, err := st.EstimateReady(ctx, kitchenSession, first.ID, store.EstimateReadyInput{ReadyInMinutes: &minutes, ExpectedVersion: first.Version}, "idem-delivery-eta", "hash-delivery-eta", now)
 	if err != nil {
 		t.Fatalf("estimate ready: %v", err)
