@@ -2,7 +2,7 @@ import type { Order, Role } from "@tk-delivery/api-client/generated";
 import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
-import { clientLabel, createStaffApi, isAuthError, money, openTelegramLink, paymentText, problemLink, sameOrderSnapshot, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
+import { clientLabel, createStaffApi, isAuthError, kitchenTimeText, money, openTelegramLink, paymentText, problemLink, sameOrderSnapshot, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
 import { AlertTriangle, Check, MoreVertical, RefreshCw, WifiOff } from "lucide-react";
 import { useDrag } from "@use-gesture/react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
@@ -561,6 +561,8 @@ function KitchenOrderCard({
         <div className="order-top">
           <div className="order-title">
             <strong>Заказ #{order.public_number}</strong>
+            <span>{pickup ? pickupTimingText(order) : kitchenTimeText(order)}</span>
+            {!pickup && order.delivery_target_at && <span className={new Date(order.delivery_target_at).getTime() < Date.now() ? "delivery-plan overdue" : "delivery-plan"}>{order.delivery_time_mode === "SCHEDULED" ? "Клиент просил к" : "План"} ~{timeHHMM(order.delivery_target_at)}{order.delivery_queue_delay_minutes ? ` · очередь +${order.delivery_queue_delay_minutes} мин` : ""}</span>}
           </div>
           <div className="order-side">
             {order.kitchen_started_at
@@ -574,7 +576,6 @@ function KitchenOrderCard({
           <span className={pickup ? "fulfillment-chip pickup" : "fulfillment-chip"}>{pickup ? "Самовывоз" : "Доставка"}</span>
           <span className="payment-chip">{paymentText(order)}</span>
         </div>
-        <KitchenTiming order={order} etaBusy={etaBusy} onEstimateReady={onEstimateReady} />
         <ul className="items-compact" aria-label={`Блюда заказа #${order.public_number}`}>
           {order.items.map((item, index) => (
             <li className={item.addition_id ? "is-added-item" : ""} key={`${item.menu_item_id}-${index}`}>
@@ -588,6 +589,17 @@ function KitchenOrderCard({
         </ul>
         {addedAt && <p className="addition-note">Дозаказ добавлен в {timeHHMM(addedAt)}</p>}
         {order.customer_comment && <p className="comment compact-comment"><AlertTriangle size={16} /> {order.customer_comment}</p>}
+        {!pickup && (
+          <div className="kitchen-eta" onClick={(event) => event.stopPropagation()}>
+            <span>{order.estimated_ready_at ? `Сообщено: около ${timeHHMM(order.estimated_ready_at)}` : "Сообщить готовность"}</span>
+            <div>
+              {order.delivery_time_mode === "SCHEDULED" && order.delivery_target_at && <button type="button" disabled={Boolean(etaBusy)} className={order.estimated_ready_at === order.delivery_target_at ? "active" : ""} onClick={() => onEstimateReady(order, undefined, order.delivery_target_at)}>К {timeHHMM(order.delivery_target_at)}</button>}
+              {[20, 30, 45, 60].map((minutes) => (
+                <button type="button" key={minutes} disabled={Boolean(etaBusy)} className={etaMatchesMinutes(order, minutes) ? "active" : ""} onClick={() => onEstimateReady(order, minutes)}>{etaBusy === `${order.id}:${minutes}` ? "…" : `${minutes} мин`}</button>
+              ))}
+            </div>
+          </div>
+        )}
         <button
           className="primary compact-action"
           disabled={busy === order.id}
@@ -603,49 +615,6 @@ function KitchenOrderCard({
   );
 }
 
-function KitchenTiming({
-  order,
-  etaBusy,
-  onEstimateReady,
-}: {
-  order: Order;
-  etaBusy: string;
-  onEstimateReady(order: Order, minutes?: number, estimatedReadyAt?: string): void;
-}) {
-  const pickup = order.fulfillment_type === "pickup";
-  const target = order.pickup_at || order.delivery_target_at;
-  return (
-    <section className={`kitchen-timing${pickup ? " pickup" : ""}`} aria-label="Время заказа" onClick={(event) => event.stopPropagation()}>
-      <div className="kitchen-timing-head">
-        <strong>ВРЕМЯ</strong>
-        <span>Поступил {timeHHMM(order.created_at)} · {elapsedShort(order.created_at)}</span>
-      </div>
-      <div className="kitchen-timing-summary">
-        <div>
-          <small>{pickup ? "ЗАБЕРУТ" : order.delivery_time_mode === "SCHEDULED" ? "КЛИЕНТ" : "ПЛАН"}</small>
-          <b>{target ? `${pickup ? "" : "~"}${timeHHMM(target)}` : "Сейчас"}</b>
-          {pickup && target && <span>{pickupCountdown(order)}</span>}
-          {!pickup && Boolean(order.delivery_queue_delay_minutes) && <span>Очередь +{order.delivery_queue_delay_minutes} мин</span>}
-        </div>
-        {!pickup && (
-          <div>
-            <small>КУХНЯ</small>
-            <b>{order.estimated_ready_at ? `~${timeHHMM(order.estimated_ready_at)}` : "Не выбрано"}</b>
-          </div>
-        )}
-      </div>
-      {!pickup && (
-        <div className="kitchen-timing-actions" aria-label="Сообщить время готовности">
-          {order.delivery_time_mode === "SCHEDULED" && order.delivery_target_at && <button type="button" disabled={Boolean(etaBusy)} className={order.estimated_ready_at === order.delivery_target_at ? "active" : ""} onClick={() => onEstimateReady(order, undefined, order.delivery_target_at)}>К {timeHHMM(order.delivery_target_at)}</button>}
-          {[20, 30, 45, 60].map((minutes) => (
-            <button type="button" key={minutes} disabled={Boolean(etaBusy)} className={etaMatchesMinutes(order, minutes) ? "active" : ""} onClick={() => onEstimateReady(order, minutes)}>{etaBusy === `${order.id}:${minutes}` ? "…" : `+${minutes}`}</button>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
 function isPickupReady(order: Order): boolean {
   return order.fulfillment_type === "pickup" && order.fulfillment_status === "READY_FOR_PICKUP";
 }
@@ -653,11 +622,11 @@ function isPickupReady(order: Order): boolean {
 function pickupTimestamp(order: Order): number { return new Date(order.pickup_at || order.created_at).getTime(); }
 function pickupCookTimestamp(order: Order): number { return new Date(order.pickup_cook_at || order.pickup_at || order.created_at).getTime(); }
 
-function pickupCountdown(order: Order): string {
-  if (isPickupReady(order)) return "Заказ готов";
+function pickupTimingText(order: Order): string {
+  if (isPickupReady(order)) return `Готов · заберут в ${timeHHMM(order.pickup_at || order.created_at)}`;
   const minutes = Math.ceil((pickupTimestamp(order) - Date.now()) / 60000);
-  if (minutes <= 0) return "Сейчас";
-  return `Через ${minutes} мин`;
+  if (minutes <= 0) return `ЗАБЕРУТ СЕЙЧАС · ${timeHHMM(order.pickup_at || order.created_at)}`;
+  return `Заберут в ${timeHHMM(order.pickup_at || order.created_at)} · через ${minutes} мин`;
 }
 
 function pickupUrgencyClass(order: Order): string {
@@ -794,15 +763,6 @@ function timeHHMM(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
-}
-
-function elapsedShort(value: string): string {
-  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
-  if (minutes < 1) return "сейчас";
-  if (minutes < 60) return `${minutes} мин назад`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest ? `${hours} ч ${rest} мин назад` : `${hours} ч назад`;
 }
 
 function loadSeenOrderIds(key: string): Set<string> {
