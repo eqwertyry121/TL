@@ -890,6 +890,26 @@ func TestDevSandboxAllowlistAndMiniAppURL(t *testing.T) {
 	}
 }
 
+func TestDevSandboxInternalRouterDefersPublicHeadersToOuterProxy(t *testing.T) {
+	server := New(config.Config{
+		BuildSHA:       "dev-release",
+		DevSandboxMode: true,
+		AllowedOrigins: []string{"https://takolako.site"},
+	}, nil, slog.Default())
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	req.Header.Set("Origin", "https://takolako.site")
+	recorder := httptest.NewRecorder()
+	server.Routes().ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("sandbox version status = %d", recorder.Code)
+	}
+	for _, name := range []string{"Access-Control-Allow-Origin", "Content-Security-Policy", "X-Frame-Options"} {
+		if values := recorder.Header().Values(name); len(values) != 0 {
+			t.Fatalf("internal sandbox must defer %s to outer proxy, got %q", name, values)
+		}
+	}
+}
+
 func TestDevSandboxProxyUsesConfiguredUpstream(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/version" {

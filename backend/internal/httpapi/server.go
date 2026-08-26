@@ -160,8 +160,13 @@ func (s *Server) Routes() http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(s.withRequestLog)
 	r.Use(withGzip)
-	r.Use(s.withSecurityHeaders)
-	r.Use(s.withCORS)
+	// The sandbox is reachable only through the production reverse proxy,
+	// which applies the public security and CORS policy. Applying the same
+	// middleware internally would create duplicate response headers.
+	if !s.cfg.DevSandboxMode {
+		r.Use(s.withSecurityHeaders)
+		r.Use(s.withCORS)
+	}
 	if s.cfg.ServerTimingEnabled {
 		r.Use(withServerTiming)
 	}
