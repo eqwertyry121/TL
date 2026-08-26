@@ -616,6 +616,8 @@ function KitchenTiming({
 }) {
   const pickup = order.fulfillment_type === "pickup";
   const target = order.pickup_at || order.delivery_target_at;
+  const exactOptions = readyTimeOptions();
+
   return (
     <section className={`kitchen-timing${pickup ? " pickup" : ""}`} aria-label="Время заказа" onClick={(event) => event.stopPropagation()}>
       <div className="kitchen-timing-summary">
@@ -646,6 +648,20 @@ function KitchenTiming({
               <button type="button" key={minutes} disabled={Boolean(etaBusy)} className={etaMatchesMinutes(order, minutes) ? "active" : ""} onClick={() => onEstimateReady(order, minutes)}>{etaBusy === `${order.id}:${minutes}` ? "…" : `+${minutes}`}</button>
             ))}
           </div>
+          <label className="custom-eta-control">
+            <span>Точное время</span>
+            <select
+              value=""
+              disabled={Boolean(etaBusy)}
+              aria-label="Точное время готовности"
+              onChange={(event) => {
+                if (event.target.value) onEstimateReady(order, undefined, event.target.value);
+              }}
+            >
+              <option value="">{etaBusy === `${order.id}:target` ? "Отправляю…" : "Готов к…"}</option>
+              {exactOptions.map((option) => <option key={option.at} value={option.at}>{option.label}</option>)}
+            </select>
+          </label>
         </div>
       )}
     </section>
@@ -678,6 +694,15 @@ function etaMatchesMinutes(order: Order, minutes: number): boolean {
   if (!order.estimated_ready_at || !order.estimated_ready_updated_at) return false;
   const delta = new Date(order.estimated_ready_at).getTime() - new Date(order.estimated_ready_updated_at).getTime();
   return Math.abs(delta - minutes * 60000) < 90000;
+}
+
+function readyTimeOptions(): Array<{ at: string; label: string }> {
+  const first = new Date(Date.now() + 10 * 60000);
+  first.setMinutes(Math.ceil(first.getMinutes() / 5) * 5, 0, 0);
+  return Array.from({ length: 35 }, (_, index) => {
+    const target = new Date(first.getTime() + index * 5 * 60000);
+    return { at: target.toISOString(), label: timeHHMM(target.toISOString()) };
+  });
 }
 
 function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {

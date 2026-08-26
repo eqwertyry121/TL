@@ -831,9 +831,33 @@ li {
 }
 
 @media (prefers-reduced-motion: reduce) { .kitchen-timing-actions button { transition:none; } }
-.custom-eta-control { display:grid; grid-template-columns:1fr auto; gap:.4rem; align-items:end; }
-.custom-eta-control label { display:grid; gap:.2rem; }
-.custom-eta-control input { width:5.5rem; min-height:2.5rem; border:1px solid #ddcdbf; border-radius:.6rem; padding:.35rem .5rem; }
+
+.custom-eta-control {
+  display: grid;
+  min-width: 0;
+  gap: .12rem;
+}
+
+.custom-eta-control > span {
+  color: var(--color-muted);
+  font-size: .64rem;
+  font-weight: 800;
+}
+
+.custom-eta-control select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.12rem;
+  border: 1px solid #ddcdbf;
+  border-radius: .52rem;
+  padding: .28rem .55rem;
+  background: rgba(255, 253, 248, .92);
+  color: var(--accent);
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 900;
+}
 
 .row-icon {
   min-width: 2.2rem;

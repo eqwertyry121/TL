@@ -22,6 +22,16 @@ test("kitchen keeps a native Telegram link fallback", async () => {
   assert.match(source, /if \(openTelegramLink\(href\)\) event\.preventDefault\(\)/);
 });
 
+test("kitchen can send an exact ready time from a compact select", async () => {
+  const source = await readFile(new URL("../apps/kitchen/src/App.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../apps/kitchen/src/styles.css", import.meta.url), "utf8");
+
+  assert.match(source, /<select[\s\S]*aria-label="Точное время готовности"/);
+  assert.match(source, /readyTimeOptions\(\)/);
+  assert.match(source, /onEstimateReady\(order, undefined, event\.target\.value\)/);
+  assert.match(styles, /\.custom-eta-control/);
+});
+
 test("checkout readiness includes required delivery address before enabling submit", async () => {
   const source = await readFile(new URL("../apps/client/src/App.tsx", import.meta.url), "utf8");
   assert.match(source, /const addressReady = !deliverySelected \|\| Boolean\(draft\.street\.trim\(\) && draft\.houseNumber\.trim\(\)\)/);
