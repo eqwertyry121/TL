@@ -275,9 +275,7 @@ h1 {
 }
 
 .kitchen-window-tabs {
-  position: sticky;
-  top: clamp(5.4rem, 14vw, 7.2rem);
-  z-index: 8;
+  position: static;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: .5rem;

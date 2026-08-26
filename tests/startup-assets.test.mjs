@@ -45,6 +45,15 @@ test("critical app CSS does not import blocking external font stylesheets", () =
   }
 });
 
+test("kitchen fulfillment tabs stay in normal document flow", () => {
+  const css = readSource("apps/kitchen/src/styles.css");
+  const tabsRule = sliceBetween(css, ".kitchen-window-tabs {", "}");
+
+  assertIncludes(tabsRule, "position: static;");
+  assertNotIncludes(tabsRule, "position: sticky;");
+  assertNotIncludes(tabsRule, "top:");
+});
+
 test("client root fallback with Telegram initData does not trigger a second document load", () => {
   const source = readSource("apps/client/src/App.tsx");
   const appBody = sliceBetween(source, "export function App()", "function ClientMiniApp()");
