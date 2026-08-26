@@ -510,9 +510,6 @@ export function App() {
           settings={settings}
           onDayOff={setDayOff}
           onOpenOrders={openOrdersView}
-          onOpenMenu={() => openTab("menu")}
-          onOpenSchedule={() => openTab("schedule")}
-          onOpenAnalytics={() => openTab("analytics")}
         />
       ) : <SectionSkeleton title="Главная" />;
     }
@@ -796,64 +793,63 @@ function HomeTab({
   settings,
   onDayOff,
   onOpenOrders,
-  onOpenMenu,
-  onOpenSchedule,
-  onOpenAnalytics,
 }: {
   dashboard: AdminDashboard;
   settings: Settings;
   onDayOff(enabled: boolean): Promise<void>;
   onOpenOrders(view: OrdersView): void;
-  onOpenMenu(): void;
-  onOpenSchedule(): void;
-  onOpenAnalytics(): void;
 }) {
   const accepting = dashboard.runtime.accepting_orders;
   const notificationErrors = dashboard.notification_errors ?? [];
-  const readyOrders = dashboard.out_for_delivery + dashboard.ready_for_pickup;
-  const activeOrders = dashboard.new_orders + readyOrders;
+  const activeOrders = dashboard.new_orders + dashboard.out_for_delivery + dashboard.ready_for_pickup;
+  const averageCheck = dashboard.orders_today > 0 ? Math.round(dashboard.revenue_today_minor / dashboard.orders_today) : 0;
+  const orderWindow = dashboard.runtime.order_open_time && dashboard.runtime.order_cutoff_time
+    ? `${dashboard.runtime.order_open_time}–${dashboard.runtime.order_cutoff_time}`
+    : "по графику";
   return (
     <section className="home-dashboard">
       <div className={`panel home-status ${accepting ? "is-open" : "is-closed"}`}>
         <div>
           <span className="status-dot-label"><span className="status-dot" /> {accepting ? "Приём открыт" : "Приём закрыт"}</span>
-          <h2>{accepting ? "Работаем" : "Заказы не принимаются"}</h2>
-          <p>{compactRuntimeReason(dashboard.runtime.reason)}</p>
+          <h2>{accepting ? "Заказы принимаются" : "Заказы не принимаются"}</h2>
+          <p>{accepting ? `Сегодня ${orderWindow}` : `${compactRuntimeReason(dashboard.runtime.reason)} · ${orderWindow}`}</p>
         </div>
         <button className={settings.manual_day_off ? "primary" : "danger-button"} onClick={() => void onDayOff(!settings.manual_day_off)}>
-          {settings.manual_day_off ? "Возобновить работу" : "Техобслуживание"}
+          {settings.manual_day_off ? "Возобновить приём" : "Закрыть на техобслуживание"}
         </button>
       </div>
 
       <div className="home-section">
         <div className="home-section-head">
           <div>
-            <h2>Активные заказы</h2>
-            <p className="muted">{activeOrders ? "Нужно контролировать сейчас" : "Очередь пустая"}</p>
+            <span className="home-kicker">Сейчас</span>
+            <h2>{activeOrders ? `${activeOrders} активных` : "Заказов нет"}</h2>
+            <p className="muted">{activeOrders ? "Нажмите на нужную очередь" : "Новые заказы появятся здесь"}</p>
           </div>
-          <button type="button" onClick={() => onOpenOrders("active")}>Открыть</button>
+          <button type="button" onClick={() => onOpenOrders("active")}>Все заказы</button>
         </div>
         <div className="home-counters">
           <button className="home-counter" type="button" onClick={() => onOpenOrders("new")}>
             <span>На кухне</span>
             <strong>{dashboard.new_orders}</strong>
           </button>
-          <button className="home-counter" type="button" onClick={() => onOpenOrders("ready")}>
-            <span>Готово</span>
-            <strong>{readyOrders}</strong>
+          <button className="home-counter" type="button" onClick={() => onOpenOrders("active")}>
+            <span>В доставке</span>
+            <strong>{dashboard.out_for_delivery}</strong>
           </button>
           <button className="home-counter" type="button" onClick={() => onOpenOrders("ready")}>
-            <span>Самовывоз</span>
+            <span>Самовывоз готов</span>
             <strong>{dashboard.ready_for_pickup}</strong>
           </button>
         </div>
       </div>
 
       <div className="panel today-card">
-        <h2>Сегодня</h2>
+        <span className="home-kicker">Сегодня</span>
         <div className="today-metrics">
           <div><span>Заказы</span><strong>{dashboard.orders_today}</strong></div>
           <div><span>Выручка</span><strong>{money(dashboard.revenue_today_minor)}</strong></div>
+          <div><span>Средний чек</span><strong>{money(averageCheck)}</strong></div>
         </div>
       </div>
 
@@ -865,11 +861,6 @@ function HomeTab({
         </div>
       )}
 
-      <div className="quick-actions">
-        <button type="button" onClick={onOpenMenu}>Меню</button>
-        <button type="button" onClick={onOpenSchedule}>График</button>
-        <button type="button" onClick={onOpenAnalytics}>Аналитика</button>
-      </div>
     </section>
   );
 }

@@ -1626,10 +1626,44 @@ function Checkout({
   const termsHref = termsUrl.trim() || routeToHash({ name: "terms" });
   const termsExternal = /^https?:\/\//i.test(termsHref);
   const copy = checkoutCopy(locale);
+  const itemCount = lines.reduce((sum, line) => sum + line.quantity, 0);
+  const checkoutTotal = calculation?.total_minor || total;
+  const checkoutHint = !checkoutOpen
+    ? checkoutClosedText(undefined, locale)
+    : !contactVerified
+      ? copy.nextPhone
+      : !locationVerified
+        ? copy.nextLocation
+        : !deliverySelected && (!pickupEnabled || !draft.pickupAt)
+          ? copy.nextPickupTime
+          : deliverySelected && deliveryTimingEnabled && draft.deliveryTimeMode === "SCHEDULED" && !draft.deliveryRequestedAt
+            ? copy.nextDeliveryTime
+            : !termsAccepted
+              ? copy.nextTerms
+              : copy.readyToOrder;
   return (
     <div className="page narrow checkout-page">
-      <h1>{t(locale, "checkout")}</h1>
-      <div className="form">
+      <div className="checkout-heading">
+        <div>
+          <span className="eyebrow">Tako Lako</span>
+          <h1>{t(locale, "checkout")}</h1>
+        </div>
+        <span className="checkout-item-count">{itemCount} {checkoutItemsLabel(itemCount, locale)}</span>
+      </div>
+      <details className="checkout-order-summary">
+        <summary>
+          <span><strong>{copy.yourOrder}</strong><small>{lines.length} {checkoutPositionsLabel(lines.length, locale)}</small></span>
+          <strong>{money(checkoutTotal)}</strong>
+        </summary>
+        <div className="checkout-order-lines">
+          {lines.map((line) => (
+            <div key={line.itemId}><span><b>{line.quantity}×</b> {line.title}</span><strong>{money(line.quantity * line.unitPriceMinor)}</strong></div>
+          ))}
+          <a href="#/cart">{copy.editCart}</a>
+        </div>
+      </details>
+      <div className="form checkout-section checkout-primary-section">
+        <div className="checkout-section-head"><span>1</span><div><strong>{copy.receivingStep}</strong><small>{copy.receivingStepHint}</small></div></div>
         <div className="fulfillment-selector">
           <span>{copy.fulfillmentTitle}</span>
           <div>
@@ -1730,14 +1764,15 @@ function Checkout({
             </div>
           </section>
         )}
-        <label>
+        <label className="checkout-comment">
           <span>{t(locale, "comment")}</span>
-          <textarea value={draft.comment} maxLength={300} onChange={(event) => onDraft({ comment: event.target.value })} />
+          <textarea value={draft.comment} maxLength={300} placeholder={copy.commentPlaceholder} onChange={(event) => onDraft({ comment: event.target.value })} />
         </label>
       </div>
-      <div className="payment-selector">
-        <span>{copy.paymentTitle}</span>
-        <div>
+      <section className="checkout-section checkout-payment-section">
+        <div className="checkout-section-head"><span>2</span><div><strong>{copy.paymentTitle}</strong><small>{copy.paymentStepHint}</small></div></div>
+        <div className="payment-selector">
+          <div>
           {paymentMethods.map((method) => (
             <button
               key={method}
@@ -1760,12 +1795,15 @@ function Checkout({
             </span>
             <small>{copy.cardDescription}</small>
           </button>
+          </div>
+          {paymentMethod === "crypto" && (
+            <p>{copy.cryptoNotice}</p>
+          )}
         </div>
-        {paymentMethod === "crypto" && (
-          <p>{copy.cryptoNotice}</p>
-        )}
-      </div>
-      <div className={contactVerified && locationVerified ? "required-checks verified" : "required-checks"}>
+      </section>
+      <section className="checkout-section checkout-confirm-section">
+        <div className="checkout-section-head"><span>3</span><div><strong>{copy.confirmStep}</strong><small>{copy.confirmStepHint}</small></div></div>
+        <div className={contactVerified && locationVerified ? "required-checks verified" : "required-checks"}>
         <div className="required-checks-head">
           <strong>{copy.requiredSteps}</strong>
           <span>{contactVerified && locationVerified ? copy.ready : copy.required}</span>
@@ -1800,28 +1838,32 @@ function Checkout({
             </button>
           </div>
         )}
-      </div>
-      {deliverySelected && deliveryTimingEnabled && calculation?.delivery_target_at && (
-        <div className="delivery-timing-final">
-          <span>{draft.deliveryTimeMode === "SCHEDULED"
-            ? (locale === "en" ? "Requested time" : locale === "sr" ? "Željeno vreme" : "Желаемое время")
-            : (locale === "en" ? "As soon as possible" : locale === "sr" ? "Što pre" : "Как можно скорее")}</span>
-          <strong>· ~{formatPickupTime(calculation.delivery_target_at)}</strong>
         </div>
-      )}
-      <Totals subtotal={calculation?.subtotal_minor || subtotal} total={calculation?.total_minor || total} locale={locale} />
-      <label className="terms-check">
-        <input type="checkbox" checked={termsAccepted} onChange={(event) => onTermsAccepted(event.target.checked)} />
-        <span>
-          {t(locale, "acceptTerms")}{" "}
-          <a href={termsHref} target={termsExternal ? "_blank" : undefined} rel={termsExternal ? "noreferrer" : undefined}>
-            {t(locale, "terms")}
-          </a>
-        </span>
-      </label>
-      <button className="primary full" disabled={!checkoutOpen || submitting || !contactVerified || !locationVerified || !termsAccepted || (!deliverySelected && (!pickupEnabled || !draft.pickupAt)) || (deliverySelected && deliveryTimingEnabled && draft.deliveryTimeMode === "SCHEDULED" && !draft.deliveryRequestedAt)} onClick={onSubmit}>
-        {submitting ? "..." : `${!deliverySelected && draft.pickupAt ? `${copy.placePickupOrder} ${formatPickupTime(draft.pickupAt)} ` : paymentMethod === "crypto" ? copy.placeCryptoTestOrder : t(locale, "placeOrder")}· ${money(calculation?.total_minor || total)}`}
-      </button>
+        {deliverySelected && deliveryTimingEnabled && calculation?.delivery_target_at && (
+          <div className="delivery-timing-final">
+            <span>{draft.deliveryTimeMode === "SCHEDULED"
+              ? (locale === "en" ? "Requested time" : locale === "sr" ? "Željeno vreme" : "Желаемое время")
+              : (locale === "en" ? "As soon as possible" : locale === "sr" ? "Što pre" : "Как можно скорее")}</span>
+            <strong>· ~{formatPickupTime(calculation.delivery_target_at)}</strong>
+          </div>
+        )}
+        <Totals subtotal={calculation?.subtotal_minor || subtotal} total={checkoutTotal} locale={locale} />
+        <label className="terms-check">
+          <input type="checkbox" checked={termsAccepted} onChange={(event) => onTermsAccepted(event.target.checked)} />
+          <span>
+            {t(locale, "acceptTerms")}{" "}
+            <a href={termsHref} target={termsExternal ? "_blank" : undefined} rel={termsExternal ? "noreferrer" : undefined}>
+              {t(locale, "terms")}
+            </a>
+          </span>
+        </label>
+      </section>
+      <div className={checkoutHint === copy.readyToOrder ? "checkout-action-bar is-ready" : "checkout-action-bar"}>
+        <div><small>{checkoutHint}</small><strong>{money(checkoutTotal)}</strong></div>
+        <button className="primary" disabled={!checkoutOpen || submitting || !contactVerified || !locationVerified || !termsAccepted || (!deliverySelected && (!pickupEnabled || !draft.pickupAt)) || (deliverySelected && deliveryTimingEnabled && draft.deliveryTimeMode === "SCHEDULED" && !draft.deliveryRequestedAt)} onClick={onSubmit}>
+          {submitting ? "..." : !deliverySelected && draft.pickupAt ? `${copy.placePickupOrder} ${formatPickupTime(draft.pickupAt)}` : paymentMethod === "crypto" ? copy.placeCryptoTestOrder : t(locale, "placeOrder")}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1829,6 +1871,20 @@ function Checkout({
 function checkoutCopy(locale: Locale) {
   const copy = {
     ru: {
+      yourOrder: "Ваш заказ",
+      editCart: "Изменить корзину",
+      receivingStep: "Получение",
+      receivingStepHint: "способ, адрес и время",
+      paymentStepHint: "выберите один вариант",
+      confirmStep: "Подтверждение",
+      confirmStepHint: "телефон, геолокация и итог",
+      commentPlaceholder: "Например: позвоните за 5 минут",
+      nextPhone: "Следующий шаг: телефон",
+      nextLocation: "Следующий шаг: геолокация",
+      nextPickupTime: "Выберите время самовывоза",
+      nextDeliveryTime: "Выберите желаемое время",
+      nextTerms: "Примите условия",
+      readyToOrder: "Всё готово",
       fulfillmentTitle: "Как получить заказ",
       deliveryTitle: "Доставка",
       deliveryDescription: "курьер привезёт к подъезду",
@@ -1890,6 +1946,20 @@ function checkoutCopy(locale: Locale) {
       locationDefaultText: "Для оплаты наличными Telegram подтвердит, что вы находитесь в Нови Саде, чтобы мы могли к вам приехать. Точные координаты не сохраняются.",
     },
     sr: {
+      yourOrder: "Vaša porudžbina",
+      editCart: "Izmeni korpu",
+      receivingStep: "Preuzimanje",
+      receivingStepHint: "način, adresa i vreme",
+      paymentStepHint: "izaberite jednu opciju",
+      confirmStep: "Potvrda",
+      confirmStepHint: "telefon, lokacija i iznos",
+      commentPlaceholder: "Na primer: pozovite 5 minuta ranije",
+      nextPhone: "Sledeće: potvrdite telefon",
+      nextLocation: "Sledeće: potvrdite lokaciju",
+      nextPickupTime: "Izaberite vreme preuzimanja",
+      nextDeliveryTime: "Izaberite željeno vreme",
+      nextTerms: "Prihvatite uslove",
+      readyToOrder: "Sve je spremno",
       fulfillmentTitle: "Kako želite da preuzmete porudžbinu",
       deliveryTitle: "Dostava",
       deliveryDescription: "kurir donosi do ulaza",
@@ -1951,6 +2021,20 @@ function checkoutCopy(locale: Locale) {
       locationDefaultText: "Za plaćanje gotovinom Telegram potvrđuje da ste u Novom Sadu kako bismo mogli da dostavimo porudžbinu. Tačne koordinate se ne čuvaju.",
     },
     en: {
+      yourOrder: "Your order",
+      editCart: "Edit cart",
+      receivingStep: "Receiving",
+      receivingStepHint: "method, address and time",
+      paymentStepHint: "choose one option",
+      confirmStep: "Confirmation",
+      confirmStepHint: "phone, location and total",
+      commentPlaceholder: "For example: call 5 minutes before",
+      nextPhone: "Next: confirm phone",
+      nextLocation: "Next: confirm location",
+      nextPickupTime: "Choose a pickup time",
+      nextDeliveryTime: "Choose a preferred time",
+      nextTerms: "Accept the terms",
+      readyToOrder: "Ready to order",
       fulfillmentTitle: "How to receive the order",
       deliveryTitle: "Delivery",
       deliveryDescription: "courier delivers to the entrance",
@@ -2013,6 +2097,26 @@ function checkoutCopy(locale: Locale) {
     },
   } satisfies Record<Locale, Record<string, string | ((value: string) => string)>>;
   return copy[locale] as typeof copy.ru;
+}
+
+function checkoutItemsLabel(count: number, locale: Locale): string {
+  if (locale === "en") return count === 1 ? "item" : "items";
+  if (locale === "sr") return count === 1 ? "stavka" : "stavki";
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "товар";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "товара";
+  return "товаров";
+}
+
+function checkoutPositionsLabel(count: number, locale: Locale): string {
+  if (locale === "en") return count === 1 ? "position" : "positions";
+  if (locale === "sr") return count === 1 ? "pozicija" : "pozicije";
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "позиция";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "позиции";
+  return "позиций";
 }
 
 function cryptoConfirmText(locale: Locale, totalMinor: number): string {
