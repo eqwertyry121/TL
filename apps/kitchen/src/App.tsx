@@ -2,10 +2,11 @@ import type { Order, Role } from "@tk-delivery/api-client/generated";
 import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
-import { clientLabel, createStaffApi, isAuthError, kitchenTimeText, money, openTelegramLink, paymentText, problemLink, sameOrderSnapshot, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
-import { AlertTriangle, Check, MoreVertical, RefreshCw, WifiOff } from "lucide-react";
+import { clientLabel, createStaffApi, isAuthError, money, openTelegramLink, problemLink, sameOrderSnapshot, startVisiblePolling, telegramUserLink } from "@tk-delivery/staff-core";
+import { AlertTriangle, Check, ChevronDown, Clock3, MoreVertical, RefreshCw, WifiOff } from "lucide-react";
 import { useDrag } from "@use-gesture/react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 const api = createStaffApi("KITCHEN");
 const kitchenSeenOrdersKey = "tk-kitchen-seen-orders-v2";
@@ -30,6 +31,7 @@ export function App() {
   const [offline, setOffline] = useState(false);
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState("");
+  const [etaBusy, setEtaBusy] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [activeWindow, setActiveWindow] = useState<"delivery" | "pickup">("delivery");
   const [activeLane, setActiveLane] = useState<"new" | "in_progress" | "ready">("new");
@@ -45,7 +47,7 @@ export function App() {
   const deliveryOrders = useMemo(() => orders.filter((order) => order.fulfillment_type !== "pickup" && order.fulfillment_status === "NEW"), [orders]);
   const pickupOrders = useMemo(() => orders.filter((order) => order.fulfillment_type === "pickup" && order.fulfillment_status === "NEW"), [orders]);
   const pickupReadyOrders = useMemo(() => orders.filter(isPickupReady), [orders]);
-  const sortedDeliveryOrders = useMemo(() => [...deliveryOrders].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [deliveryOrders]);
+  const sortedDeliveryOrders = useMemo(() => [...deliveryOrders].sort((a, b) => new Date(a.delivery_target_at || a.created_at).getTime() - new Date(b.delivery_target_at || b.created_at).getTime() || new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [deliveryOrders]);
   const sortedPickupOrders = useMemo(() => [...pickupOrders].sort((a, b) => pickupTimestamp(a) - pickupTimestamp(b)), [pickupOrders]);
   const sortedPickupReadyOrders = useMemo(() => [...pickupReadyOrders].sort((a, b) => new Date(a.ready_at || a.created_at).getTime() - new Date(b.ready_at || b.created_at).getTime()), [pickupReadyOrders]);
   const visibleNewOrders = useMemo(() => (activeWindow === "delivery" ? sortedDeliveryOrders : sortedPickupOrders).filter((order) => !order.kitchen_started_at), [activeWindow, sortedDeliveryOrders, sortedPickupOrders]);
@@ -189,6 +191,26 @@ export function App() {
     }
   }
 
+  async function estimateReady(order: Order, minutes?: number, estimatedReadyAt?: string) {
+    if (etaBusy || order.fulfillment_type !== "delivery" || order.fulfillment_status !== "NEW") return;
+    const target = estimatedReadyAt || new Date(Date.now() + (minutes || 30) * 60000).toISOString();
+    if (order.estimated_ready_at && Math.abs(new Date(order.estimated_ready_at).getTime() - new Date(target).getTime()) < 60000) return;
+    setEtaBusy(`${order.id}:${minutes || "target"}`);
+    setActionError("");
+    try {
+      const updated = await withAuth((authToken) => api.estimateKitchenReady(authToken, order.id, {
+        ...(estimatedReadyAt ? { estimated_ready_at: estimatedReadyAt } : { ready_in_minutes: minutes }),
+        expected_version: order.version,
+      }, `eta-${order.id}-${order.version}-${minutes || estimatedReadyAt}`));
+      setOrders((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
+    } catch (err) {
+      setActionError(staffActionErrorText(err));
+      await refresh();
+    } finally {
+      setEtaBusy("");
+    }
+  }
+
   async function startPreparation(order: Order) {
     if (busy === order.id || order.kitchen_started_at || order.fulfillment_status !== "NEW") return;
     markSeen(order);
@@ -261,10 +283,12 @@ export function App() {
       <PreparationBoard
         activeLane={activeLane}
         busy={busy}
+        etaBusy={etaBusy}
         inProgressOrders={visibleInProgressOrders}
         newOrders={visibleNewOrders}
         onLaneChange={setActiveLane}
         onMarkReady={markReady}
+        onEstimateReady={estimateReady}
         onPickupCollected={markPickupCollected}
         onResetPreparation={resetPreparation}
         onSeen={markSeen}
@@ -283,10 +307,12 @@ type KitchenLane = "new" | "in_progress" | "ready";
 function PreparationBoard({
   activeLane,
   busy,
+  etaBusy,
   inProgressOrders,
   newOrders,
   onLaneChange,
   onMarkReady,
+  onEstimateReady,
   onPickupCollected,
   onResetPreparation,
   onSeen,
@@ -297,10 +323,12 @@ function PreparationBoard({
 }: {
   activeLane: KitchenLane;
   busy: string;
+  etaBusy: string;
   inProgressOrders: Order[];
   newOrders: Order[];
   onLaneChange(lane: KitchenLane): void;
   onMarkReady(order: Order): void;
+  onEstimateReady(order: Order, minutes?: number, estimatedReadyAt?: string): void;
   onPickupCollected(order: Order): void;
   onResetPreparation(order: Order): void;
   onSeen(order: Order): void;
@@ -334,10 +362,12 @@ function PreparationBoard({
                     order={order}
                     seenIds={seenIds}
                     busy={busy}
+                    etaBusy={etaBusy}
                     canStart={lane.id === "new"}
                     onSeen={onSeen}
                     onStart={onStartPreparation}
                     onPrimary={lane.id === "ready" ? onPickupCollected : onMarkReady}
+                    onEstimateReady={onEstimateReady}
                     onResetPreparation={onResetPreparation}
                   />
                 ))}
@@ -368,19 +398,23 @@ function SwipeableOrderCard({
   order,
   seenIds,
   busy,
+  etaBusy,
   canStart,
   onSeen,
   onStart,
   onPrimary,
+  onEstimateReady,
   onResetPreparation,
 }: {
   order: Order;
   seenIds: Set<string>;
   busy: string;
+  etaBusy: string;
   canStart: boolean;
   onSeen(order: Order): void;
   onStart(order: Order): void;
   onPrimary(order: Order): void;
+  onEstimateReady(order: Order, minutes?: number, estimatedReadyAt?: string): void;
   onResetPreparation(order: Order): void;
 }) {
   const shellRef = useRef<HTMLDivElement>(null);
@@ -487,8 +521,10 @@ function SwipeableOrderCard({
           order={order}
           seenIds={seenIds}
           busy={busy}
+          etaBusy={etaBusy}
           onSeen={onSeen}
           onPrimary={onPrimary}
+          onEstimateReady={onEstimateReady}
           onResetPreparation={onResetPreparation}
         />
       </div>
@@ -500,15 +536,19 @@ function KitchenOrderCard({
   order,
   seenIds,
   busy,
+  etaBusy,
   onSeen,
   onPrimary,
+  onEstimateReady,
   onResetPreparation,
 }: {
   order: Order;
   seenIds: Set<string>;
   busy: string;
+  etaBusy: string;
   onSeen(order: Order): void;
   onPrimary(order: Order): void;
+  onEstimateReady(order: Order, minutes?: number, estimatedReadyAt?: string): void;
   onResetPreparation(order: Order): void;
 }) {
   const unread = !seenIds.has(seenKey(order));
@@ -522,7 +562,6 @@ function KitchenOrderCard({
         <div className="order-top">
           <div className="order-title">
             <strong>Заказ #{order.public_number}</strong>
-            <span>{pickup ? pickupTimingText(order) : kitchenTimeText(order)}</span>
           </div>
           <div className="order-side">
             {order.kitchen_started_at
@@ -530,11 +569,6 @@ function KitchenOrderCard({
               : <span className={unread ? "new-badge" : "read-badge"}>{unread ? "Новый" : "Прочитано"}</span>}
             <Menu order={order} busy={busy === order.id} onResetPreparation={onResetPreparation} />
           </div>
-        </div>
-        <div className="order-meta-line">
-          <CustomerBadge order={order} />
-          <span className={pickup ? "fulfillment-chip pickup" : "fulfillment-chip"}>{pickup ? "Самовывоз" : "Доставка"}</span>
-          <span className="payment-chip">{paymentText(order)}</span>
         </div>
         <ul className="items-compact" aria-label={`Блюда заказа #${order.public_number}`}>
           {order.items.map((item, index) => (
@@ -547,6 +581,14 @@ function KitchenOrderCard({
             </li>
           ))}
         </ul>
+        <div className="order-meta-line">
+          <CustomerBadge order={order} />
+          <i aria-hidden="true">·</i>
+          <span>{pickup ? "Самовывоз" : "Доставка"}</span>
+          <i aria-hidden="true">·</i>
+          <span>{compactPaymentText(order)} · {money(order.total_minor)}</span>
+        </div>
+        <KitchenTiming order={order} etaBusy={etaBusy} onEstimateReady={onEstimateReady} />
         {addedAt && <p className="addition-note">Дозаказ добавлен в {timeHHMM(addedAt)}</p>}
         {order.customer_comment && <p className="comment compact-comment"><AlertTriangle size={16} /> {order.customer_comment}</p>}
         <button
@@ -564,6 +606,105 @@ function KitchenOrderCard({
   );
 }
 
+function KitchenTiming({
+  order,
+  etaBusy,
+  onEstimateReady,
+}: {
+  order: Order;
+  etaBusy: string;
+  onEstimateReady(order: Order, minutes?: number, estimatedReadyAt?: string): void;
+}) {
+  const pickup = order.fulfillment_type === "pickup";
+  const target = pickup
+    ? order.pickup_at
+    : undefined;
+  const scheduledTarget = !pickup && order.delivery_time_mode === "SCHEDULED"
+    ? order.delivery_requested_at || order.delivery_target_at
+    : undefined;
+  const exactOptions = readyTimeOptions();
+  const [timePickerOpen, setTimePickerOpen] = useState(false);
+
+  return (
+    <section className={`kitchen-timing${pickup ? " pickup" : ""}`} aria-label="Время заказа" onClick={(event) => event.stopPropagation()}>
+      {pickup ? (
+        <div className="kitchen-timing-summary">
+          <div>
+            <small>Поступил</small>
+            <b>{timeHHMM(order.created_at)}</b>
+            <span>{elapsedShort(order.created_at)}</span>
+          </div>
+          <div>
+            <small>Заберут</small>
+            <b>{target ? timeHHMM(target) : "Сейчас"}</b>
+            {target && <span>{pickupCountdown(order)}</span>}
+          </div>
+        </div>
+      ) : (
+        <div className="delivery-time-status">
+          <span>{scheduledTarget ? "Ко времени" : "Очередь"}</span>
+          <strong>{scheduledTarget ? timeHHMM(scheduledTarget) : order.kitchen_queue_position ? `№${order.kitchen_queue_position}` : "Новая"}</strong>
+        </div>
+      )}
+      {!pickup && (
+        <div className="kitchen-timing-actions" aria-label="Сообщить время готовности">
+          <div className="kitchen-time-question">
+            <strong>Когда будет готов?</strong>
+            <span>{order.estimated_ready_at ? `Клиенту сообщили: примерно к ${timeHHMM(order.estimated_ready_at)}` : "Время клиенту ещё не сообщали"}</span>
+          </div>
+          <div className="kitchen-time-buttons">
+            <button
+              type="button"
+              disabled={Boolean(etaBusy)}
+              aria-expanded={timePickerOpen}
+              onClick={() => setTimePickerOpen(true)}
+            >
+              <Clock3 size={16} />
+              <span><strong>{order.estimated_ready_at ? "Изменить время" : "Назначить время"}</strong><small>{order.estimated_ready_at ? `сейчас ${timeHHMM(order.estimated_ready_at)}` : "когда будет готов"}</small></span>
+              <ChevronDown size={16} />
+            </button>
+          </div>
+          {timePickerOpen && createPortal(
+            <div className="ready-time-backdrop" onClick={() => setTimePickerOpen(false)}>
+              <section className="ready-time-sheet" role="dialog" aria-modal="true" aria-label="Выбор времени готовности" onClick={(event) => event.stopPropagation()}>
+                <header>
+                  <div>
+                    <small>{scheduledTarget ? `Доставка к ${timeHHMM(scheduledTarget)}` : order.kitchen_queue_position ? `Заказ №${order.kitchen_queue_position} в очереди` : `Заказ #${order.public_number}`}</small>
+                    <strong>К какому времени будет готов?</strong>
+                  </div>
+                  <button type="button" onClick={() => setTimePickerOpen(false)} aria-label="Закрыть">×</button>
+                </header>
+                <div className="ready-time-list" role="listbox" aria-label="Время готовности">
+                  {exactOptions.map((option) => {
+                    const selected = sameReadyTime(order.estimated_ready_at, option.at);
+                    return (
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        className={selected ? "active" : ""}
+                        key={option.at}
+                        onClick={() => {
+                          setTimePickerOpen(false);
+                          onEstimateReady(order, undefined, option.at);
+                        }}
+                      >
+                        <span>{option.label}</span>
+                        {selected && <Check size={17} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>,
+            document.body,
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function isPickupReady(order: Order): boolean {
   return order.fulfillment_type === "pickup" && order.fulfillment_status === "READY_FOR_PICKUP";
 }
@@ -571,11 +712,11 @@ function isPickupReady(order: Order): boolean {
 function pickupTimestamp(order: Order): number { return new Date(order.pickup_at || order.created_at).getTime(); }
 function pickupCookTimestamp(order: Order): number { return new Date(order.pickup_cook_at || order.pickup_at || order.created_at).getTime(); }
 
-function pickupTimingText(order: Order): string {
-  if (isPickupReady(order)) return `Готов · заберут в ${timeHHMM(order.pickup_at || order.created_at)}`;
+function pickupCountdown(order: Order): string {
+  if (isPickupReady(order)) return "Заказ готов";
   const minutes = Math.ceil((pickupTimestamp(order) - Date.now()) / 60000);
-  if (minutes <= 0) return `ЗАБЕРУТ СЕЙЧАС · ${timeHHMM(order.pickup_at || order.created_at)}`;
-  return `Заберут в ${timeHHMM(order.pickup_at || order.created_at)} · через ${minutes} мин`;
+  if (minutes <= 0) return "Сейчас";
+  return `Через ${minutes} мин`;
 }
 
 function pickupUrgencyClass(order: Order): string {
@@ -586,11 +727,23 @@ function pickupUrgencyClass(order: Order): string {
   return "";
 }
 
+function readyTimeOptions(): Array<{ at: string; label: string }> {
+  const first = new Date();
+  first.setMinutes(Math.floor(first.getMinutes() / 5) * 5 + 5, 0, 0);
+  return Array.from({ length: 36 }, (_, index) => {
+    const target = new Date(first.getTime() + index * 5 * 60000);
+    return { at: target.toISOString(), label: timeHHMM(target.toISOString()) };
+  });
+}
+
+function sameReadyTime(current: string | undefined, candidate: string): boolean {
+  return Boolean(current) && Math.abs(new Date(current!).getTime() - new Date(candidate).getTime()) < 60000;
+}
+
 function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {
   return (
     <span className="order-avatar" aria-hidden="true">
       {order.client_photo_url ? <img src={order.client_photo_url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : <span>{clientInitials(order)}</span>}
-      <small>#{order.public_number}</small>
       {unread && <i />}
     </span>
   );
@@ -598,15 +751,7 @@ function OrderAvatar({ order, unread }: { order: Order; unread: boolean }) {
 
 function CustomerBadge({ order }: { order: Order }) {
   const href = telegramUserLink(order);
-  const content = (
-    <>
-      <span className="customer-avatar">
-        <span>{clientInitials(order)}</span>
-        {order.client_photo_url && <img src={order.client_photo_url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />}
-      </span>
-      <b>{clientLabel(order)}</b>
-    </>
-  );
+  const content = <b>{clientLabel(order)}</b>;
   if (!href) return <div className="customer-badge" title={clientLabel(order)}>{content}</div>;
   return (
     <a
@@ -624,6 +769,13 @@ function CustomerBadge({ order }: { order: Order }) {
       {content}
     </a>
   );
+}
+
+function compactPaymentText(order: Order): string {
+  if (order.payment_method === "cash") return "Наличные";
+  if (order.payment_method === "card") return "Карта";
+  if (order.payment_method === "crypto") return "Crypto";
+  return "Оплачено";
 }
 
 function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
@@ -698,6 +850,15 @@ function timeHHMM(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function elapsedShort(value: string): string {
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
+  if (minutes < 1) return "сейчас";
+  if (minutes < 60) return `${minutes} мин назад`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} ч ${rest} мин назад` : `${hours} ч назад`;
 }
 
 function loadSeenOrderIds(key: string): Set<string> {

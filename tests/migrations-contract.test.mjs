@@ -91,6 +91,14 @@ test("migrations avoid destructive domain-data operations", () => {
   assert.deepEqual(violations, []);
 });
 
+test("delivery scheduling uses one order per thirty-minute slot", () => {
+  const source = compactSql(readMigration("050_fix_delivery_slot_capacity.sql"));
+  assert.match(source, /delivery_min_lead_minutes\s*=\s*30/i);
+  assert.match(source, /delivery_slot_minutes\s*=\s*30/i);
+  assert.match(source, /delivery_max_orders_per_slot\s*=\s*1/i);
+  assert.match(source, /delivery_last_target_time\s*=\s*'21:00'/i);
+});
+
 function readMigration(file) {
   return readFileSync(new URL(file, migrationsDir), "utf8");
 }

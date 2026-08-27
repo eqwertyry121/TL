@@ -15,6 +15,24 @@ test("client startup uses bootstrap without private history or contact waterfall
   assertIncludes(appSource, "if (!token || route.name !== \"orders\") return;");
 });
 
+test("client DEV sandbox never falls back to the production bot card", () => {
+  const appSource = readSource("apps/client/src/App.tsx");
+
+  assertIncludes(appSource, "const [loading, setLoading] = useState(!data.runtime)");
+  assertIncludes(appSource, "setLoading(true)");
+  assertIncludes(appSource, "devSandbox ? <DevSandboxUnavailable /> : <PublicBotLanding />");
+  assertIncludes(appSource, "route.name === \"menu\" && !data.session && !devSandbox");
+});
+
+test("only the primary DEV owner can bypass the active-order checkout lock", () => {
+  const appSource = readSource("apps/client/src/App.tsx");
+
+  assertIncludes(appSource, "const allowConcurrentDevOrders = devSandbox && data.session?.telegram_user_id === 1048084234");
+  assertIncludes(appSource, "if (activeOrder && !allowConcurrentDevOrders)");
+  assertIncludes(appSource, "activeOrder={allowConcurrentDevOrders ? undefined : activeOrder}");
+  assertIncludes(appSource, "activeOrder && !allowConcurrentDevOrders ? <ActiveOrderLock");
+});
+
 test("kitchen and courier startup use one role bootstrap request", () => {
   const kitchenSource = readSource("apps/kitchen/src/App.tsx");
   const courierSource = readSource("apps/courier/src/App.tsx");

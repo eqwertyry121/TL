@@ -47,3 +47,44 @@ func TestValidMenuItemInputRestrictsPhotoPathToOptimizedMenuMedia(t *testing.T) 
 		}
 	}
 }
+
+func TestValidMenuItemInputRestrictsDiscountPercent(t *testing.T) {
+	base := UpsertMenuItemInput{
+		CategoryID:  uuid.New(),
+		TitleRU:     "Test dish",
+		PriceMinor:  100,
+		MinQuantity: 1,
+	}
+	for _, discountPercent := range []int{0, 1, 50, 99} {
+		input := base
+		input.DiscountPercent = discountPercent
+		if !validMenuItemInput(input) {
+			t.Fatalf("expected discount_percent %d to be valid", discountPercent)
+		}
+	}
+	for _, discountPercent := range []int{-1, 100, 101} {
+		input := base
+		input.DiscountPercent = discountPercent
+		if validMenuItemInput(input) {
+			t.Fatalf("expected discount_percent %d to be invalid", discountPercent)
+		}
+	}
+}
+
+func TestDiscountedPriceRoundsToNearestMinorUnit(t *testing.T) {
+	tests := []struct {
+		price    int
+		discount int
+		want     int
+	}{
+		{price: 150, discount: 0, want: 150},
+		{price: 150, discount: 15, want: 128},
+		{price: 210, discount: 10, want: 189},
+		{price: 100, discount: 99, want: 1},
+	}
+	for _, test := range tests {
+		if got := discountedPrice(test.price, test.discount); got != test.want {
+			t.Fatalf("discountedPrice(%d, %d) = %d, want %d", test.price, test.discount, got, test.want)
+		}
+	}
+}

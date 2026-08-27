@@ -60,7 +60,8 @@ function realApi(baseURL: string): Api {
     authenticate,
     runtime: (signal) => get(`${baseURL}/api/v1/runtime`, undefined, signal),
     menu: (locale) => get(`${baseURL}/api/v1/menu?locale=${locale}`),
-    calculate: (token, items, fulfillmentType) => post(`${baseURL}/api/v1/orders/calculate`, { items, fulfillment_type: fulfillmentType }, token),
+    calculate: (token, items, fulfillmentType, timing = {}) => post(`${baseURL}/api/v1/orders/calculate`, { items, fulfillment_type: fulfillmentType, ...timing }, token),
+    deliverySlots: (token) => get(`${baseURL}/api/v1/delivery/slots`, token),
     pickupSlots: (token) => get(`${baseURL}/api/v1/pickup/slots`, token),
     calculateAddition: (token, orderId, items) => post(`${baseURL}/api/v1/orders/${orderId}/addition/calculate`, { items }, token),
     contact: (token) => get(`${baseURL}/api/v1/contact`, token),
@@ -89,6 +90,7 @@ function demoApi(): Api {
       username: profile.username,
       first_name: profile.first_name,
       photo_url: profile.photo_url,
+      delivery_timing_access: true,
       active_role: "CLIENT",
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     } satisfies Session;
@@ -114,7 +116,7 @@ function demoApi(): Api {
     async menu() {
       return { categories: loadDemoCategories() };
     },
-    async calculate(_token, items, fulfillmentType) {
+    async calculate(_token, items, fulfillmentType, timing = {}) {
       const categories = loadDemoCategories();
       const lookup = menuLookup(categories);
       const calculationItems = items.map(({ item_id, quantity }) => {
@@ -143,8 +145,21 @@ function demoApi(): Api {
         currency: "RSD",
         expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       } satisfies Calculation;
+      if (fulfillmentType === "delivery") {
+        const target = timing.delivery_requested_at || new Date(Date.now() + 40 * 60 * 1000).toISOString();
+        Object.assign(calculation, { delivery_target_at: target, delivery_queue_delay_minutes: 0 });
+      }
       saveDemoCalculation(calculation);
       return calculation;
+    },
+    async deliverySlots() {
+      const first = new Date(Date.now() + 40 * 60 * 1000);
+      first.setMinutes(Math.ceil(first.getMinutes() / 30) * 30, 0, 0);
+      const slots = Array.from({ length: 6 }, (_, index) => {
+        const at = new Date(first.getTime() + index * 30 * 60 * 1000);
+        return { target_at: at.toISOString(), label: at.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }), available: true, queue_delay_minutes: 0 };
+      });
+      return { timezone: "Europe/Belgrade" as const, date: first.toISOString().slice(0, 10), asap: { target_at: slots[0].target_at, wait_minutes: 40, queue_delay_minutes: 0, queue_position: 1 }, slots };
     },
     async pickupSlots() {
       const settings = loadDemoSettings();
@@ -388,6 +403,7 @@ function unconfiguredApi(): Api {
     runtime: fail,
     menu: fail,
     calculate: fail,
+    deliverySlots: fail,
     pickupSlots: fail,
     calculateAddition: fail,
     contact: fail,
@@ -458,7 +474,7 @@ async function read(response: Response, cacheKey?: string) {
   }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw apiError(payload?.error?.code || "SERVER_UNAVAILABLE", response.status);
+    throw apiError(payload?.error?.code || "SERVER_UNAVAILABLE", response.status, payload?.error);
   }
   const etag = response.headers.get("ETag");
   if (cacheKey && etag) {
@@ -496,11 +512,15 @@ function menuLookup(categories: Category[]) {
 function loadDemoRuntime(): Runtime {
   const settings = loadDemoSettings();
   const accepting = demoAcceptingState(settings);
+  const schedule = settings.schedule?.length === 7 ? settings.schedule : defaultSchedule();
+  const today = schedule.find((day) => day.day_of_week === zonedNowParts(settings.timezone).dayOfWeek);
   return {
     ...demoRuntime,
     accepting_orders: accepting.ok,
     reason: accepting.reason,
     next_opening: accepting.nextOpening,
+    order_open_time: today?.open_time ?? "",
+    order_cutoff_time: today?.order_cutoff_time ?? "",
     day_off_banner: settings.day_off_banner,
     flat_delivery_fee_minor: 0,
     support_text: "@Tako_Lako",
@@ -516,6 +536,10 @@ function loadDemoRuntime(): Runtime {
     pickup_min_lead_minutes: settings.pickup_min_lead_minutes,
     pickup_slot_minutes: settings.pickup_slot_minutes,
     pickup_last_time: settings.pickup_last_time,
+    delivery_timing_enabled: settings.delivery_timing_enabled,
+    delivery_min_lead_minutes: settings.delivery_min_lead_minutes,
+    delivery_slot_minutes: settings.delivery_slot_minutes,
+    delivery_last_target_time: settings.delivery_last_target_time,
   };
 }
 
@@ -539,6 +563,11 @@ function loadDemoSettings(): Settings {
     pickup_slot_minutes: settings.pickup_slot_minutes || 15,
     pickup_max_orders_per_slot: settings.pickup_max_orders_per_slot || 3,
     pickup_last_time: settings.pickup_last_time || "22:00",
+    delivery_timing_enabled: settings.delivery_timing_enabled ?? false,
+    delivery_min_lead_minutes: settings.delivery_min_lead_minutes || 30,
+    delivery_slot_minutes: settings.delivery_slot_minutes || 30,
+    delivery_max_orders_per_slot: settings.delivery_max_orders_per_slot || 1,
+    delivery_last_target_time: settings.delivery_last_target_time || "21:00",
   };
   if (!localStorage.getItem(demoCryptoTestMigrationKey)) {
     const next = { ...normalized, crypto_enabled: true };
@@ -643,6 +672,11 @@ function seedDemoSettings(): Settings {
     pickup_slot_minutes: 15,
     pickup_max_orders_per_slot: 3,
     pickup_last_time: "22:00",
+    delivery_timing_enabled: true,
+    delivery_min_lead_minutes: 30,
+    delivery_slot_minutes: 30,
+    delivery_max_orders_per_slot: 1,
+    delivery_last_target_time: "21:00",
     version: 1,
     schedule: defaultSchedule(),
   };
@@ -702,13 +736,15 @@ function loadDemoCategories(): Category[] {
       sort_order: category.sort_order,
       items: items
         .filter((item) => item.category_id === category.id && item.visible && !item.archived)
-        .sort((a, b) => a.sort_order - b.sort_order)
+        .sort((a, b) => Number(b.discount_percent > 0) - Number(a.discount_percent > 0) || a.sort_order - b.sort_order)
         .map((item) => ({
           id: item.id,
           category_id: item.category_id,
           title: item.title_ru,
           description: item.description_ru,
-          price_minor: item.price_minor,
+          price_minor: item.discounted_price_minor,
+          original_price_minor: item.price_minor,
+          discount_percent: item.discount_percent,
           currency: item.currency,
           photo_path: item.photo_path,
           weight_text: item.weight_text,
@@ -721,7 +757,13 @@ function loadDemoCategories(): Category[] {
 }
 
 function normalizeDemoMenuItem(item: AdminMenuItem): AdminMenuItem {
-  return { ...item, min_quantity: Math.max(1, item.min_quantity || 1) };
+  const discountPercent = Math.max(0, Math.min(99, Math.round(item.discount_percent || 0)));
+  return {
+    ...item,
+    discount_percent: discountPercent,
+    discounted_price_minor: Math.round(item.price_minor * (100 - discountPercent) / 100),
+    min_quantity: Math.max(1, item.min_quantity || 1),
+  };
 }
 
 function loadJSON<T>(key: string, fallback: T): T {
@@ -778,6 +820,6 @@ function loadDemoCalculation(token: string): Calculation {
   return calculation;
 }
 
-function apiError(code: string, status?: number) {
-  return Object.assign(new Error(code), { code, status });
+function apiError(code: string, status?: number, details?: Record<string, unknown>) {
+  return Object.assign(new Error(code), { code, status, details });
 }

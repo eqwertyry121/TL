@@ -19,6 +19,9 @@ export function AnalyticsSection({ analytics, range, onRange, onExport }: { anal
         <Metric title="Отменены" value={analytics.summary.cancelled_orders} />
         <Metric title="Выручка" value={money(analytics.summary.revenue_minor)} />
         <Metric title="Средний чек" value={money(analytics.summary.average_check_minor)} />
+        <Metric title="Загрузка delivery-слотов" value={`${analytics.summary.delivery_slot_fill_percent}%`} />
+        <Metric title="Средняя очередь" value={`${analytics.summary.average_delivery_queue_delay_minutes} мин`} />
+        <Metric title="Отклонение готовности" value={`${analytics.summary.average_ready_plan_deviation_minutes} мин`} />
       </div>
       <section className="panel analytics-payments">
         <div><h2>Оплата</h2><p className="muted">Заказы и выручка по способам оплаты.</p></div>
@@ -129,6 +132,12 @@ export function SettingsSection({ settings, demoMode, onSave }: { settings: Sett
             <Textarea label="Английский" value={form.pickup_instructions_en} onChange={(pickup_instructions_en) => setForm({ ...form, pickup_instructions_en })} />
           </div>
         </details>
+      </div>
+
+      <div className="panel settings-card">
+        <div className="settings-card-head"><h2>Время доставки</h2></div>
+        <label className="check"><input type="checkbox" checked={form.delivery_timing_enabled} onChange={(event) => setForm({ ...form, delivery_timing_enabled: event.target.checked })} /> Разрешить выбор времени</label>
+        <p className="muted">Первое время через 30 минут · один заказ на каждые 30 минут · последнее время 21:00</p>
       </div>
 
       <div className="panel settings-card">

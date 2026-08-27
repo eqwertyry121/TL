@@ -5,6 +5,8 @@ export const demoRuntime: Runtime = {
   timezone: "Europe/Belgrade",
   accepting_orders: true,
   reason: "open",
+  order_open_time: "13:00",
+  order_cutoff_time: "21:00",
   day_off_banner: "ВЫХОДНОЙ",
   flat_delivery_fee_minor: 0,
   currency: "RSD",
@@ -20,6 +22,10 @@ export const demoRuntime: Runtime = {
   pickup_min_lead_minutes: 40,
   pickup_slot_minutes: 15,
   pickup_last_time: "22:00",
+  delivery_timing_enabled: true,
+  delivery_min_lead_minutes: 30,
+  delivery_slot_minutes: 30,
+  delivery_last_target_time: "21:00",
 };
 
 const media = (slug: string) => `/media/menu/${slug}.jpg`;
@@ -42,6 +48,8 @@ function item(
     title,
     description,
     price_minor: priceMinor,
+    original_price_minor: priceMinor,
+    discount_percent: 0,
     currency: "RSD",
     photo_path: photoPath,
     weight_text: weightText,

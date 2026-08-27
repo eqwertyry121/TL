@@ -510,9 +510,6 @@ export function App() {
           settings={settings}
           onDayOff={setDayOff}
           onOpenOrders={openOrdersView}
-          onOpenMenu={() => openTab("menu")}
-          onOpenSchedule={() => openTab("schedule")}
-          onOpenAnalytics={() => openTab("analytics")}
         />
       ) : <SectionSkeleton title="Главная" />;
     }
@@ -796,42 +793,41 @@ function HomeTab({
   settings,
   onDayOff,
   onOpenOrders,
-  onOpenMenu,
-  onOpenSchedule,
-  onOpenAnalytics,
 }: {
   dashboard: AdminDashboard;
   settings: Settings;
   onDayOff(enabled: boolean): Promise<void>;
   onOpenOrders(view: OrdersView): void;
-  onOpenMenu(): void;
-  onOpenSchedule(): void;
-  onOpenAnalytics(): void;
 }) {
   const accepting = dashboard.runtime.accepting_orders;
   const notificationErrors = dashboard.notification_errors ?? [];
   const readyOrders = dashboard.out_for_delivery + dashboard.ready_for_pickup;
   const activeOrders = dashboard.new_orders + readyOrders;
+  const averageCheck = dashboard.orders_today > 0 ? Math.round(dashboard.revenue_today_minor / dashboard.orders_today) : 0;
+  const orderWindow = dashboard.runtime.order_open_time && dashboard.runtime.order_cutoff_time
+    ? `${dashboard.runtime.order_open_time}–${dashboard.runtime.order_cutoff_time}`
+    : "по графику";
   return (
     <section className="home-dashboard">
       <div className={`panel home-status ${accepting ? "is-open" : "is-closed"}`}>
         <div>
           <span className="status-dot-label"><span className="status-dot" /> {accepting ? "Приём открыт" : "Приём закрыт"}</span>
-          <h2>{accepting ? "Работаем" : "Заказы не принимаются"}</h2>
-          <p>{compactRuntimeReason(dashboard.runtime.reason)}</p>
+          <h2>{accepting ? "Заказы принимаются" : "Заказы не принимаются"}</h2>
+          <p>{accepting ? `Сегодня ${orderWindow}` : `${compactRuntimeReason(dashboard.runtime.reason)} · ${orderWindow}`}</p>
         </div>
         <button className={settings.manual_day_off ? "primary" : "danger-button"} onClick={() => void onDayOff(!settings.manual_day_off)}>
-          {settings.manual_day_off ? "Возобновить работу" : "Техобслуживание"}
+          {settings.manual_day_off ? "Возобновить приём" : "Остановить приём"}
         </button>
       </div>
 
       <div className="home-section">
         <div className="home-section-head">
           <div>
-            <h2>Активные заказы</h2>
-            <p className="muted">{activeOrders ? "Нужно контролировать сейчас" : "Очередь пустая"}</p>
+            <span className="home-kicker">Сейчас</span>
+            <h2>{activeOrders ? `${activeOrders} активных` : "Заказов нет"}</h2>
+            <p className="muted">{activeOrders ? "Нажмите на нужную очередь" : "Новые заказы появятся здесь"}</p>
           </div>
-          <button type="button" onClick={() => onOpenOrders("active")}>Открыть</button>
+          <button type="button" onClick={() => onOpenOrders("active")}>Все заказы</button>
         </div>
         <div className="home-counters">
           <button className="home-counter" type="button" onClick={() => onOpenOrders("new")}>
@@ -841,19 +837,17 @@ function HomeTab({
           <button className="home-counter" type="button" onClick={() => onOpenOrders("ready")}>
             <span>Готово</span>
             <strong>{readyOrders}</strong>
-          </button>
-          <button className="home-counter" type="button" onClick={() => onOpenOrders("ready")}>
-            <span>Самовывоз</span>
-            <strong>{dashboard.ready_for_pickup}</strong>
+            <small>Доставка {dashboard.out_for_delivery} · Самовывоз {dashboard.ready_for_pickup}</small>
           </button>
         </div>
       </div>
 
       <div className="panel today-card">
-        <h2>Сегодня</h2>
+        <span className="home-kicker">Сегодня</span>
         <div className="today-metrics">
           <div><span>Заказы</span><strong>{dashboard.orders_today}</strong></div>
           <div><span>Выручка</span><strong>{money(dashboard.revenue_today_minor)}</strong></div>
+          <div><span>Средний чек</span><strong>{money(averageCheck)}</strong></div>
         </div>
       </div>
 
@@ -865,11 +859,6 @@ function HomeTab({
         </div>
       )}
 
-      <div className="quick-actions">
-        <button type="button" onClick={onOpenMenu}>Меню</button>
-        <button type="button" onClick={onOpenSchedule}>График</button>
-        <button type="button" onClick={onOpenAnalytics}>Аналитика</button>
-      </div>
     </section>
   );
 }
@@ -1023,7 +1012,11 @@ function MenuTab({ menu, onAction }: { menu: AdminMenuResponse; onAction: AdminA
                       <span>{categoryTitle(menu.categories, dish.category_id)}</span>
                     </span>
                   </button>
-                  <strong className="menu-price">{money(dish.price_minor)}</strong>
+                  <div className={dish.discount_percent > 0 ? "menu-price menu-price-sale" : "menu-price"}>
+                    {dish.discount_percent > 0 && <span className="admin-sale-badge">−{dish.discount_percent}%</span>}
+                    {dish.discount_percent > 0 && <del>{money(dish.price_minor)}</del>}
+                    <strong>{money(dish.discounted_price_minor)}</strong>
+                  </div>
                   {dish.archived ? (
                     <button className="primary" onClick={() => void onAction((authToken) => api.restoreItem(authToken, dish.id, "restore from admin"))}>Восстановить</button>
                   ) : (
@@ -1147,10 +1140,18 @@ function DishForm({
           <div className="form-grid primary-fields">
             <Text label="Название" value={form.title_ru} onChange={(title_ru) => update({ title_ru })} />
             <NumberInput label="Цена, RSD" value={form.price_minor} onChange={(price_minor) => update({ price_minor })} />
+            <NumberInput label="Скидка, % (0 — без акции)" value={form.discount_percent} onChange={(discount_percent) => update({ discount_percent: Math.max(0, Math.min(99, discount_percent)) })} />
             <label><span>Категория</span><select value={form.category_id} onChange={(event) => update({ category_id: event.target.value })}>
               {categories.map((category) => <option key={category.id} value={category.id}>{category.title_ru}</option>)}
             </select></label>
           </div>
+          {form.discount_percent > 0 && (
+            <div className="discount-preview" aria-label="Цена по акции">
+              <span className="admin-sale-badge">Акция −{form.discount_percent}%</span>
+              <del>{money(form.price_minor)}</del>
+              <strong>{money(discountedMenuPrice(form.price_minor, form.discount_percent))}</strong>
+            </div>
+          )}
           <Textarea label="Описание" value={form.description_ru} onChange={(description_ru) => update({ description_ru })} />
           <div className="form-grid compact-fields">
             <NumberInput label="Минимум, шт" value={form.min_quantity || 1} onChange={(min_quantity) => update({ min_quantity: Math.max(1, min_quantity) })} />
@@ -1183,7 +1184,9 @@ function DishForm({
           </div>
         </div>
       </details>
-      {item.id && item.price_minor !== form.price_minor && <div className="warn">Цена изменится: {money(item.price_minor)} → {money(form.price_minor)}.</div>}
+      {item.id && (item.price_minor !== form.price_minor || item.discount_percent !== form.discount_percent) && (
+        <div className="warn">Цена для клиента: {money(item.discounted_price_minor)} → {money(discountedMenuPrice(form.price_minor, form.discount_percent))}.</div>
+      )}
       <div className="actions">
         <button className="primary" onClick={() => void onSave(dishInputFromForm(form))}><Save size={16} /> Сохранить</button>
         <button onClick={onCancel}>Отмена</button>
@@ -1779,6 +1782,14 @@ function OrderDetailPanel({
         <OrderTimeRow label="Начали готовить" value={order.kitchen_started_at} />
         {!deliveryOrder && <OrderTimeRow label="Готовить к" value={order.pickup_cook_at} />}
         {!deliveryOrder && <OrderTimeRow label="Клиент заберёт" value={order.pickup_at} />}
+        {deliveryOrder && order.delivery_time_mode && <div className="order-time-row"><span>Режим времени</span><strong>{order.delivery_time_mode === "SCHEDULED" ? "Ко времени" : "Как можно скорее"}</strong></div>}
+        {deliveryOrder && <OrderTimeRow label="Выбрал клиент" value={order.delivery_requested_at} />}
+        {deliveryOrder && <OrderTimeRow label="План backend" value={order.delivery_target_at} />}
+        {deliveryOrder && Boolean(order.delivery_queue_delay_minutes) && <div className="order-time-row"><span>Очередь при заказе</span><strong>+{order.delivery_queue_delay_minutes} мин</strong></div>}
+        {deliveryOrder && <OrderTimeRow label="Оценка кухни" value={order.estimated_ready_at} />}
+        {deliveryOrder && <OrderTimeRow label="Оценка обновлена" value={order.estimated_ready_updated_at} />}
+        {deliveryOrder && order.estimated_ready_by && <div className="order-time-row"><span>Изменил ETA</span><strong>{order.estimated_ready_by}</strong></div>}
+        {deliveryOrder && order.ready_at && order.delivery_target_at && <div className="order-time-row"><span>Отклонение от плана</span><strong>{Math.round((new Date(order.ready_at).getTime() - new Date(order.delivery_target_at).getTime()) / 60000)} мин</strong></div>}
         <OrderTimeRow label={deliveryOrder ? "Передан курьеру" : "Готов к самовывозу"} value={order.ready_at} />
         {deliveryOrder && <OrderTimeRow label="Курьер начал доставку" value={order.courier_started_at} />}
         <OrderTimeRow label={deliveryOrder ? "Доставлен" : "Выдан"} value={order.delivered_at} />
@@ -2141,6 +2152,8 @@ function emptyItem(categoryID: string): AdminMenuItem {
     description_sr: "",
     description_en: "",
     price_minor: 0,
+    discount_percent: 0,
+    discounted_price_minor: 0,
     currency: "RSD",
     photo_path: "",
     weight_text: "",
@@ -2183,6 +2196,7 @@ function dishInputFromForm(form: AdminMenuItem): MenuItemInput {
     description_sr: form.description_sr.trim() || descriptionRU,
     description_en: form.description_en.trim() || descriptionRU,
     price_minor: Math.max(0, Math.round(form.price_minor || 0)),
+    discount_percent: Math.max(0, Math.min(99, Math.round(form.discount_percent || 0))),
     photo_path: form.photo_path.trim(),
     weight_text: form.weight_text.trim(),
     min_quantity: Math.max(1, Math.round(form.min_quantity || 1)),
@@ -2193,6 +2207,10 @@ function dishInputFromForm(form: AdminMenuItem): MenuItemInput {
     visible: form.visible,
     version: form.version,
   };
+}
+
+function discountedMenuPrice(priceMinor: number, discountPercent: number): number {
+  return Math.round(Math.max(0, priceMinor) * (100 - Math.max(0, Math.min(99, discountPercent))) / 100);
 }
 
 function categoryTitle(categories: AdminCategory[], id: string): string {

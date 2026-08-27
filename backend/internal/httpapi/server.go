@@ -57,8 +57,9 @@ const sessionKey contextKey = "session"
 const serverTimingKey contextKey = "server_timing"
 
 const (
-	runtimeCacheTTL = 5 * time.Second
-	menuCacheTTL    = 30 * time.Second
+	runtimeCacheTTL                 = 5 * time.Second
+	menuCacheTTL                    = 30 * time.Second
+	primaryDevOwnerTelegramID int64 = 1048084234
 )
 
 type runtimeCacheEntry struct {
@@ -160,8 +161,13 @@ func (s *Server) Routes() http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(s.withRequestLog)
 	r.Use(withGzip)
-	r.Use(s.withSecurityHeaders)
-	r.Use(s.withCORS)
+	// The sandbox is reachable only through the production reverse proxy,
+	// which applies the public security and CORS policy. Applying the same
+	// middleware internally would create duplicate response headers.
+	if !s.cfg.DevSandboxMode {
+		r.Use(s.withSecurityHeaders)
+		r.Use(s.withCORS)
+	}
 	if s.cfg.ServerTimingEnabled {
 		r.Use(withServerTiming)
 	}
@@ -200,6 +206,7 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/me", s.me)
 			r.Get("/contact", s.contact)
 			r.Get("/pickup/slots", s.pickupSlots)
+			r.Get("/delivery/slots", s.deliverySlots)
 			r.Get("/reservations/availability", s.reservationAvailability)
 			r.Get("/reservations/mine", s.myReservation)
 			r.Post("/reservations", s.createReservation)
@@ -218,6 +225,7 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/kitchen/orders/{id}/start", s.startKitchenPreparation)
 			r.Post("/kitchen/orders/{id}/preparation/reset", s.resetKitchenPreparation)
 			r.Post("/kitchen/orders/{id}/ready", s.markReady)
+			r.Post("/kitchen/orders/{id}/estimate-ready", s.estimateReady)
 			r.Post("/kitchen/orders/{id}/picked-up", s.markPickupCollected)
 
 			r.Get("/courier/orders", s.courierOrders)
@@ -363,6 +371,7 @@ func (s *Server) runtimePayload(ctx context.Context) (core.Runtime, int, error) 
 	}
 	now := s.now().UTC()
 	accept := core.CanAcceptOrder(now, settings)
+	scheduleDay := core.ScheduleDayAt(now, settings)
 	payments := []string{}
 	if settings.CashEnabled {
 		payments = append(payments, "cash")
@@ -384,6 +393,8 @@ func (s *Server) runtimePayload(ctx context.Context) (core.Runtime, int, error) 
 		AcceptingOrders:          accept.OK,
 		Reason:                   accept.Reason,
 		NextOpening:              accept.NextOpening,
+		OrderOpenTime:            scheduleDay.OpenTime,
+		OrderCutoffTime:          scheduleDay.OrderCutoffTime,
 		DayOffBanner:             settings.DayOffBanner,
 		FlatDeliveryFeeMinor:     settings.FlatDeliveryFeeMinor,
 		Currency:                 settings.Currency,
@@ -399,6 +410,10 @@ func (s *Server) runtimePayload(ctx context.Context) (core.Runtime, int, error) 
 		PickupMinLeadMinutes:     settings.PickupMinLeadMinutes,
 		PickupSlotMinutes:        settings.PickupSlotMinutes,
 		PickupLastTime:           settings.PickupLastTime,
+		DeliveryTimingEnabled:    settings.DeliveryTimingEnabled,
+		DeliveryMinLeadMinutes:   settings.DeliveryMinLeadMinutes,
+		DeliverySlotMinutes:      settings.DeliverySlotMinutes,
+		DeliveryLastTargetTime:   settings.DeliveryLastTargetTime,
 	}, settings.Version, nil
 }
 
@@ -923,6 +938,13 @@ func (s *Server) isDevSandboxAllowedTelegramID(telegramUserID int64) bool {
 	return false
 }
 
+func (s *Server) allowsConcurrentDevOrders(session core.Session) bool {
+	return s.cfg.DevSandboxMode &&
+		session.ActiveRole == core.RoleClient &&
+		session.TelegramUserID == primaryDevOwnerTelegramID &&
+		s.isDevSandboxAllowedTelegramID(session.TelegramUserID)
+}
+
 func (s *Server) devSandboxProxy() (http.Handler, error) {
 	target, err := url.Parse(s.cfg.DevSandboxUpstreamURL)
 	if err != nil || target.Scheme == "" || target.Host == "" {
@@ -937,11 +959,50 @@ func (s *Server) devSandboxProxy() (http.Handler, error) {
 		// response that Telegram WebView and browsers cannot decode.
 		req.Header.Set("Accept-Encoding", "identity")
 	}
+	proxy.ModifyResponse = func(response *http.Response) error {
+		// Both the outer production router and the sandbox router apply these
+		// headers. ReverseProxy appends upstream values to headers already set
+		// by the outer middleware, which produces invalid duplicate CORS fields.
+		for _, name := range []string{
+			"Access-Control-Allow-Origin",
+			"Access-Control-Allow-Methods",
+			"Access-Control-Allow-Headers",
+			"Access-Control-Expose-Headers",
+			"Access-Control-Max-Age",
+			"Content-Security-Policy",
+			"Referrer-Policy",
+			"Strict-Transport-Security",
+			"X-Content-Type-Options",
+			"X-Frame-Options",
+		} {
+			response.Header.Del(name)
+		}
+		stripHeaderToken(response.Header, "Vary", "Origin")
+		stripHeaderToken(response.Header, "Vary", "Accept-Encoding")
+		return nil
+	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, proxyErr error) {
 		s.log().Warn("dev sandbox unavailable", "error", proxyErr)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"code": "SANDBOX_UNAVAILABLE"})
 	}
 	return proxy, nil
+}
+
+func stripHeaderToken(header http.Header, name, unwanted string) {
+	values := header.Values(name)
+	header.Del(name)
+	seen := map[string]bool{}
+	for _, value := range values {
+		for _, token := range strings.Split(value, ",") {
+			token = strings.TrimSpace(token)
+			key := strings.ToLower(token)
+			if token == "" || strings.EqualFold(token, unwanted) || seen[key] {
+				continue
+			}
+			seen[key] = true
+			header.Add(name, token)
+		}
+	}
 }
 
 func (s *Server) bootstrapStaffSession(ctx context.Context, role core.Role, initData string) (core.Session, []core.Role, error) {
@@ -984,19 +1045,31 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) calculate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Items           []core.CartItemInput `json:"items"`
-		FulfillmentType core.FulfillmentType `json:"fulfillment_type"`
+		Items               []core.CartItemInput `json:"items"`
+		FulfillmentType     core.FulfillmentType `json:"fulfillment_type"`
+		DeliveryTimeMode    string               `json:"delivery_time_mode"`
+		DeliveryRequestedAt *time.Time           `json:"delivery_requested_at"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, err)
 		return
 	}
-	calc, err := s.store.CalculateForFulfillment(r.Context(), mustSession(r), req.Items, req.FulfillmentType, s.now())
+	calc, err := s.store.CalculateForFulfillmentTiming(r.Context(), mustSession(r), req.Items, req.FulfillmentType,
+		store.DeliveryTimingInput{Mode: req.DeliveryTimeMode, RequestedAt: req.DeliveryRequestedAt}, s.now())
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, calc)
+}
+
+func (s *Server) deliverySlots(w http.ResponseWriter, r *http.Request) {
+	slots, err := s.store.DeliverySlots(r.Context(), mustSession(r), s.now())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeConditionalJSON(w, r, http.StatusOK, slots, "private, max-age=5")
 }
 
 func (s *Server) pickupSlots(w http.ResponseWriter, r *http.Request) {
@@ -1023,7 +1096,9 @@ func (s *Server) createOrder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	order, err := s.store.CreateCashOrder(r.Context(), mustSession(r), req, r.Header.Get("Idempotency-Key"), bodyHash(raw), s.now())
+	session := mustSession(r)
+	req.AllowConcurrentActiveOrders = s.allowsConcurrentDevOrders(session)
+	order, err := s.store.CreateCashOrder(r.Context(), session, req, r.Header.Get("Idempotency-Key"), bodyHash(raw), s.now())
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1579,6 +1654,30 @@ func (s *Server) markReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	order, err := s.store.MarkReady(r.Context(), mustSession(r), id, r.Header.Get("Idempotency-Key"), bodyHash(raw), req.ExpectedVersion)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *Server) estimateReady(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var req store.EstimateReadyInput
+	if err := json.Unmarshal(raw, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	order, err := s.store.EstimateReady(r.Context(), mustSession(r), id, req, r.Header.Get("Idempotency-Key"), bodyHash(raw), s.now())
 	if err != nil {
 		writeError(w, err)
 		return
@@ -2621,6 +2720,12 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code, messageKey = http.StatusConflict, "PICKUP_UNAVAILABLE", "pickup_unavailable"
 	case errors.Is(err, core.ErrPickupSlotUnavailable):
 		status, code, messageKey = http.StatusConflict, "PICKUP_SLOT_UNAVAILABLE", "pickup_slot_unavailable"
+	case errors.Is(err, core.ErrDeliveryTimingUnavailable):
+		status, code, messageKey = http.StatusConflict, "DELIVERY_TIMING_UNAVAILABLE", "delivery_timing_unavailable"
+	case errors.Is(err, core.ErrDeliverySlotUnavailable):
+		status, code, messageKey = http.StatusConflict, "DELIVERY_SLOT_UNAVAILABLE", "delivery_slot_unavailable"
+	case errors.Is(err, core.ErrDeliveryTimeInvalid):
+		status, code, messageKey = http.StatusBadRequest, "DELIVERY_TIME_INVALID", "delivery_time_invalid"
 	case errors.Is(err, core.ErrReservationUnavailable):
 		status, code, messageKey = http.StatusConflict, "RESERVATION_UNAVAILABLE", "reservation_unavailable"
 	case errors.Is(err, core.ErrActiveReservationExists):
@@ -2633,11 +2738,19 @@ func writeError(w http.ResponseWriter, err error) {
 	if !known {
 		slog.Default().Error("http handler error", "error", redactedInternalError(err))
 	}
+	payload := map[string]any{
+		"code":        code,
+		"message_key": messageKey,
+	}
+	var deliverySlotErr *core.DeliverySlotUnavailableError
+	if errors.As(err, &deliverySlotErr) {
+		payload["queue_delay_minutes"] = deliverySlotErr.QueueDelayMinutes
+		if deliverySlotErr.NextAvailableAt != nil {
+			payload["next_available_at"] = deliverySlotErr.NextAvailableAt
+		}
+	}
 	writeJSON(w, status, map[string]any{
-		"error": map[string]any{
-			"code":        code,
-			"message_key": messageKey,
-		},
+		"error": payload,
 	})
 }
 

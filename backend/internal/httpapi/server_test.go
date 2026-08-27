@@ -890,6 +890,44 @@ func TestDevSandboxAllowlistAndMiniAppURL(t *testing.T) {
 	}
 }
 
+func TestConcurrentDevOrdersAreRestrictedToPrimarySandboxOwner(t *testing.T) {
+	ownerSession := core.Session{TelegramUserID: 1048084234, ActiveRole: core.RoleClient}
+	otherSession := core.Session{TelegramUserID: 8241921060, ActiveRole: core.RoleClient}
+
+	sandbox := New(config.Config{DevSandboxMode: true, DevSandboxAllowedIDs: []int64{1048084234}}, nil, slog.Default())
+	if !sandbox.allowsConcurrentDevOrders(ownerSession) {
+		t.Fatal("primary DEV owner must be allowed to create concurrent test orders")
+	}
+	if sandbox.allowsConcurrentDevOrders(otherSession) {
+		t.Fatal("other Telegram users must keep the active-order restriction")
+	}
+
+	production := New(config.Config{Env: "production", DevSandboxAllowedIDs: []int64{1048084234}}, nil, slog.Default())
+	if production.allowsConcurrentDevOrders(ownerSession) {
+		t.Fatal("production must always keep the active-order restriction")
+	}
+}
+
+func TestDevSandboxInternalRouterDefersPublicHeadersToOuterProxy(t *testing.T) {
+	server := New(config.Config{
+		BuildSHA:       "dev-release",
+		DevSandboxMode: true,
+		AllowedOrigins: []string{"https://takolako.site"},
+	}, nil, slog.Default())
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	req.Header.Set("Origin", "https://takolako.site")
+	recorder := httptest.NewRecorder()
+	server.Routes().ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("sandbox version status = %d", recorder.Code)
+	}
+	for _, name := range []string{"Access-Control-Allow-Origin", "Content-Security-Policy", "X-Frame-Options"} {
+		if values := recorder.Header().Values(name); len(values) != 0 {
+			t.Fatalf("internal sandbox must defer %s to outer proxy, got %q", name, values)
+		}
+	}
+}
+
 func TestDevSandboxProxyUsesConfiguredUpstream(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/version" {
@@ -898,17 +936,38 @@ func TestDevSandboxProxyUsesConfiguredUpstream(t *testing.T) {
 		if got := r.Header.Get("Accept-Encoding"); got != "identity" {
 			t.Fatalf("upstream Accept-Encoding = %q, want identity", got)
 		}
+		w.Header().Set("Access-Control-Allow-Origin", "https://takolako.site")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'")
+		w.Header().Add("Vary", "Origin")
+		w.Header().Add("Vary", "Accept-Encoding")
 		writeJSON(w, http.StatusOK, map[string]any{"environment": "dev"})
 	}))
 	defer upstream.Close()
 
-	server := New(config.Config{Env: "production", DevSandboxUpstreamURL: upstream.URL}, nil, slog.Default())
+	server := New(config.Config{
+		Env:                   "production",
+		DevSandboxUpstreamURL: upstream.URL,
+		AllowedOrigins:        []string{"https://takolako.site"},
+	}, nil, slog.Default())
 	req := httptest.NewRequest(http.MethodGet, "/testbranch-api/api/v1/version", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
+	req.Header.Set("Origin", "https://takolako.site")
 	recorder := httptest.NewRecorder()
 	server.Routes().ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusOK || recorder.Header().Get("Content-Encoding") != "gzip" {
 		t.Fatalf("proxy response = %d encoding=%q", recorder.Code, recorder.Header().Get("Content-Encoding"))
+	}
+	if values := recorder.Header().Values("Access-Control-Allow-Origin"); len(values) != 1 {
+		t.Fatalf("proxy CORS header values = %q, want exactly one", values)
+	}
+	if values := recorder.Header().Values("Content-Security-Policy"); len(values) != 1 {
+		t.Fatalf("proxy security header values = %q, want exactly one", values)
+	}
+	if got := countHeaderToken(recorder.Header().Values("Vary"), "Origin"); got != 1 {
+		t.Fatalf("proxy Vary Origin count = %d, want 1; values=%q", got, recorder.Header().Values("Vary"))
+	}
+	if got := countHeaderToken(recorder.Header().Values("Vary"), "Accept-Encoding"); got != 1 {
+		t.Fatalf("proxy Vary Accept-Encoding count = %d, want 1; values=%q", got, recorder.Header().Values("Vary"))
 	}
 	reader, err := gzip.NewReader(bytes.NewReader(recorder.Body.Bytes()))
 	if err != nil {
@@ -924,6 +983,18 @@ func TestDevSandboxProxyUsesConfiguredUpstream(t *testing.T) {
 	if !strings.Contains(string(body), `"environment":"dev"`) {
 		t.Fatalf("proxy response body = %s", body)
 	}
+}
+
+func countHeaderToken(values []string, want string) int {
+	count := 0
+	for _, value := range values {
+		for _, token := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(token), want) {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

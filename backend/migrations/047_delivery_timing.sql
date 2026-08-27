@@ -1,7 +1,3 @@
--- Compatibility-only migration. Production may already have this additive
--- schema from the former preview. The delivery timing feature is not exposed
--- by production code; the columns remain so rollback and migration history are
--- safe while the feature continues exclusively in the DEV sandbox.
 ALTER TABLE app_settings
   ADD COLUMN IF NOT EXISTS delivery_timing_enabled boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS delivery_min_lead_minutes integer NOT NULL DEFAULT 40,

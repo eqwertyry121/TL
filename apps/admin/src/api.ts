@@ -97,6 +97,7 @@ export interface MenuItemInput {
   description_sr: string;
   description_en: string;
   price_minor: number;
+  discount_percent: number;
   photo_path: string;
   weight_text: string;
   min_quantity: number;
@@ -134,6 +135,11 @@ export interface SettingsInput {
   pickup_slot_minutes: number;
   pickup_max_orders_per_slot: number;
   pickup_last_time: string;
+  delivery_timing_enabled: boolean;
+  delivery_min_lead_minutes: number;
+  delivery_slot_minutes: number;
+  delivery_max_orders_per_slot: number;
+  delivery_last_target_time: string;
   version: number;
 }
 
@@ -1262,6 +1268,8 @@ function itemSeed(
     description_sr: descriptionSr,
     description_en: descriptionEn,
     price_minor: Number(price),
+    discount_percent: 0,
+    discounted_price_minor: Number(price),
     currency: "RSD",
     photo_path: photoPath,
     weight_text: weight,
@@ -1310,6 +1318,11 @@ function seedSettings(): Settings {
     pickup_slot_minutes: 15,
     pickup_max_orders_per_slot: 3,
     pickup_last_time: "22:00",
+    delivery_timing_enabled: false,
+    delivery_min_lead_minutes: 30,
+    delivery_slot_minutes: 30,
+    delivery_max_orders_per_slot: 1,
+    delivery_last_target_time: "21:00",
     version: 1,
     schedule: defaultSchedule(),
   };
@@ -1337,12 +1350,15 @@ function seedStaff(): StaffMember[] {
 
 function runtimeFromSettings(settings: Settings) {
   const accepting = demoAcceptingState(settings);
+  const today = settings.schedule?.find((day) => day.day_of_week === new Date().getDay());
   return {
     server_time: nowISO(),
     timezone: settings.timezone,
     accepting_orders: accepting.ok,
     reason: accepting.reason,
     next_opening: accepting.nextOpening,
+    order_open_time: today?.open_time ?? "",
+    order_cutoff_time: today?.order_cutoff_time ?? "",
     day_off_banner: settings.day_off_banner,
     flat_delivery_fee_minor: 0,
     currency: settings.currency,
@@ -1361,6 +1377,10 @@ function runtimeFromSettings(settings: Settings) {
     pickup_min_lead_minutes: settings.pickup_min_lead_minutes,
     pickup_slot_minutes: settings.pickup_slot_minutes,
     pickup_last_time: settings.pickup_last_time,
+    delivery_timing_enabled: settings.delivery_timing_enabled,
+    delivery_min_lead_minutes: settings.delivery_min_lead_minutes,
+    delivery_slot_minutes: settings.delivery_slot_minutes,
+    delivery_last_target_time: settings.delivery_last_target_time,
   };
 }
 
@@ -1432,12 +1452,19 @@ function calculateAnalytics(range: AnalyticsRange): AdminAnalytics {
       cancelled_orders: orders.filter((order) => order.fulfillment_status === "CANCELLED").length,
       revenue_minor: revenue,
       average_check_minor: delivered.length ? Math.floor(revenue / delivered.length) : 0,
+      delivery_slot_fill_percent: 0,
+      average_delivery_queue_delay_minutes: average(orders.filter((order) => order.fulfillment_type === "delivery").map((order) => order.delivery_queue_delay_minutes || 0)),
+      average_ready_plan_deviation_minutes: average(orders.filter((order) => order.fulfillment_type === "delivery" && order.ready_at && order.delivery_target_at).map((order) => Math.round((new Date(order.ready_at!).getTime() - new Date(order.delivery_target_at!).getTime()) / 60000))),
     },
     statuses,
     payments,
     top_dishes: [...top.entries()].map(([title, value]) => ({ title, quantity: value.quantity, revenue_minor: value.revenue_minor })).sort((a, b) => b.quantity - a.quantity).slice(0, 10),
     daily_rows: daily,
   };
+}
+
+function average(values: number[]): number {
+  return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
 }
 
 function groupOrders(orders: Order[], pick: (order: Order) => string) {
@@ -1509,8 +1536,11 @@ function categoryFromInput(input: CategoryInput, id: string): AdminCategory {
 }
 
 function itemFromInput(input: MenuItemInput, id: string): AdminMenuItem {
+  const discountPercent = Math.max(0, Math.min(99, Math.round(input.discount_percent || 0)));
   return {
     ...input,
+    discount_percent: discountPercent,
+    discounted_price_minor: discountedPrice(input.price_minor, discountPercent),
     min_quantity: Math.max(1, input.min_quantity || 1),
     id,
     currency: "RSD",
@@ -1554,9 +1584,21 @@ function normalizeDemoMenu(menu: AdminMenuResponse): AdminMenuResponse {
     ...menu,
     categories: [...menu.categories].sort((a, b) => a.sort_order - b.sort_order || a.title_ru.localeCompare(b.title_ru, "ru")),
     items: menu.items
-      .map((item) => ({ ...item, min_quantity: Math.max(1, item.min_quantity || 1) }))
+      .map((item) => {
+        const discountPercent = Math.max(0, Math.min(99, Math.round(item.discount_percent || 0)));
+        return {
+          ...item,
+          discount_percent: discountPercent,
+          discounted_price_minor: discountedPrice(item.price_minor, discountPercent),
+          min_quantity: Math.max(1, item.min_quantity || 1),
+        };
+      })
       .sort((a, b) => Number(a.archived) - Number(b.archived) || a.sort_order - b.sort_order || a.title_ru.localeCompare(b.title_ru, "ru")),
   };
+}
+
+function discountedPrice(priceMinor: number, discountPercent: number): number {
+  return Math.round(priceMinor * (100 - discountPercent) / 100);
 }
 
 function loadSettings(): Settings {
@@ -1584,6 +1626,11 @@ function loadSettings(): Settings {
     pickup_slot_minutes: settings.pickup_slot_minutes || 15,
     pickup_max_orders_per_slot: settings.pickup_max_orders_per_slot || 3,
     pickup_last_time: settings.pickup_last_time || "22:00",
+    delivery_timing_enabled: settings.delivery_timing_enabled ?? false,
+    delivery_min_lead_minutes: settings.delivery_min_lead_minutes || 30,
+    delivery_slot_minutes: settings.delivery_slot_minutes || 30,
+    delivery_max_orders_per_slot: settings.delivery_max_orders_per_slot || 1,
+    delivery_last_target_time: settings.delivery_last_target_time || "21:00",
   };
   if (
     normalized.flat_delivery_fee_minor !== settings.flat_delivery_fee_minor ||

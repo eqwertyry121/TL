@@ -45,6 +45,15 @@ test("critical app CSS does not import blocking external font stylesheets", () =
   }
 });
 
+test("kitchen fulfillment tabs stay in normal document flow", () => {
+  const css = readSource("apps/kitchen/src/styles.css");
+  const tabsRule = sliceBetween(css, ".kitchen-window-tabs {", "}");
+
+  assertIncludes(tabsRule, "position: static;");
+  assertNotIncludes(tabsRule, "position: sticky;");
+  assertNotIncludes(tabsRule, "top:");
+});
+
 test("client root fallback with Telegram initData does not trigger a second document load", () => {
   const source = readSource("apps/client/src/App.tsx");
   const appBody = sliceBetween(source, "export function App()", "function ClientMiniApp()");
@@ -95,8 +104,17 @@ test("client shows combos inline without a separate transition control", () => {
   assertIncludes(styles, ".combo-strip .dish-card");
   assertNotIncludes(sliceBetween(styles, ".combo-strip .dish-body", ".combo-strip .link-title"), "height: 100%");
   assertIncludes(menuBody, "showBadge={!combo}");
-  assertIncludes(menuBody, "{!combo && <span>{item.weight_text}</span>}");
+  assertIncludes(menuBody, 'className="combo-savings-inline"');
   assertIncludes(styles, ".combo-strip .link-title");
+  assertIncludes(menuBody, "combo-card");
+  assertIncludes(source, 'item.category_id === comboCategoryID');
+  assertNotIncludes(source, 'className="combo-savings-badge"');
+  assertIncludes(source, 'className="combo-savings-inline"');
+  assertIncludes(source, '"Выгода до 10%"');
+  assertIncludes(source, '"Ušteda do 10%"');
+  assertIncludes(source, '"Save up to 10%"');
+  assertIncludes(styles, ".combo-savings-inline");
+  assertIncludes(sliceBetween(styles, ".combo-savings-inline", ".menu-grid"), "background: transparent");
 
   const fixtures = readSource("apps/client/src/fixtures.ts");
   assertIncludes(fixtures, 'title: "Комбо"');
