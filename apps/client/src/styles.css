@@ -1055,6 +1055,29 @@ body.has-day-off-overlay {
   font-weight: 900;
 }
 
+.combo-savings-badge {
+  position: absolute;
+  top: clamp(0.55rem, 1.7vw, 0.8rem);
+  left: clamp(0.55rem, 1.7vw, 0.8rem);
+  z-index: 2;
+  max-width: calc(100% - 1.1rem);
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  border-radius: 999px;
+  padding: 0.36rem 0.62rem;
+  background: rgba(107, 31, 42, 0.92);
+  color: #fffdf8;
+  box-shadow: 0 0.35rem 0.8rem rgba(67, 20, 27, 0.24);
+  font-size: clamp(0.68rem, 1.8vw, 0.8rem);
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.hero-art .combo-savings-badge {
+  padding: 0.44rem 0.78rem;
+  font-size: clamp(0.78rem, 2vw, 0.92rem);
+}
+
 .menu-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3034,6 +3057,7 @@ textarea {
   .app-header,
   .dish-card,
   .dish-badge,
+  .combo-savings-badge,
   .recommendation-badge,
   .cart-float,
   .bottom-action,
@@ -3337,6 +3361,7 @@ body {
 }
 
 .dish-badge,
+.combo-savings-badge,
 .recommendation-badge,
 .cart-float,
 .bottom-action {

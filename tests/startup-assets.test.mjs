@@ -106,6 +106,13 @@ test("client shows combos inline without a separate transition control", () => {
   assertIncludes(menuBody, "showBadge={!combo}");
   assertIncludes(menuBody, "{!combo && <span>{item.weight_text}</span>}");
   assertIncludes(styles, ".combo-strip .link-title");
+  assertIncludes(menuBody, "combo-card");
+  assertIncludes(source, 'item.category_id === comboCategoryID');
+  assertIncludes(source, 'className="combo-savings-badge"');
+  assertIncludes(source, '"Выгода до 10%"');
+  assertIncludes(source, '"Ušteda do 10%"');
+  assertIncludes(source, '"Save up to 10%"');
+  assertIncludes(styles, ".combo-savings-badge");
 
   const fixtures = readSource("apps/client/src/fixtures.ts");
   assertIncludes(fixtures, 'title: "Комбо"');

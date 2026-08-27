@@ -1453,9 +1453,13 @@ function DishVisual({
   const dimensions = menuPhotoDimensions(item, hero);
   const embeddedBadge = splitRecommendationDescription(item.description).recommendationBadge;
   const recommendationBadge = embeddedBadge || recommendationBadgeForItem(item, locale);
+  const comboSavingsBadge = item.category_id === comboCategoryID
+    ? locale === "sr" ? "Ušteda do 10%" : locale === "en" ? "Save up to 10%" : "Выгода до 10%"
+    : "";
   const className = `${hero ? "hero-art" : "dish-art"} art-${visualIndex % 6}${src ? " has-photo" : ""}`;
   const content = (
     <>
+      {comboSavingsBadge && <span className="combo-savings-badge">{comboSavingsBadge}</span>}
       {recommendationBadge && <span className="recommendation-badge">{recommendationBadge}</span>}
       {src && (
         <img
