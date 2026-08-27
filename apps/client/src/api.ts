@@ -736,13 +736,15 @@ function loadDemoCategories(): Category[] {
       sort_order: category.sort_order,
       items: items
         .filter((item) => item.category_id === category.id && item.visible && !item.archived)
-        .sort((a, b) => a.sort_order - b.sort_order)
+        .sort((a, b) => Number(b.discount_percent > 0) - Number(a.discount_percent > 0) || a.sort_order - b.sort_order)
         .map((item) => ({
           id: item.id,
           category_id: item.category_id,
           title: item.title_ru,
           description: item.description_ru,
-          price_minor: item.price_minor,
+          price_minor: item.discounted_price_minor,
+          original_price_minor: item.price_minor,
+          discount_percent: item.discount_percent,
           currency: item.currency,
           photo_path: item.photo_path,
           weight_text: item.weight_text,
@@ -755,7 +757,13 @@ function loadDemoCategories(): Category[] {
 }
 
 function normalizeDemoMenuItem(item: AdminMenuItem): AdminMenuItem {
-  return { ...item, min_quantity: Math.max(1, item.min_quantity || 1) };
+  const discountPercent = Math.max(0, Math.min(99, Math.round(item.discount_percent || 0)));
+  return {
+    ...item,
+    discount_percent: discountPercent,
+    discounted_price_minor: Math.round(item.price_minor * (100 - discountPercent) / 100),
+    min_quantity: Math.max(1, item.min_quantity || 1),
+  };
 }
 
 function loadJSON<T>(key: string, fallback: T): T {

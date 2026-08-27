@@ -48,6 +48,8 @@ function item(
     title,
     description,
     price_minor: priceMinor,
+    original_price_minor: priceMinor,
+    discount_percent: 0,
     currency: "RSD",
     photo_path: photoPath,
     weight_text: weightText,

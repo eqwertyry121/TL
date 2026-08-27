@@ -97,6 +97,7 @@ export interface MenuItemInput {
   description_sr: string;
   description_en: string;
   price_minor: number;
+  discount_percent: number;
   photo_path: string;
   weight_text: string;
   min_quantity: number;
@@ -1267,6 +1268,8 @@ function itemSeed(
     description_sr: descriptionSr,
     description_en: descriptionEn,
     price_minor: Number(price),
+    discount_percent: 0,
+    discounted_price_minor: Number(price),
     currency: "RSD",
     photo_path: photoPath,
     weight_text: weight,
@@ -1533,8 +1536,11 @@ function categoryFromInput(input: CategoryInput, id: string): AdminCategory {
 }
 
 function itemFromInput(input: MenuItemInput, id: string): AdminMenuItem {
+  const discountPercent = Math.max(0, Math.min(99, Math.round(input.discount_percent || 0)));
   return {
     ...input,
+    discount_percent: discountPercent,
+    discounted_price_minor: discountedPrice(input.price_minor, discountPercent),
     min_quantity: Math.max(1, input.min_quantity || 1),
     id,
     currency: "RSD",
@@ -1578,9 +1584,21 @@ function normalizeDemoMenu(menu: AdminMenuResponse): AdminMenuResponse {
     ...menu,
     categories: [...menu.categories].sort((a, b) => a.sort_order - b.sort_order || a.title_ru.localeCompare(b.title_ru, "ru")),
     items: menu.items
-      .map((item) => ({ ...item, min_quantity: Math.max(1, item.min_quantity || 1) }))
+      .map((item) => {
+        const discountPercent = Math.max(0, Math.min(99, Math.round(item.discount_percent || 0)));
+        return {
+          ...item,
+          discount_percent: discountPercent,
+          discounted_price_minor: discountedPrice(item.price_minor, discountPercent),
+          min_quantity: Math.max(1, item.min_quantity || 1),
+        };
+      })
       .sort((a, b) => Number(a.archived) - Number(b.archived) || a.sort_order - b.sort_order || a.title_ru.localeCompare(b.title_ru, "ru")),
   };
+}
+
+function discountedPrice(priceMinor: number, discountPercent: number): number {
+  return Math.round(priceMinor * (100 - discountPercent) / 100);
 }
 
 function loadSettings(): Settings {

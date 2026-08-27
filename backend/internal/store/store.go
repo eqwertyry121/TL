@@ -103,23 +103,24 @@ type UpsertCategoryInput struct {
 }
 
 type UpsertMenuItemInput struct {
-	CategoryID     uuid.UUID `json:"category_id"`
-	TitleRU        string    `json:"title_ru"`
-	TitleSR        string    `json:"title_sr"`
-	TitleEN        string    `json:"title_en"`
-	DescriptionRU  string    `json:"description_ru"`
-	DescriptionSR  string    `json:"description_sr"`
-	DescriptionEN  string    `json:"description_en"`
-	PriceMinor     int       `json:"price_minor"`
-	PhotoPath      string    `json:"photo_path"`
-	WeightText     string    `json:"weight_text"`
-	MinQuantity    int       `json:"min_quantity"`
-	AllergenTextRU string    `json:"allergen_text_ru"`
-	AllergenTextSR string    `json:"allergen_text_sr"`
-	AllergenTextEN string    `json:"allergen_text_en"`
-	SortOrder      int       `json:"sort_order"`
-	Visible        bool      `json:"visible"`
-	Version        int       `json:"version"`
+	CategoryID      uuid.UUID `json:"category_id"`
+	TitleRU         string    `json:"title_ru"`
+	TitleSR         string    `json:"title_sr"`
+	TitleEN         string    `json:"title_en"`
+	DescriptionRU   string    `json:"description_ru"`
+	DescriptionSR   string    `json:"description_sr"`
+	DescriptionEN   string    `json:"description_en"`
+	PriceMinor      int       `json:"price_minor"`
+	DiscountPercent int       `json:"discount_percent"`
+	PhotoPath       string    `json:"photo_path"`
+	WeightText      string    `json:"weight_text"`
+	MinQuantity     int       `json:"min_quantity"`
+	AllergenTextRU  string    `json:"allergen_text_ru"`
+	AllergenTextSR  string    `json:"allergen_text_sr"`
+	AllergenTextEN  string    `json:"allergen_text_en"`
+	SortOrder       int       `json:"sort_order"`
+	Visible         bool      `json:"visible"`
+	Version         int       `json:"version"`
 }
 
 type UpdateSettingsInput struct {
@@ -1076,14 +1077,14 @@ func (s *Store) MenuWithRevision(ctx context.Context, locale string) (int64, []c
 
 	itemRows, err := s.pool.Query(ctx, `
 		SELECT id, category_id, title_ru, title_sr, title_en, description_ru, description_sr, description_en,
-			price_minor, currency, photo_path, weight_text, min_quantity, allergen_text_ru, allergen_text_sr, allergen_text_en,
+			discounted_price_minor, price_minor, discount_percent, currency, photo_path, weight_text, min_quantity, allergen_text_ru, allergen_text_sr, allergen_text_en,
 			sort_order, version,
 			COALESCE(mm.thumbnail_path, ''), COALESCE(mm.thumbnail_width, 0), COALESCE(mm.thumbnail_height, 0),
 			COALESCE(mm.display_width, 0), COALESCE(mm.display_height, 0)
 		FROM menu_items mi
 		LEFT JOIN menu_media mm ON mm.display_path=mi.photo_path
 		WHERE mi.visible=true AND mi.archived=false
-		ORDER BY mi.sort_order, mi.title_ru
+		ORDER BY CASE WHEN mi.discount_percent > 0 THEN 0 ELSE 1 END, mi.sort_order, mi.title_ru
 	`)
 	if err != nil {
 		return 0, nil, err
@@ -1096,7 +1097,7 @@ func (s *Store) MenuWithRevision(ctx context.Context, locale string) (int64, []c
 		var thumbnailWidth, thumbnailHeight, displayWidth, displayHeight int
 		if err := itemRows.Scan(
 			&item.ID, &item.CategoryID, &titleRU, &titleSR, &titleEN, &descRU, &descSR, &descEN,
-			&item.PriceMinor, &item.Currency, &item.PhotoPath, &item.WeightText, &item.MinQuantity, &allergenRU, &allergenSR, &allergenEN,
+			&item.PriceMinor, &item.OriginalPriceMinor, &item.DiscountPercent, &item.Currency, &item.PhotoPath, &item.WeightText, &item.MinQuantity, &allergenRU, &allergenSR, &allergenEN,
 			&item.SortOrder, &item.Version, &thumbnailPath, &thumbnailWidth, &thumbnailHeight, &displayWidth, &displayHeight,
 		); err != nil {
 			return 0, nil, err
@@ -1157,7 +1158,7 @@ func (s *Store) AdminMenuItems(ctx context.Context, sess core.Session) ([]core.A
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT mi.id, mi.category_id, mi.title_ru, mi.title_sr, mi.title_en, mi.description_ru, mi.description_sr,
-			mi.description_en, mi.price_minor, mi.currency, mi.photo_path, mi.weight_text, mi.min_quantity,
+			mi.description_en, mi.price_minor, mi.discount_percent, mi.discounted_price_minor, mi.currency, mi.photo_path, mi.weight_text, mi.min_quantity,
 			mi.allergen_text_ru, mi.allergen_text_sr, mi.allergen_text_en, mi.sort_order, mi.visible, mi.archived,
 			EXISTS (SELECT 1 FROM order_items oi WHERE oi.menu_item_id=mi.id) AS used_in_orders,
 			mi.version, mi.created_at, mi.updated_at,
@@ -1178,7 +1179,7 @@ func (s *Store) AdminMenuItems(ctx context.Context, sess core.Session) ([]core.A
 		var thumbnailWidth, thumbnailHeight, displayWidth, displayHeight int
 		if err := rows.Scan(
 			&item.ID, &item.CategoryID, &item.TitleRU, &item.TitleSR, &item.TitleEN, &item.DescriptionRU, &item.DescriptionSR,
-			&item.DescriptionEN, &item.PriceMinor, &item.Currency, &item.PhotoPath, &item.WeightText, &item.MinQuantity,
+			&item.DescriptionEN, &item.PriceMinor, &item.DiscountPercent, &item.DiscountedPriceMinor, &item.Currency, &item.PhotoPath, &item.WeightText, &item.MinQuantity,
 			&item.AllergenTextRU, &item.AllergenTextSR, &item.AllergenTextEN, &item.SortOrder, &item.Visible, &item.Archived, &item.UsedInOrders,
 			&item.Version, &item.CreatedAt, &item.UpdatedAt, &thumbnailPath, &thumbnailWidth, &thumbnailHeight, &displayWidth, &displayHeight,
 		); err != nil {
@@ -1450,13 +1451,13 @@ func (s *Store) CreateMenuItem(ctx context.Context, sess core.Session, input Ups
 	err = tx.QueryRow(ctx, `
 		INSERT INTO menu_items (
 			category_id, title_ru, title_sr, title_en, description_ru, description_sr, description_en,
-			price_minor, photo_path, weight_text, min_quantity, allergen_text_ru, allergen_text_sr, allergen_text_en,
+			price_minor, discount_percent, photo_path, weight_text, min_quantity, allergen_text_ru, allergen_text_sr, allergen_text_en,
 			sort_order, visible
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		RETURNING id
 	`, input.CategoryID, safe(input.TitleRU), safe(input.TitleSR), safe(input.TitleEN), safe(input.DescriptionRU), safe(input.DescriptionSR),
-		safe(input.DescriptionEN), input.PriceMinor, safe(input.PhotoPath), safe(input.WeightText), input.MinQuantity,
+		safe(input.DescriptionEN), input.PriceMinor, input.DiscountPercent, safe(input.PhotoPath), safe(input.WeightText), input.MinQuantity,
 		safe(input.AllergenTextRU), safe(input.AllergenTextSR), safe(input.AllergenTextEN), input.SortOrder, input.Visible).Scan(&id)
 	if err != nil {
 		return core.AdminMenuItem{}, err
@@ -1464,7 +1465,7 @@ func (s *Store) CreateMenuItem(ctx context.Context, sess core.Session, input Ups
 	if err := bumpMenuRevisionTx(ctx, tx); err != nil {
 		return core.AdminMenuItem{}, err
 	}
-	if err := s.insertAuditTx(ctx, tx, sess, "menu_item.create", "menu_item", &id, "", nil, map[string]any{"title_ru": safe(input.TitleRU), "price_minor": input.PriceMinor}); err != nil {
+	if err := s.insertAuditTx(ctx, tx, sess, "menu_item.create", "menu_item", &id, "", nil, map[string]any{"title_ru": safe(input.TitleRU), "price_minor": input.PriceMinor, "discount_percent": input.DiscountPercent}); err != nil {
 		return core.AdminMenuItem{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1492,12 +1493,12 @@ func (s *Store) UpdateMenuItem(ctx context.Context, sess core.Session, id uuid.U
 	result, err := tx.Exec(ctx, `
 		UPDATE menu_items
 		SET category_id=$1, title_ru=$2, title_sr=$3, title_en=$4, description_ru=$5, description_sr=$6,
-			description_en=$7, price_minor=$8, photo_path=$9, weight_text=$10, min_quantity=$11,
-			allergen_text_ru=$12, allergen_text_sr=$13, allergen_text_en=$14, sort_order=$15, visible=$16,
+			description_en=$7, price_minor=$8, discount_percent=$9, photo_path=$10, weight_text=$11, min_quantity=$12,
+			allergen_text_ru=$13, allergen_text_sr=$14, allergen_text_en=$15, sort_order=$16, visible=$17,
 			version=version+1, updated_at=now()
-		WHERE id=$17 AND version=$18 AND archived=false
+		WHERE id=$18 AND version=$19 AND archived=false
 	`, input.CategoryID, safe(input.TitleRU), safe(input.TitleSR), safe(input.TitleEN), safe(input.DescriptionRU), safe(input.DescriptionSR),
-		safe(input.DescriptionEN), input.PriceMinor, safe(input.PhotoPath), safe(input.WeightText), input.MinQuantity,
+		safe(input.DescriptionEN), input.PriceMinor, input.DiscountPercent, safe(input.PhotoPath), safe(input.WeightText), input.MinQuantity,
 		safe(input.AllergenTextRU), safe(input.AllergenTextSR), safe(input.AllergenTextEN), input.SortOrder, input.Visible, id, input.Version)
 	if err != nil {
 		return core.AdminMenuItem{}, err
@@ -1517,6 +1518,8 @@ func (s *Store) UpdateMenuItem(ctx context.Context, sess core.Session, id uuid.U
 	afterAudit.DescriptionSR = safe(input.DescriptionSR)
 	afterAudit.DescriptionEN = safe(input.DescriptionEN)
 	afterAudit.PriceMinor = input.PriceMinor
+	afterAudit.DiscountPercent = input.DiscountPercent
+	afterAudit.DiscountedPriceMinor = discountedPrice(input.PriceMinor, input.DiscountPercent)
 	afterAudit.PhotoPath = safe(input.PhotoPath)
 	afterAudit.WeightText = safe(input.WeightText)
 	afterAudit.MinQuantity = input.MinQuantity
@@ -1528,9 +1531,9 @@ func (s *Store) UpdateMenuItem(ctx context.Context, sess core.Session, id uuid.U
 	afterAudit.Version = before.Version + 1
 	action := "menu_item.update"
 	reason := ""
-	if before.PriceMinor != afterAudit.PriceMinor {
+	if before.PriceMinor != afterAudit.PriceMinor || before.DiscountPercent != afterAudit.DiscountPercent {
 		action = "menu_item.price_change"
-		reason = fmt.Sprintf("%d -> %d", before.PriceMinor, afterAudit.PriceMinor)
+		reason = fmt.Sprintf("%d/%d%% -> %d/%d%%", before.PriceMinor, before.DiscountPercent, afterAudit.PriceMinor, afterAudit.DiscountPercent)
 	}
 	if err := s.insertAuditTx(ctx, tx, sess, action, "menu_item", &id, reason, menuItemAudit(before), menuItemAudit(afterAudit)); err != nil {
 		return core.AdminMenuItem{}, err
@@ -1722,7 +1725,7 @@ func (s *Store) CalculateForFulfillmentTiming(ctx context.Context, sess core.Ses
 		return core.Calculation{}, core.ErrDeliveryTimingUnavailable
 	}
 	rows, err := s.pool.Query(ctx, `
-			SELECT mi.id, mi.title_ru, mi.price_minor, mi.version, mi.min_quantity
+			SELECT mi.id, mi.title_ru, mi.discounted_price_minor, mi.version, mi.min_quantity
 			FROM menu_items mi
 			JOIN categories c ON c.id=mi.category_id
 			WHERE mi.id=ANY($1) AND mi.visible=true AND mi.archived=false AND c.visible=true AND c.archived=false
@@ -1885,7 +1888,7 @@ func (s *Store) calculateItems(ctx context.Context, userID uuid.UUID, input []co
 		ExpiresAt:        now.UTC().Add(10 * time.Minute),
 	}
 	rows, err := s.pool.Query(ctx, `
-			SELECT mi.id, mi.title_ru, mi.price_minor, mi.version, mi.min_quantity
+			SELECT mi.id, mi.title_ru, mi.discounted_price_minor, mi.version, mi.min_quantity
 			FROM menu_items mi
 			JOIN categories c ON c.id=mi.category_id
 			WHERE mi.id=ANY($1) AND mi.visible=true AND mi.archived=false AND c.visible=true AND c.archived=false
@@ -1990,7 +1993,7 @@ func (s *Store) revalidateCalculationTx(ctx context.Context, tx pgx.Tx, items []
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT mi.id, mi.title_ru, mi.price_minor, mi.version, mi.min_quantity
+		SELECT mi.id, mi.title_ru, mi.discounted_price_minor, mi.version, mi.min_quantity
 		FROM menu_items mi
 		JOIN categories c ON c.id=mi.category_id
 		WHERE mi.id=ANY($1)
@@ -2111,7 +2114,7 @@ func (s *Store) revalidateAdditionCalculationTx(ctx context.Context, tx pgx.Tx, 
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT mi.id, mi.title_ru, mi.price_minor, mi.version, mi.min_quantity
+		SELECT mi.id, mi.title_ru, mi.discounted_price_minor, mi.version, mi.min_quantity
 		FROM menu_items mi
 		JOIN categories c ON c.id=mi.category_id
 		WHERE mi.id=ANY($1)
@@ -5297,7 +5300,7 @@ func (s *Store) adminMenuItemByID(ctx context.Context, id uuid.UUID) (core.Admin
 	var thumbnailWidth, thumbnailHeight, displayWidth, displayHeight int
 	err := s.pool.QueryRow(ctx, `
 		SELECT mi.id, mi.category_id, mi.title_ru, mi.title_sr, mi.title_en, mi.description_ru, mi.description_sr,
-			mi.description_en, mi.price_minor, mi.currency, mi.photo_path, mi.weight_text, mi.min_quantity,
+			mi.description_en, mi.price_minor, mi.discount_percent, mi.discounted_price_minor, mi.currency, mi.photo_path, mi.weight_text, mi.min_quantity,
 			mi.allergen_text_ru, mi.allergen_text_sr, mi.allergen_text_en, mi.sort_order, mi.visible, mi.archived,
 			EXISTS (SELECT 1 FROM order_items oi WHERE oi.menu_item_id=mi.id) AS used_in_orders,
 			mi.version, mi.created_at, mi.updated_at,
@@ -5308,7 +5311,7 @@ func (s *Store) adminMenuItemByID(ctx context.Context, id uuid.UUID) (core.Admin
 		WHERE mi.id=$1
 	`, id).Scan(
 		&item.ID, &item.CategoryID, &item.TitleRU, &item.TitleSR, &item.TitleEN, &item.DescriptionRU, &item.DescriptionSR,
-		&item.DescriptionEN, &item.PriceMinor, &item.Currency, &item.PhotoPath, &item.WeightText, &item.MinQuantity,
+		&item.DescriptionEN, &item.PriceMinor, &item.DiscountPercent, &item.DiscountedPriceMinor, &item.Currency, &item.PhotoPath, &item.WeightText, &item.MinQuantity,
 		&item.AllergenTextRU, &item.AllergenTextSR, &item.AllergenTextEN, &item.SortOrder, &item.Visible, &item.Archived, &item.UsedInOrders,
 		&item.Version, &item.CreatedAt, &item.UpdatedAt, &thumbnailPath, &thumbnailWidth, &thumbnailHeight, &displayWidth, &displayHeight,
 	)
@@ -5453,11 +5456,12 @@ func categoryAudit(cat core.AdminCategory) map[string]any {
 
 func menuItemAudit(item core.AdminMenuItem) map[string]any {
 	return map[string]any{
-		"title_ru":    item.TitleRU,
-		"price_minor": item.PriceMinor,
-		"visible":     item.Visible,
-		"archived":    item.Archived,
-		"version":     item.Version,
+		"title_ru":         item.TitleRU,
+		"price_minor":      item.PriceMinor,
+		"discount_percent": item.DiscountPercent,
+		"visible":          item.Visible,
+		"archived":         item.Archived,
+		"version":          item.Version,
 	}
 }
 
@@ -5775,6 +5779,8 @@ func validCategoryInput(input UpsertCategoryInput) bool {
 func validMenuItemInput(input UpsertMenuItemInput) bool {
 	return input.CategoryID != uuid.Nil &&
 		input.PriceMinor >= 0 &&
+		input.DiscountPercent >= 0 &&
+		input.DiscountPercent <= 99 &&
 		input.MinQuantity > 0 &&
 		input.MinQuantity <= maxItemQuantityHardLimit &&
 		requiredText(input.TitleRU, maxTitleLength) &&
@@ -5788,6 +5794,10 @@ func validMenuItemInput(input UpsertMenuItemInput) bool {
 		optionalText(input.AllergenTextRU, maxDescriptionLength) &&
 		optionalText(input.AllergenTextSR, maxDescriptionLength) &&
 		optionalText(input.AllergenTextEN, maxDescriptionLength)
+}
+
+func discountedPrice(priceMinor, discountPercent int) int {
+	return (priceMinor*(100-discountPercent) + 50) / 100
 }
 
 func validMenuMediaInput(input MenuMediaInput) bool {

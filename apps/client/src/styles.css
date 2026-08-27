@@ -1069,6 +1069,52 @@ body.has-day-off-overlay {
   white-space: nowrap;
 }
 
+.sale-price {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.34rem;
+  min-width: 0;
+}
+
+.sale-discount-badge {
+  width: fit-content;
+  border: 1px solid rgba(139, 94, 14, 0.3);
+  border-radius: 999px;
+  padding: 0.25rem 0.48rem;
+  background: linear-gradient(135deg, #f6e4a8, #c89935);
+  color: #4d3105 !important;
+  font-size: 0.72rem !important;
+  font-weight: 950 !important;
+  line-height: 1 !important;
+  white-space: nowrap;
+}
+
+.sale-price-values {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.sale-price-values del {
+  color: #bd3e36;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-decoration-color: #bd3e36;
+  text-decoration-thickness: 2px;
+  white-space: nowrap;
+}
+
+.sale-price-values strong {
+  width: fit-content;
+  border: 1px solid rgba(139, 94, 14, 0.24);
+  border-radius: 999px;
+  padding: 0.22rem 0.42rem;
+  background: rgba(219, 173, 71, 0.14);
+  color: #a36d12 !important;
+}
+
 .menu-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

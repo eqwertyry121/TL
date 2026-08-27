@@ -1012,7 +1012,11 @@ function MenuTab({ menu, onAction }: { menu: AdminMenuResponse; onAction: AdminA
                       <span>{categoryTitle(menu.categories, dish.category_id)}</span>
                     </span>
                   </button>
-                  <strong className="menu-price">{money(dish.price_minor)}</strong>
+                  <div className={dish.discount_percent > 0 ? "menu-price menu-price-sale" : "menu-price"}>
+                    {dish.discount_percent > 0 && <span className="admin-sale-badge">−{dish.discount_percent}%</span>}
+                    {dish.discount_percent > 0 && <del>{money(dish.price_minor)}</del>}
+                    <strong>{money(dish.discounted_price_minor)}</strong>
+                  </div>
                   {dish.archived ? (
                     <button className="primary" onClick={() => void onAction((authToken) => api.restoreItem(authToken, dish.id, "restore from admin"))}>Восстановить</button>
                   ) : (
@@ -1136,10 +1140,18 @@ function DishForm({
           <div className="form-grid primary-fields">
             <Text label="Название" value={form.title_ru} onChange={(title_ru) => update({ title_ru })} />
             <NumberInput label="Цена, RSD" value={form.price_minor} onChange={(price_minor) => update({ price_minor })} />
+            <NumberInput label="Скидка, % (0 — без акции)" value={form.discount_percent} onChange={(discount_percent) => update({ discount_percent: Math.max(0, Math.min(99, discount_percent)) })} />
             <label><span>Категория</span><select value={form.category_id} onChange={(event) => update({ category_id: event.target.value })}>
               {categories.map((category) => <option key={category.id} value={category.id}>{category.title_ru}</option>)}
             </select></label>
           </div>
+          {form.discount_percent > 0 && (
+            <div className="discount-preview" aria-label="Цена по акции">
+              <span className="admin-sale-badge">Акция −{form.discount_percent}%</span>
+              <del>{money(form.price_minor)}</del>
+              <strong>{money(discountedMenuPrice(form.price_minor, form.discount_percent))}</strong>
+            </div>
+          )}
           <Textarea label="Описание" value={form.description_ru} onChange={(description_ru) => update({ description_ru })} />
           <div className="form-grid compact-fields">
             <NumberInput label="Минимум, шт" value={form.min_quantity || 1} onChange={(min_quantity) => update({ min_quantity: Math.max(1, min_quantity) })} />
@@ -1172,7 +1184,9 @@ function DishForm({
           </div>
         </div>
       </details>
-      {item.id && item.price_minor !== form.price_minor && <div className="warn">Цена изменится: {money(item.price_minor)} → {money(form.price_minor)}.</div>}
+      {item.id && (item.price_minor !== form.price_minor || item.discount_percent !== form.discount_percent) && (
+        <div className="warn">Цена для клиента: {money(item.discounted_price_minor)} → {money(discountedMenuPrice(form.price_minor, form.discount_percent))}.</div>
+      )}
       <div className="actions">
         <button className="primary" onClick={() => void onSave(dishInputFromForm(form))}><Save size={16} /> Сохранить</button>
         <button onClick={onCancel}>Отмена</button>
@@ -2138,6 +2152,8 @@ function emptyItem(categoryID: string): AdminMenuItem {
     description_sr: "",
     description_en: "",
     price_minor: 0,
+    discount_percent: 0,
+    discounted_price_minor: 0,
     currency: "RSD",
     photo_path: "",
     weight_text: "",
@@ -2180,6 +2196,7 @@ function dishInputFromForm(form: AdminMenuItem): MenuItemInput {
     description_sr: form.description_sr.trim() || descriptionRU,
     description_en: form.description_en.trim() || descriptionRU,
     price_minor: Math.max(0, Math.round(form.price_minor || 0)),
+    discount_percent: Math.max(0, Math.min(99, Math.round(form.discount_percent || 0))),
     photo_path: form.photo_path.trim(),
     weight_text: form.weight_text.trim(),
     min_quantity: Math.max(1, Math.round(form.min_quantity || 1)),
@@ -2190,6 +2207,10 @@ function dishInputFromForm(form: AdminMenuItem): MenuItemInput {
     visible: form.visible,
     version: form.version,
   };
+}
+
+function discountedMenuPrice(priceMinor: number, discountPercent: number): number {
+  return Math.round(Math.max(0, priceMinor) * (100 - Math.max(0, Math.min(99, discountPercent))) / 100);
 }
 
 function categoryTitle(categories: AdminCategory[], id: string): string {

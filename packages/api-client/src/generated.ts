@@ -55,6 +55,8 @@ export interface MenuItem {
   title: string;
   description: string;
   price_minor: number;
+  original_price_minor: number;
+  discount_percent: number;
   currency: "RSD";
   photo_path: string;
   photo_variants?: PhotoVariants;
@@ -152,6 +154,8 @@ export interface AdminMenuItem {
   description_sr: string;
   description_en: string;
   price_minor: number;
+  discount_percent: number;
+  discounted_price_minor: number;
   currency: "RSD";
   photo_path: string;
   photo_variants?: PhotoVariants;

@@ -1216,7 +1216,8 @@ function menuDisplayItems(categories: AppData["categories"]) {
     itemIndex,
   })));
   return [...entries]
-    .sort((left, right) => left.categorySort - right.categorySort ||
+    .sort((left, right) => Number(right.item.discount_percent > 0) - Number(left.item.discount_percent > 0) ||
+      left.categorySort - right.categorySort ||
       left.item.sort_order - right.item.sort_order ||
       left.categoryIndex - right.categoryIndex ||
       left.itemIndex - right.itemIndex)
@@ -1225,6 +1226,20 @@ function menuDisplayItems(categories: AppData["categories"]) {
 
 function comboSavingsText(locale: Locale): string {
   return locale === "sr" ? "Ušteda do 10%" : locale === "en" ? "Save up to 10%" : "Выгода до 10%";
+}
+
+function MenuPrice({ item }: { item: MenuItem }) {
+  const hasDiscount = item.discount_percent > 0 && item.original_price_minor > item.price_minor;
+  if (!hasDiscount) return <strong>{money(item.price_minor)}</strong>;
+  return (
+    <span className="sale-price">
+      <span className="sale-discount-badge">−{item.discount_percent}%</span>
+      <span className="sale-price-values">
+        <del>{money(item.original_price_minor)}</del>
+        <strong>{money(item.price_minor)}</strong>
+      </span>
+    </span>
+  );
 }
 
 function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
@@ -1276,13 +1291,13 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
                         <div className="meta-row">
                           {combo ? (
                             <>
-                              <strong>{money(item.price_minor)}</strong>
+                              <MenuPrice item={item} />
                               <span className="combo-savings-inline">{savingsText}</span>
                             </>
                           ) : (
                             <>
                               <span>{item.weight_text}</span>
-                              <strong>{money(item.price_minor)}</strong>
+                              <MenuPrice item={item} />
                             </>
                           )}
                         </div>
@@ -1387,13 +1402,13 @@ function AddToOrder({
                   <div className="meta-row">
                     {isCombo ? (
                       <>
-                        <strong>{money(item.price_minor)}</strong>
+                        <MenuPrice item={item} />
                         <span className="combo-savings-inline">{comboSavingsText(locale)}</span>
                       </>
                     ) : (
                       <>
                         <span>{item.weight_text}</span>
-                        <strong>{money(item.price_minor)}</strong>
+                        <MenuPrice item={item} />
                       </>
                     )}
                   </div>
@@ -1441,13 +1456,13 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
         <div className="split">
           {isCombo ? (
             <>
-              <strong>{money(item.price_minor)}</strong>
+              <MenuPrice item={item} />
               <span className="combo-savings-inline">{comboSavingsText(locale)}</span>
             </>
           ) : (
             <>
               <span>{item.weight_text}</span>
-              <strong>{money(item.price_minor)}</strong>
+              <MenuPrice item={item} />
             </>
           )}
         </div>

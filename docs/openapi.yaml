@@ -53,7 +53,7 @@ paths:
             enum: [ru, sr, en]
       responses:
         "200":
-          description: Visible non-archived menu with additive menu_revision and photo_variants. Uses weak ETag W/"menu-<locale>-<menu_revision>".
+          description: Visible non-archived menu with server-calculated discount prices, additive menu_revision and photo_variants. Uses weak ETag W/"menu-<locale>-<menu_revision>".
           headers:
             ETag:
               schema:
@@ -501,7 +501,7 @@ paths:
     get:
       responses:
         "200":
-          description: Admin dish list
+          description: Admin dish list with base price, discount percent and server-calculated discounted price
     post:
       responses:
         "201":
@@ -512,7 +512,7 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200":
-          description: Dish updated with optimistic version check
+          description: Dish and optional percentage discount updated with optimistic version check
     delete:
       parameters:
         - $ref: "#/components/parameters/id"

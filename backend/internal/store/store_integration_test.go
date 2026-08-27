@@ -277,26 +277,48 @@ func TestMenuRevisionBumpsOnAdminMenuMutations(t *testing.T) {
 	item.TitleSR = "Test jelo 2"
 	item.TitleEN = "Test dish 2"
 	updatedItem, err := st.UpdateMenuItem(ctx, adminSession, item.ID, store.UpsertMenuItemInput{
-		CategoryID:     item.CategoryID,
-		TitleRU:        item.TitleRU,
-		TitleSR:        item.TitleSR,
-		TitleEN:        item.TitleEN,
-		DescriptionRU:  item.DescriptionRU,
-		DescriptionSR:  item.DescriptionSR,
-		DescriptionEN:  item.DescriptionEN,
-		PriceMinor:     item.PriceMinor + 1,
-		PhotoPath:      item.PhotoPath,
-		WeightText:     item.WeightText,
-		MinQuantity:    item.MinQuantity,
-		AllergenTextRU: item.AllergenTextRU,
-		AllergenTextSR: item.AllergenTextSR,
-		AllergenTextEN: item.AllergenTextEN,
-		SortOrder:      item.SortOrder,
-		Visible:        item.Visible,
-		Version:        item.Version,
+		CategoryID:      item.CategoryID,
+		TitleRU:         item.TitleRU,
+		TitleSR:         item.TitleSR,
+		TitleEN:         item.TitleEN,
+		DescriptionRU:   item.DescriptionRU,
+		DescriptionSR:   item.DescriptionSR,
+		DescriptionEN:   item.DescriptionEN,
+		PriceMinor:      item.PriceMinor + 1,
+		DiscountPercent: 20,
+		PhotoPath:       item.PhotoPath,
+		WeightText:      item.WeightText,
+		MinQuantity:     item.MinQuantity,
+		AllergenTextRU:  item.AllergenTextRU,
+		AllergenTextSR:  item.AllergenTextSR,
+		AllergenTextEN:  item.AllergenTextEN,
+		SortOrder:       item.SortOrder,
+		Visible:         item.Visible,
+		Version:         item.Version,
 	})
 	if err != nil {
 		t.Fatalf("update item: %v", err)
+	}
+	if updatedItem.DiscountPercent != 20 || updatedItem.DiscountedPriceMinor != 81 {
+		t.Fatalf("updated discount = %d%% / %d, want 20%% / 81", updatedItem.DiscountPercent, updatedItem.DiscountedPriceMinor)
+	}
+	publicMenu, err := st.Menu(ctx, "ru")
+	if err != nil {
+		t.Fatalf("load public menu with discount: %v", err)
+	}
+	var discountedPublicItem *core.MenuItem
+	for _, category := range publicMenu {
+		for index := range category.Items {
+			if category.Items[index].ID == updatedItem.ID {
+				discountedPublicItem = &category.Items[index]
+			}
+		}
+	}
+	if discountedPublicItem == nil {
+		t.Fatal("discounted item is missing from public menu")
+	}
+	if discountedPublicItem.PriceMinor != 81 || discountedPublicItem.OriginalPriceMinor != 101 || discountedPublicItem.DiscountPercent != 20 {
+		t.Fatalf("public discount = effective %d, original %d, percent %d", discountedPublicItem.PriceMinor, discountedPublicItem.OriginalPriceMinor, discountedPublicItem.DiscountPercent)
 	}
 	revision = requireRevisionIncrease(t, ctx, st, revision, "update item")
 

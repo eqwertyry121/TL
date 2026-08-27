@@ -798,7 +798,51 @@ p {
 }
 
 .menu-price {
+  display: grid;
+  justify-items: end;
+  gap: 0.16rem;
   white-space: nowrap;
+}
+
+.menu-price strong {
+  color: var(--accent, #741d2c);
+}
+
+.menu-price-sale del,
+.discount-preview del {
+  color: #b53a32;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-decoration-thickness: 2px;
+}
+
+.admin-sale-badge {
+  width: fit-content;
+  border: 1px solid rgba(149, 101, 20, 0.35);
+  border-radius: 999px;
+  padding: 0.24rem 0.48rem;
+  background: linear-gradient(135deg, #f4dc91, #c99b37);
+  color: #4e3307;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.discount-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid rgba(149, 101, 20, 0.2);
+  border-radius: 0.9rem;
+  padding: 0.65rem 0.75rem;
+  background: rgba(237, 207, 128, 0.15);
+}
+
+.discount-preview strong {
+  color: #9b6b13;
+  font-size: 1.08rem;
 }
 
 .visibility-switch {
