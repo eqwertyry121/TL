@@ -1223,6 +1223,10 @@ function menuDisplayItems(categories: AppData["categories"]) {
     .map(({ item }, visualIndex) => ({ item, visualIndex }));
 }
 
+function comboSavingsText(locale: Locale): string {
+  return locale === "sr" ? "Ušteda do 10%" : locale === "en" ? "Save up to 10%" : "Выгода до 10%";
+}
+
 function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
   const [comboIndex, setComboIndex] = useState(0);
   const comboCategory = categories.find((category) => category.id === comboCategoryID);
@@ -1253,6 +1257,7 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
                   const qty = cart.lines[item.id]?.quantity || 0;
                   const minQuantity = itemMinQuantity(item);
                   const { description } = splitRecommendationDescription(item.description);
+                  const savingsText = combo ? comboSavingsText(locale) : "";
                   return (
                     <article className={`${qty > 0 ? "dish-card in-cart" : "dish-card"}${combo ? " combo-card" : ""}`} key={item.id}>
                       <DishVisual item={item} visualIndex={visualIndex} locale={locale} showBadge={!combo} asButton onClick={() => navigate({ name: "dish", id: item.id })} />
@@ -1269,7 +1274,9 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
                           </div>
                         ) : <p>{description}</p>}
                         <div className="meta-row">
-                          {!combo && <span>{item.weight_text}</span>}
+                          {combo
+                            ? <span className="combo-savings-inline">{savingsText}</span>
+                            : <span>{item.weight_text}</span>}
                           <strong>{money(item.price_minor)}</strong>
                         </div>
                         <div className="row-actions">
@@ -1363,6 +1370,7 @@ function AddToOrder({
             const startQuantity = alreadyInOrder ? 1 : itemMinQuantity(item);
             const minSelectedQuantity = alreadyInOrder ? 1 : itemMinQuantity(item);
             const { description } = splitRecommendationDescription(item.description);
+            const isCombo = item.category_id === comboCategoryID;
             return (
               <article className={qty > 0 ? "dish-card in-cart" : "dish-card"} key={item.id}>
                 <DishVisual item={item} visualIndex={visualIndex} locale={locale} />
@@ -1370,7 +1378,9 @@ function AddToOrder({
                   <strong className="plain-title">{item.title}</strong>
                   <p>{description}</p>
                   <div className="meta-row">
-                    <span>{item.weight_text}</span>
+                    {isCombo
+                      ? <span className="combo-savings-inline">{comboSavingsText(locale)}</span>
+                      : <span>{item.weight_text}</span>}
                     <strong>{money(item.price_minor)}</strong>
                   </div>
                   <div className="row-actions">
@@ -1406,6 +1416,7 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
   if (!item) return <div className="state">Блюдо не найдено</div>;
   const minQuantity = itemMinQuantity(item);
   const { description } = splitRecommendationDescription(item.description);
+  const isCombo = item.category_id === comboCategoryID;
   return (
     <div className="page narrow dish-page">
       <DishVisual item={item} visualIndex={2} locale={locale} hero />
@@ -1414,7 +1425,9 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
       <p className="lead">{description}</p>
       <div className="panel-list">
         <div className="split">
-          <span>{item.weight_text}</span>
+          {isCombo
+            ? <span className="combo-savings-inline">{comboSavingsText(locale)}</span>
+            : <span>{item.weight_text}</span>}
           <strong>{money(item.price_minor)}</strong>
         </div>
       </div>
@@ -1453,13 +1466,9 @@ function DishVisual({
   const dimensions = menuPhotoDimensions(item, hero);
   const embeddedBadge = splitRecommendationDescription(item.description).recommendationBadge;
   const recommendationBadge = embeddedBadge || recommendationBadgeForItem(item, locale);
-  const comboSavingsBadge = item.category_id === comboCategoryID
-    ? locale === "sr" ? "Ušteda do 10%" : locale === "en" ? "Save up to 10%" : "Выгода до 10%"
-    : "";
   const className = `${hero ? "hero-art" : "dish-art"} art-${visualIndex % 6}${src ? " has-photo" : ""}`;
   const content = (
     <>
-      {comboSavingsBadge && <span className="combo-savings-badge">{comboSavingsBadge}</span>}
       {recommendationBadge && <span className="recommendation-badge">{recommendationBadge}</span>}
       {src && (
         <img
