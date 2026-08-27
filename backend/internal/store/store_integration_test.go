@@ -1950,6 +1950,12 @@ func TestDeliveryKitchenQueuePositions(t *testing.T) {
 		if order.KitchenQueuePosition != index+1 {
 			t.Fatalf("created order %d queue position = %d, want %d", index+1, order.KitchenQueuePosition, index+1)
 		}
+		if index == 0 {
+			wantTarget := scheduledTarget.Add(30 * time.Minute)
+			if order.DeliveryTargetAt == nil || !order.DeliveryTargetAt.Equal(wantTarget) {
+				t.Fatalf("first ASAP after scheduled target = %v, want %s", order.DeliveryTargetAt, wantTarget)
+			}
+		}
 		orderIDs = append(orderIDs, order.ID)
 		clientSessions = append(clientSessions, session)
 	}
