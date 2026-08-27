@@ -55,7 +55,8 @@ test("delivery separates the ASAP queue from one-order scheduled slots", async (
   assert.match(client, /deliveryTimeMode === "SCHEDULED"/);
   assert.match(client, /delivery_requested_at: deliverySelected && deliveryTimingEnabled && draft\.deliveryTimeMode === "SCHEDULED"/);
   assert.match(client, /deliverySlots\.slots\.filter\(\(slot\) => slot\.available\)/);
-  assert.match(client, /Один заказ занимает 30 минут/);
+  assert.match(client, /availableTimes: "Свободное время"/);
+  assert.doesNotMatch(client, /Один заказ занимает 30 минут/);
   assert.match(client, /Ваш заказ/);
   assert.doesNotMatch(client, /Ожидание увеличится примерно на/);
   assert.doesNotMatch(client, /deliverySlots\.asap\.wait_minutes/);
