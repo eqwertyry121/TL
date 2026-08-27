@@ -1274,10 +1274,17 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
                           </div>
                         ) : <p>{description}</p>}
                         <div className="meta-row">
-                          {combo
-                            ? <span className="combo-savings-inline">{savingsText}</span>
-                            : <span>{item.weight_text}</span>}
-                          <strong>{money(item.price_minor)}</strong>
+                          {combo ? (
+                            <>
+                              <strong>{money(item.price_minor)}</strong>
+                              <span className="combo-savings-inline">{savingsText}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>{item.weight_text}</span>
+                              <strong>{money(item.price_minor)}</strong>
+                            </>
+                          )}
                         </div>
                         <div className="row-actions">
                           {qty > 0 ? (
@@ -1378,10 +1385,17 @@ function AddToOrder({
                   <strong className="plain-title">{item.title}</strong>
                   <p>{description}</p>
                   <div className="meta-row">
-                    {isCombo
-                      ? <span className="combo-savings-inline">{comboSavingsText(locale)}</span>
-                      : <span>{item.weight_text}</span>}
-                    <strong>{money(item.price_minor)}</strong>
+                    {isCombo ? (
+                      <>
+                        <strong>{money(item.price_minor)}</strong>
+                        <span className="combo-savings-inline">{comboSavingsText(locale)}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>{item.weight_text}</span>
+                        <strong>{money(item.price_minor)}</strong>
+                      </>
+                    )}
                   </div>
                   <div className="row-actions">
                     {qty > 0 ? (
@@ -1425,10 +1439,17 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
       <p className="lead">{description}</p>
       <div className="panel-list">
         <div className="split">
-          {isCombo
-            ? <span className="combo-savings-inline">{comboSavingsText(locale)}</span>
-            : <span>{item.weight_text}</span>}
-          <strong>{money(item.price_minor)}</strong>
+          {isCombo ? (
+            <>
+              <strong>{money(item.price_minor)}</strong>
+              <span className="combo-savings-inline">{comboSavingsText(locale)}</span>
+            </>
+          ) : (
+            <>
+              <span>{item.weight_text}</span>
+              <strong>{money(item.price_minor)}</strong>
+            </>
+          )}
         </div>
       </div>
       <div className="bottom-action">
