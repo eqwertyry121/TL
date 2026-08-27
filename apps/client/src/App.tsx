@@ -1448,7 +1448,7 @@ function DishVisual({
   asButton?: boolean;
   onClick?: () => void;
 }) {
-  const src = menuPhotoURL(item.photo_path);
+  const src = menuPhotoURL(item.photo_path, item.version);
   const srcSet = menuPhotoSrcSet(item);
   const dimensions = menuPhotoDimensions(item, hero);
   const embeddedBadge = splitRecommendationDescription(item.description).recommendationBadge;
@@ -2783,13 +2783,14 @@ function foodVisual(title: string): string {
   return "🍽️";
 }
 
-function menuPhotoURL(path: string): string {
+function menuPhotoURL(path: string, version?: number): string {
   const value = path.trim();
   if (!value) return "";
   if (/^(https?:|blob:|data:)/i.test(value)) return value;
   if (value.startsWith("/media/")) {
     const apiBase = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
-    return apiBase ? `${apiBase}${value}` : value;
+    const versioned = version && version > 0 ? `${value}${value.includes("?") ? "&" : "?"}v=${version}` : value;
+    return apiBase ? `${apiBase}${versioned}` : versioned;
   }
   if (value.startsWith("/")) return value;
   return `/${value.replace(/^\/+/, "")}`;
@@ -2798,8 +2799,8 @@ function menuPhotoURL(path: string): string {
 function menuPhotoSrcSet(item: MenuItem): string | undefined {
   const variants = item.photo_variants;
   if (!variants) return undefined;
-  const thumbnail = menuPhotoURL(variants.thumbnail?.url || "");
-  const display = menuPhotoURL(variants.display?.url || "");
+  const thumbnail = menuPhotoURL(variants.thumbnail?.url || "", item.version);
+  const display = menuPhotoURL(variants.display?.url || "", item.version);
   const parts = [
     thumbnail ? `${thumbnail} ${variants.thumbnail.width || 360}w` : "",
     display ? `${display} ${variants.display.width || 1280}w` : "",

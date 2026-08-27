@@ -13,6 +13,9 @@ test("client menu images keep bounded responsive rendering attributes", () => {
   assertIncludes(visualBody, "loading={hero ? \"eager\" : \"lazy\"}");
   assertIncludes(visualBody, "decoding=\"async\"");
   assertIncludes(visualBody, "fetchPriority={hero ? \"high\" : undefined}");
+  assertIncludes(visualBody, "menuPhotoURL(item.photo_path, item.version)");
+  assertIncludes(source, 'v=${version}');
+  assertIncludes(source, 'menuPhotoURL(variants.thumbnail?.url || "", item.version)');
   assertIncludes(source, "function menuPhotoDimensions(item: MenuItem, hero: boolean)");
 });
 
