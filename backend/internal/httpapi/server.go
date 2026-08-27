@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	_ "image/jpeg"
 
@@ -220,6 +221,7 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/orders/{id}", s.clientOrder)
 			r.Post("/orders/{id}/addition/calculate", s.calculateOrderAddition)
 			r.Post("/orders/{id}/addition", s.addOrderItems)
+			r.Post("/analytics/events", s.productAnalyticsEvents)
 
 			r.Get("/kitchen/orders", s.kitchenOrders)
 			r.Post("/kitchen/orders/{id}/start", s.startKitchenPreparation)
@@ -662,6 +664,49 @@ func (s *Server) performanceBeacon(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) productAnalyticsEvents(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Events []struct {
+			Name   string `json:"name"`
+			Screen string `json:"screen"`
+			Target string `json:"target"`
+		} `json:"events"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if len(req.Events) == 0 || len(req.Events) > 50 {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	events := make([]store.ProductEventInput, len(req.Events))
+	for index, event := range req.Events {
+		if (event.Name != "screen_view" && event.Name != "click") ||
+			!validBeaconRoute("client", event.Screen) ||
+			!validProductAnalyticsTarget(event.Name, event.Target) {
+			writeError(w, core.ErrInvalidInput)
+			return
+		}
+		events[index] = store.ProductEventInput{EventName: event.Name, Screen: event.Screen, Target: event.Target}
+	}
+	if err := s.store.RecordProductEvents(r.Context(), mustSession(r), events, s.now()); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func validProductAnalyticsTarget(eventName, target string) bool {
+	if eventName == "screen_view" {
+		return target == ""
+	}
+	if target == "" || len(target) > 160 || strings.TrimSpace(target) != target {
+		return false
+	}
+	return strings.IndexFunc(target, unicode.IsControl) == -1
+}
+
 func validBeaconApp(app string) bool {
 	switch app {
 	case "client", "kitchen", "courier", "admin":
@@ -675,7 +720,7 @@ func validBeaconRoute(app string, route string) bool {
 	switch app {
 	case "client":
 		switch route {
-		case "menu", "dish", "cart", "checkout", "order", "orders", "support", "terms", "returns", "privacy", "unknown":
+		case "menu", "dish", "cart", "checkout", "order", "orders", "booking", "support", "terms", "returns", "privacy", "unknown":
 			return true
 		default:
 			return false
@@ -2018,6 +2063,21 @@ func (s *Server) adminAnalyticsCSV(w http.ResponseWriter, r *http.Request) {
 	for _, row := range analytics.DailyAudienceRows {
 		_ = writer.Write([]string{row.Day, fmt.Sprintf("%d", row.Visits), fmt.Sprintf("%d", row.UniqueVisitors), fmt.Sprintf("%d", row.DeliveryOrders), fmt.Sprintf("%d", row.PickupOrders), fmt.Sprintf("%d", row.Reservations)})
 	}
+	_ = writer.Write([]string{})
+	_ = writer.Write([]string{"retention_days", "eligible_users", "returned_users", "percent"})
+	for _, row := range analytics.Product.Retention {
+		_ = writer.Write([]string{fmt.Sprintf("%d", row.Days), fmt.Sprintf("%d", row.EligibleUsers), fmt.Sprintf("%d", row.ReturnedUsers), fmt.Sprintf("%d", row.Percent)})
+	}
+	_ = writer.Write([]string{})
+	_ = writer.Write([]string{"screen", "views", "unique_users"})
+	for _, row := range analytics.Product.Screens {
+		_ = writer.Write([]string{row.Key, fmt.Sprintf("%d", row.Events), fmt.Sprintf("%d", row.UniqueUsers)})
+	}
+	_ = writer.Write([]string{})
+	_ = writer.Write([]string{"click_target", "clicks", "unique_users"})
+	for _, row := range analytics.Product.Clicks {
+		_ = writer.Write([]string{row.Key, fmt.Sprintf("%d", row.Events), fmt.Sprintf("%d", row.UniqueUsers)})
+	}
 	writer.Flush()
 }
 
@@ -2184,6 +2244,8 @@ func publicRateLimitPolicy(method, path string) (rateLimitPolicy, bool) {
 		return rateLimitPolicy{name: "telegram_webhook", limit: 300, window: time.Minute}, true
 	case method == http.MethodPost && path == "/api/v1/performance/beacon":
 		return rateLimitPolicy{name: "performance_beacon", limit: 120, window: time.Minute}, true
+	case method == http.MethodPost && path == "/api/v1/analytics/events":
+		return rateLimitPolicy{name: "product_analytics", limit: 120, window: time.Minute}, true
 	default:
 		return rateLimitPolicy{}, false
 	}

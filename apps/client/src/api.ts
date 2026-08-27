@@ -78,6 +78,7 @@ function realApi(baseURL: string): Api {
 		myReservation: (token, signal) => get(`${baseURL}/api/v1/reservations/mine`, token, signal),
 		createReservation: (token, input, idempotencyKey) => post(`${baseURL}/api/v1/reservations`, input, token, { "Idempotency-Key": idempotencyKey }),
 		cancelReservation: (token, id) => post(`${baseURL}/api/v1/reservations/${id}/cancel`, {}, token),
+		productEvents: async (token, events) => { await post(`${baseURL}/api/v1/analytics/events`, { events }, token); },
   };
 }
 
@@ -176,6 +177,7 @@ function demoApi(): Api {
       });
       return { timezone: settings.timezone, date: start.toISOString().slice(0, 10), slots };
     },
+		async productEvents() {},
     async calculateAddition(_token, orderId, items) {
       const order = loadDemoOrders().find((entry) => entry.id === orderId);
       if (!order || order.fulfillment_status !== "NEW" || order.payment_method !== "cash" || order.latest_addition) {
@@ -418,6 +420,7 @@ function unconfiguredApi(): Api {
 		myReservation: fail,
 		createReservation: fail,
 		cancelReservation: fail,
+		productEvents: fail,
   };
 }
 

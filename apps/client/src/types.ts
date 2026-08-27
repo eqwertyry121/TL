@@ -130,6 +130,7 @@ export interface Api {
 	myReservation(token: string, signal?: AbortSignal): Promise<{ reservation: Reservation | null }>;
 	createReservation(token: string, input: { date: string; start_hour: number; guests: number; locale: Locale }, idempotencyKey: string): Promise<Reservation>;
 	cancelReservation(token: string, id: string): Promise<Reservation>;
+	productEvents(token: string, events: Array<{ name: "screen_view" | "click"; screen: string; target: string }>): Promise<void>;
 }
 
 export interface ClientBootstrapData {

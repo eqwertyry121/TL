@@ -114,6 +114,17 @@ paths:
       responses:
         "204":
           description: Sampled safe frontend performance metrics accepted
+  /analytics/events:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductEventBatch"
+      responses:
+        "204":
+          description: Authenticated client interaction events accepted
   /dev/session:
     post:
       security: []
@@ -930,10 +941,83 @@ components:
           type: integer
         reservations:
           type: integer
+    ProductEvent:
+      type: object
+      additionalProperties: false
+      required: [name, screen, target]
+      properties:
+        name:
+          type: string
+          enum: [screen_view, click]
+        screen:
+          type: string
+        target:
+          type: string
+          maxLength: 160
+    ProductEventBatch:
+      type: object
+      additionalProperties: false
+      required: [events]
+      properties:
+        events:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/ProductEvent"
+    ProductMetric:
+      type: object
+      additionalProperties: false
+      required: [key, events, unique_users]
+      properties:
+        key:
+          type: string
+        events:
+          type: integer
+        unique_users:
+          type: integer
+    RetentionMetric:
+      type: object
+      additionalProperties: false
+      required: [days, eligible_users, returned_users, percent]
+      properties:
+        days:
+          type: integer
+        eligible_users:
+          type: integer
+        returned_users:
+          type: integer
+        percent:
+          type: integer
+    ProductAnalytics:
+      type: object
+      additionalProperties: false
+      required: [retention, screens, clicks, order_funnel, booking_funnel]
+      properties:
+        retention:
+          type: array
+          items:
+            $ref: "#/components/schemas/RetentionMetric"
+        screens:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductMetric"
+        clicks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductMetric"
+        order_funnel:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductMetric"
+        booking_funnel:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductMetric"
     AdminAnalytics:
       type: object
       additionalProperties: false
-      required: [currency, from, to, generated_at, summary, audience, statuses, payments, top_dishes, daily_rows, daily_audience_rows]
+      required: [currency, from, to, generated_at, summary, audience, product, statuses, payments, top_dishes, daily_rows, daily_audience_rows]
       properties:
         currency:
           type: string
@@ -951,6 +1035,8 @@ components:
           $ref: "#/components/schemas/AnalyticsSummary"
         audience:
           $ref: "#/components/schemas/AudienceAnalytics"
+        product:
+          $ref: "#/components/schemas/ProductAnalytics"
         statuses:
           type: array
           items:

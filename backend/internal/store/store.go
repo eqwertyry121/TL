@@ -33,6 +33,12 @@ type Store struct {
 	deliveryTimingBetaIDs map[int64]struct{}
 }
 
+type ProductEventInput struct {
+	EventName string
+	Screen    string
+	Target    string
+}
+
 const (
 	phoneHashHMACPrefix       = "hmac-sha256:"
 	deliveryAlertTelegramID   = int64(8609105840)
@@ -421,6 +427,29 @@ func (s *Store) CreateSession(ctx context.Context, user core.User, role core.Rol
 		ActiveRole:           role,
 		ExpiresAt:            expiresAt,
 	}, roles, nil
+}
+
+func (s *Store) RecordProductEvents(ctx context.Context, sess core.Session, events []ProductEventInput, now time.Time) error {
+	if sess.ActiveRole != core.RoleClient {
+		return core.ErrForbidden
+	}
+	if len(events) == 0 {
+		return nil
+	}
+	names := make([]string, len(events))
+	screens := make([]string, len(events))
+	targets := make([]string, len(events))
+	for index, event := range events {
+		names[index] = event.EventName
+		screens[index] = event.Screen
+		targets[index] = event.Target
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO client_product_events (user_id, event_name, screen, target, occurred_at)
+		SELECT $1, input.event_name, input.screen, input.target, $5
+		FROM unnest($2::text[], $3::text[], $4::text[]) AS input(event_name, screen, target)
+	`, sess.UserID, names, screens, targets, now.UTC())
+	return err
 }
 
 func (s *Store) SessionByToken(ctx context.Context, token string) (core.Session, error) {
@@ -3850,6 +3879,13 @@ func (s *Store) AdminAnalytics(ctx context.Context, sess core.Session, from, to 
 		TopDishes:         []core.TopDish{},
 		DailyRows:         []core.DailyAnalyticsRow{},
 		DailyAudienceRows: []core.DailyAudienceRow{},
+		Product: core.ProductAnalytics{
+			Retention:     []core.RetentionMetric{},
+			Screens:       []core.ProductMetric{},
+			Clicks:        []core.ProductMetric{},
+			OrderFunnel:   []core.ProductMetric{},
+			BookingFunnel: []core.ProductMetric{},
+		},
 	}
 	err = s.pool.QueryRow(ctx, `
 		WITH visitors AS (
@@ -3903,6 +3939,83 @@ func (s *Store) AdminAnalytics(ctx context.Context, sess core.Session, from, to 
 	)
 	if err != nil {
 		return core.AdminAnalytics{}, err
+	}
+	retentionRows, err := s.pool.Query(ctx, `
+		WITH first_visits AS (
+			SELECT user_id, MIN((visited_at AT TIME ZONE $3)::date) AS first_day
+			FROM client_app_visits
+			GROUP BY user_id
+		), periods(days) AS (VALUES (1), (7), (30))
+		SELECT p.days,
+			COUNT(*) FILTER (
+				WHERE f.first_day >= ($1 AT TIME ZONE $3)::date
+					AND f.first_day < ($2 AT TIME ZONE $3)::date
+					AND f.first_day <= ($4 AT TIME ZONE $3)::date - p.days
+			)::int AS eligible_users,
+			COUNT(*) FILTER (
+				WHERE f.first_day >= ($1 AT TIME ZONE $3)::date
+					AND f.first_day < ($2 AT TIME ZONE $3)::date
+					AND f.first_day <= ($4 AT TIME ZONE $3)::date - p.days
+					AND EXISTS (
+						SELECT 1 FROM client_app_visits v
+						WHERE v.user_id=f.user_id
+							AND (v.visited_at AT TIME ZONE $3)::date=f.first_day + p.days
+					)
+			)::int AS returned_users
+		FROM periods p LEFT JOIN first_visits f ON true
+		GROUP BY p.days
+		ORDER BY p.days
+	`, from.UTC(), to.UTC(), settings.Timezone, now.UTC())
+	if err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	for retentionRows.Next() {
+		var row core.RetentionMetric
+		if err := retentionRows.Scan(&row.Days, &row.EligibleUsers, &row.ReturnedUsers); err != nil {
+			retentionRows.Close()
+			return core.AdminAnalytics{}, err
+		}
+		if row.EligibleUsers > 0 {
+			row.Percent = int(math.Round(100 * float64(row.ReturnedUsers) / float64(row.EligibleUsers)))
+		}
+		analytics.Product.Retention = append(analytics.Product.Retention, row)
+	}
+	retentionRows.Close()
+	if err := retentionRows.Err(); err != nil {
+		return core.AdminAnalytics{}, err
+	}
+
+	analytics.Product.Screens, err = s.productMetrics(ctx, from, to, "screen_view", 30)
+	if err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	analytics.Product.Clicks, err = s.productMetrics(ctx, from, to, "click", 50)
+	if err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	metric := func(key string, rows []core.ProductMetric) core.ProductMetric {
+		for _, row := range rows {
+			if row.Key == key {
+				return row
+			}
+		}
+		return core.ProductMetric{Key: key}
+	}
+	menu := metric("menu", analytics.Product.Screens)
+	cart := metric("cart", analytics.Product.Screens)
+	checkout := metric("checkout", analytics.Product.Screens)
+	booking := metric("booking", analytics.Product.Screens)
+	analytics.Product.OrderFunnel = []core.ProductMetric{
+		{Key: "app_open", Events: analytics.Audience.Visits, UniqueUsers: analytics.Audience.UniqueVisitors},
+		menu,
+		cart,
+		checkout,
+		{Key: "order_created", Events: analytics.Audience.DeliveryOrders + analytics.Audience.PickupOrders, UniqueUsers: analytics.Audience.OrderingCustomers},
+	}
+	analytics.Product.BookingFunnel = []core.ProductMetric{
+		{Key: "app_open", Events: analytics.Audience.Visits, UniqueUsers: analytics.Audience.UniqueVisitors},
+		booking,
+		{Key: "reservation_created", Events: analytics.Audience.Reservations, UniqueUsers: analytics.Audience.ReservationCustomers},
 	}
 	err = s.pool.QueryRow(ctx, `
 		SELECT
@@ -4061,6 +4174,34 @@ func (s *Store) AdminAnalytics(ctx context.Context, sess core.Session, from, to 
 		analytics.DailyAudienceRows = append(analytics.DailyAudienceRows, row)
 	}
 	return analytics, audienceRows.Err()
+}
+
+func (s *Store) productMetrics(ctx context.Context, from, to time.Time, eventName string, limit int) ([]core.ProductMetric, error) {
+	keyColumn := "screen"
+	if eventName == "click" {
+		keyColumn = "target"
+	}
+	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+		SELECT %s, COUNT(*)::int, COUNT(DISTINCT user_id)::int
+		FROM client_product_events
+		WHERE occurred_at >= $1 AND occurred_at < $2 AND event_name=$3 AND %s<>''
+		GROUP BY %s
+		ORDER BY COUNT(*) DESC, %s
+		LIMIT $4
+	`, keyColumn, keyColumn, keyColumn, keyColumn), from.UTC(), to.UTC(), eventName, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []core.ProductMetric{}
+	for rows.Next() {
+		var row core.ProductMetric
+		if err := rows.Scan(&row.Key, &row.Events, &row.UniqueUsers); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
 }
 
 func (s *Store) AuditLog(ctx context.Context, sess core.Session, filter AuditLogFilter) (AuditLogPage, error) {

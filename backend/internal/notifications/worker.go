@@ -956,6 +956,32 @@ func (w *Worker) cleanupExpired(ctx context.Context) error {
 			`,
 		},
 		{
+			name: "client_product_events",
+			sql: `
+				WITH expired AS (
+					SELECT id FROM client_product_events
+					WHERE occurred_at < now() - interval '400 days'
+					LIMIT 10000
+				)
+				DELETE FROM client_product_events e
+				USING expired
+				WHERE e.id = expired.id
+			`,
+		},
+		{
+			name: "client_app_visits",
+			sql: `
+				WITH expired AS (
+					SELECT id FROM client_app_visits
+					WHERE visited_at < now() - interval '400 days'
+					LIMIT 500
+				)
+				DELETE FROM client_app_visits v
+				USING expired
+				WHERE v.id = expired.id
+			`,
+		},
+		{
 			name: "cash_location_challenges",
 			sql: `
 				WITH expired AS (

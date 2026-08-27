@@ -593,6 +593,27 @@ type DailyAudienceRow struct {
 	Reservations   int    `json:"reservations"`
 }
 
+type ProductMetric struct {
+	Key         string `json:"key"`
+	Events      int    `json:"events"`
+	UniqueUsers int    `json:"unique_users"`
+}
+
+type RetentionMetric struct {
+	Days          int `json:"days"`
+	EligibleUsers int `json:"eligible_users"`
+	ReturnedUsers int `json:"returned_users"`
+	Percent       int `json:"percent"`
+}
+
+type ProductAnalytics struct {
+	Retention     []RetentionMetric `json:"retention"`
+	Screens       []ProductMetric   `json:"screens"`
+	Clicks        []ProductMetric   `json:"clicks"`
+	OrderFunnel   []ProductMetric   `json:"order_funnel"`
+	BookingFunnel []ProductMetric   `json:"booking_funnel"`
+}
+
 type AdminAnalytics struct {
 	Currency          string               `json:"currency"`
 	From              time.Time            `json:"from"`
@@ -600,6 +621,7 @@ type AdminAnalytics struct {
 	GeneratedAt       time.Time            `json:"generated_at"`
 	Summary           AnalyticsSummary     `json:"summary"`
 	Audience          AudienceAnalytics    `json:"audience"`
+	Product           ProductAnalytics     `json:"product"`
 	Statuses          []AnalyticsBreakdown `json:"statuses"`
 	Payments          []AnalyticsBreakdown `json:"payments"`
 	TopDishes         []TopDish            `json:"top_dishes"`

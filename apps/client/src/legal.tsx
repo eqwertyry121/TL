@@ -64,7 +64,7 @@ export const legalProfile = {
 
 const legalCopy: Record<Locale, LegalCopy> = {
   sr: {
-    updated: "Datum primene: 17.08.2026. · verzija 2026-08-17",
+    updated: "Datum primene: 27.08.2026. · verzija 2026-08-27",
     nav: { terms: "Uslovi prodaje", returns: "Reklamacije i povraćaj", privacy: "Privatnost" },
     merchantTitle: "Podaci o prodavcu",
     merchantIntro: "Tako Lako je naziv prodajnog mesta. Ugovorna strana i rukovalac podacima je preduzetnik naveden ispod.",
@@ -217,6 +217,7 @@ const legalCopy: Record<Locale, LegalCopy> = {
             "Sadržaj porudžbine, iznosi, status dostave, izabrani način i status plaćanja, reklamacije i komunikacija sa podrškom.",
             "Tehnički podaci potrebni za bezbednost i rad sistema, kao što su vreme zahteva, IP adresa i bezbednosni događaji. Telegram initData proverava se na serveru i ne upisuje se u logove.",
             "Kod provere lokacije za gotovinsku porudžbinu ne čuvamo tačne koordinate; čuvamo rezultat provere, udaljenost, tačnost, vreme i razlog odbijanja.",
+            "Podaci o korišćenju aplikacije: otvoreni ekrani i pritisci na dugmad ili linkove. Sadržaj polja, telefon, adresa, koordinate i Telegram initData ne ulaze u analitičke događaje.",
           ],
         },
         {
@@ -225,7 +226,7 @@ const legalCopy: Record<Locale, LegalCopy> = {
           bullets: [
             "Izvršenje ugovora: obračun, prihvatanje, priprema, dostava, podrška i povraćaj.",
             "Zakonske obaveze: fiskalni i računovodstveni dokumenti, reklamacije i odgovor nadležnim organima.",
-            "Legitimni interes: sprečavanje zloupotrebe, bezbednost sistema, dokazivanje transakcije i rešavanje sporova, uz zaštitu prava kupca.",
+            "Legitimni interes: sprečavanje zloupotrebe, bezbednost sistema, dokazivanje transakcije, poboljšanje upotrebljivosti aplikacije i rešavanje sporova, uz zaštitu prava kupca.",
           ],
         },
         {
@@ -241,7 +242,7 @@ const legalCopy: Record<Locale, LegalCopy> = {
         {
           id: "retention",
           title: "4. Rok čuvanja i bezbednost",
-          paragraphs: ["Podatke čuvamo samo koliko je potrebno za navedene svrhe: poslovnu i fiskalnu dokumentaciju u rokovima propisanim zakonom, evidenciju reklamacija najmanje dve godine, a bezbednosne podatke u ograničenom periodu potrebnom za zaštitu sistema i rešavanje incidenta. Po isteku roka podaci se brišu ili anonimizuju kada ne postoji drugi pravni osnov."],
+          paragraphs: ["Podatke čuvamo samo koliko je potrebno za navedene svrhe: poslovnu i fiskalnu dokumentaciju u rokovima propisanim zakonom, evidenciju reklamacija najmanje dve godine, analitičke događaje najduže 400 dana, a bezbednosne podatke u ograničenom periodu potrebnom za zaštitu sistema i rešavanje incidenta. Po isteku roka podaci se brišu ili anonimizuju kada ne postoji drugi pravni osnov."],
           bullets: [
             "Telefon i adresa čuvaju se šifrovano, pristup je ograničen ulogom zaposlenog, a osetljivi podaci se ne upisuju u aplikacione logove.",
             "Korpa u uređaju sadrži samo identifikatore proizvoda, prikazane podatke i količine; ne sadrži telefon, adresu, sesiju ili Telegram initData.",
@@ -260,7 +261,7 @@ const legalCopy: Record<Locale, LegalCopy> = {
     },
   },
   ru: {
-    updated: "Дата применения: 17.08.2026 · версия 2026-08-17",
+    updated: "Дата применения: 27.08.2026 · версия 2026-08-27",
     nav: { terms: "Условия продажи", returns: "Претензии и возврат", privacy: "Конфиденциальность" },
     merchantTitle: "Данные продавца",
     merchantIntro: "Tako Lako — название торговой точки. Стороной договора и оператором персональных данных является указанный ниже предприниматель.",
@@ -309,16 +310,16 @@ const legalCopy: Record<Locale, LegalCopy> = {
       title: "Политика конфиденциальности",
       intro: "Здесь описано, какие данные обрабатываются при использовании Tako Lako, зачем они нужны, кому передаются и какие права есть у пользователя.",
       sections: [
-        { id: "data", title: "1. Какие данные обрабатываются", bullets: ["Telegram ID и публичные данные профиля для входа и связи заказа с покупателем.", "Подтверждённый телефон, текстовый адрес, комментарий, язык и история заказов.", "Состав и суммы заказов, статус доставки, способ и статус оплаты, претензии и переписка с поддержкой.", "Технические данные безопасности и работы сервиса: время запроса, IP-адрес и события безопасности. Telegram initData проверяется сервером и не записывается в логи.", "Для геопроверки наличного заказа точные координаты не хранятся; сохраняются только результат, расстояние, точность, время и причина отказа."] },
-        { id: "purpose", title: "2. Цели и правовые основания", bullets: ["Исполнение договора: расчёт, принятие, приготовление, доставка, поддержка и возврат.", "Юридическая обязанность: фискальные и бухгалтерские документы, претензии и ответы госорганам.", "Законный интерес: предотвращение злоупотреблений, безопасность, доказательство операции и разрешение споров с учётом прав покупателя."] },
+        { id: "data", title: "1. Какие данные обрабатываются", bullets: ["Telegram ID и публичные данные профиля для входа и связи заказа с покупателем.", "Подтверждённый телефон, текстовый адрес, комментарий, язык и история заказов.", "Состав и суммы заказов, статус доставки, способ и статус оплаты, претензии и переписка с поддержкой.", "Технические данные безопасности и работы сервиса: время запроса, IP-адрес и события безопасности. Telegram initData проверяется сервером и не записывается в логи.", "Для геопроверки наличного заказа точные координаты не хранятся; сохраняются только результат, расстояние, точность, время и причина отказа.", "Данные использования приложения: открытые экраны и нажатия на кнопки или ссылки. Содержимое полей, телефон, адрес, координаты и Telegram initData в события аналитики не попадают."] },
+        { id: "purpose", title: "2. Цели и правовые основания", bullets: ["Исполнение договора: расчёт, принятие, приготовление, доставка, поддержка и возврат.", "Юридическая обязанность: фискальные и бухгалтерские документы, претензии и ответы госорганам.", "Законный интерес: предотвращение злоупотреблений, безопасность, доказательство операции, улучшение удобства приложения и разрешение споров с учётом прав покупателя."] },
         { id: "sharing", title: "3. Получатели данных", paragraphs: ["Данные получают только те, кому они необходимы: уполномоченные сотрудники продавца, единственный курьер для конкретной доставки, договорные хостинг- и IT-подрядчики, платёжный провайдер и банк при онлайн-оплате, а также госорганы по закону. Курьер видит только необходимое для доставки."], bullets: ["Данные карты вводятся у платёжного провайдера и не проходят через сервер Tako Lako.", "Telegram обрабатывает данные своей платформы по собственной политике; Tako Lako не контролирует аккаунт и инфраструктуру Telegram.", "Данные не продаются и не используются для таргетированной рекламы."] },
-        { id: "retention", title: "4. Хранение и безопасность", paragraphs: ["Данные хранятся только необходимый срок: деловая и фискальная документация — в установленные законом сроки, реестр претензий — не менее двух лет, данные безопасности — ограниченное время для защиты системы и расследования инцидента. После этого данные удаляются или обезличиваются, если нет иного законного основания."], bullets: ["Телефон и адрес зашифрованы, доступ ограничен ролью сотрудника, чувствительные данные не записываются в журналы приложения.", "Локальная корзина содержит только ID товаров, отображаемые данные и количество; в ней нет телефона, адреса, сессии или Telegram initData."] },
+        { id: "retention", title: "4. Хранение и безопасность", paragraphs: ["Данные хранятся только необходимый срок: деловая и фискальная документация — в установленные законом сроки, реестр претензий — не менее двух лет, события продуктовой аналитики — не более 400 дней, данные безопасности — ограниченное время для защиты системы и расследования инцидента. После этого данные удаляются или обезличиваются, если нет иного законного основания."], bullets: ["Телефон и адрес зашифрованы, доступ ограничен ролью сотрудника, чувствительные данные не записываются в журналы приложения.", "Локальная корзина содержит только ID товаров, отображаемые данные и количество; в ней нет телефона, адреса, сессии или Telegram initData."] },
         { id: "rights", title: "5. Права пользователя", paragraphs: ["Пользователь может запросить доступ, исправление, удаление или ограничение обработки, возразить против обработки на основании законного интереса и запросить переносимость в предусмотренных законом случаях. Запрос направляется на опубликованный email; до ответа может потребоваться разумная проверка личности."], bullets: ["Нельзя удалить данные, которые продавец обязан продолжать хранить по фискальным, бухгалтерским, потребительским или судебным требованиям.", "Жалобу можно подать Уполномоченному по информации общественного значения и защите персональных данных: poverenik.rs."] },
       ],
     },
   },
   en: {
-    updated: "Effective date: 17 August 2026 · version 2026-08-17",
+    updated: "Effective date: 27 August 2026 · version 2026-08-27",
     nav: { terms: "Terms of sale", returns: "Complaints and refunds", privacy: "Privacy" },
     merchantTitle: "Merchant details",
     merchantIntro: "Tako Lako is the name of the sales outlet. The contracting party and personal-data controller is the entrepreneur identified below.",
@@ -367,10 +368,10 @@ const legalCopy: Record<Locale, LegalCopy> = {
       title: "Privacy notice",
       intro: "This notice describes the personal data processed when you use Tako Lako, why it is used, who receives it and your rights.",
       sections: [
-        { id: "data", title: "1. Data we process", bullets: ["Telegram identifier and public profile data needed for authentication and linking an order to the customer.", "Verified phone number, text address, comment, language and order history.", "Order contents and values, delivery status, selected payment method and status, complaints and support messages.", "Technical data needed for security and operation, such as request time, IP address and security events. Telegram initData is verified by the server and is not written to application logs.", "For cash-order location verification, exact coordinates are not retained; only the result, distance, accuracy, time and rejection reason are stored."] },
-        { id: "purpose", title: "2. Purposes and legal bases", bullets: ["Contract performance: calculation, acceptance, preparation, delivery, support and refunds.", "Legal obligations: fiscal and accounting records, complaint records and responses to competent authorities.", "Legitimate interests: abuse prevention, service security, transaction evidence and dispute resolution, balanced against customer rights."] },
+        { id: "data", title: "1. Data we process", bullets: ["Telegram identifier and public profile data needed for authentication and linking an order to the customer.", "Verified phone number, text address, comment, language and order history.", "Order contents and values, delivery status, selected payment method and status, complaints and support messages.", "Technical data needed for security and operation, such as request time, IP address and security events. Telegram initData is verified by the server and is not written to application logs.", "For cash-order location verification, exact coordinates are not retained; only the result, distance, accuracy, time and rejection reason are stored.", "Application usage data: screens opened and buttons or links clicked. Field contents, phone numbers, addresses, coordinates and Telegram initData are not included in analytics events."] },
+        { id: "purpose", title: "2. Purposes and legal bases", bullets: ["Contract performance: calculation, acceptance, preparation, delivery, support and refunds.", "Legal obligations: fiscal and accounting records, complaint records and responses to competent authorities.", "Legitimate interests: abuse prevention, service security, transaction evidence, usability improvement and dispute resolution, balanced against customer rights."] },
         { id: "sharing", title: "3. Recipients", paragraphs: ["Data is disclosed only where needed: authorised merchant staff, the single courier for the relevant delivery, contracted hosting and IT suppliers, the payment provider and bank for online payment, and public authorities where required by law. The courier sees only what is needed to complete delivery."], bullets: ["Card details are entered with the payment provider and do not pass through the Tako Lako server.", "Telegram processes data within its platform under its own privacy terms. Tako Lako does not control a customer's Telegram account or Telegram infrastructure.", "Personal data is not sold or used for targeted advertising."] },
-        { id: "retention", title: "4. Retention and security", paragraphs: ["Data is kept only as long as needed: business and fiscal records for statutory periods, complaint records for at least two years, and security data for a limited period needed to protect the service and investigate incidents. Data is then deleted or anonymised unless another legal basis requires retention."], bullets: ["Phone numbers and addresses are encrypted, staff access is role-limited, and sensitive values are not written to application logs.", "The cart stored on the device contains product IDs, display data and quantities only; it contains no phone, address, session or Telegram initData."] },
+        { id: "retention", title: "4. Retention and security", paragraphs: ["Data is kept only as long as needed: business and fiscal records for statutory periods, complaint records for at least two years, product analytics events for no more than 400 days, and security data for a limited period needed to protect the service and investigate incidents. Data is then deleted or anonymised unless another legal basis requires retention."], bullets: ["Phone numbers and addresses are encrypted, staff access is role-limited, and sensitive values are not written to application logs.", "The cart stored on the device contains product IDs, display data and quantities only; it contains no phone, address, session or Telegram initData."] },
         { id: "rights", title: "5. Your rights", paragraphs: ["You may request access, correction, deletion or restriction, object where processing relies on legitimate interests, and request portability where the statutory conditions are met. Send a request to the published email. A reasonable identity check may be required before responding."], bullets: ["Deletion does not apply to records the merchant must retain for fiscal, accounting, consumer-protection or legal-claim purposes.", "A complaint may be made to the Commissioner for Information of Public Importance and Personal Data Protection: poverenik.rs."] },
       ],
     },

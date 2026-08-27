@@ -526,6 +526,12 @@ func TestClientSessionsAreRecordedAsVisits(t *testing.T) {
 	}, core.RoleClient, time.Hour); err != nil {
 		t.Fatalf("create second client session: %v", err)
 	}
+	if err := st.RecordProductEvents(ctx, client, []store.ProductEventInput{
+		{EventName: "screen_view", Screen: "menu"},
+		{EventName: "click", Screen: "menu", Target: "menu:button_в_корзину"},
+	}, time.Now().UTC()); err != nil {
+		t.Fatalf("record product events: %v", err)
+	}
 
 	now := time.Now().UTC()
 	analytics, err := st.AdminAnalytics(ctx, adminSession, now.Add(-time.Minute), now.Add(time.Minute), now)
@@ -534,6 +540,15 @@ func TestClientSessionsAreRecordedAsVisits(t *testing.T) {
 	}
 	if analytics.Audience.Visits != 2 || analytics.Audience.UniqueVisitors != 1 {
 		t.Fatalf("unexpected visit analytics: %+v", analytics.Audience)
+	}
+	if len(analytics.Product.Retention) != 3 {
+		t.Fatalf("expected D1/D7/D30 retention rows, got %+v", analytics.Product.Retention)
+	}
+	if len(analytics.Product.Screens) != 1 || analytics.Product.Screens[0].Key != "menu" || analytics.Product.Screens[0].Events != 1 {
+		t.Fatalf("unexpected screen analytics: %+v", analytics.Product.Screens)
+	}
+	if len(analytics.Product.Clicks) != 1 || analytics.Product.Clicks[0].Key != "menu:button_в_корзину" || analytics.Product.Clicks[0].Events != 1 {
+		t.Fatalf("unexpected click analytics: %+v", analytics.Product.Clicks)
 	}
 }
 
@@ -621,6 +636,9 @@ func TestAdminAnalyticsReturnsEmptyArrays(t *testing.T) {
 	}
 	if analytics.Statuses == nil || analytics.Payments == nil || analytics.TopDishes == nil || analytics.DailyRows == nil || analytics.DailyAudienceRows == nil {
 		t.Fatalf("expected non-nil analytics slices: statuses=%v payments=%v top_dishes=%v daily_rows=%v daily_audience_rows=%v", analytics.Statuses, analytics.Payments, analytics.TopDishes, analytics.DailyRows, analytics.DailyAudienceRows)
+	}
+	if analytics.Product.Retention == nil || analytics.Product.Screens == nil || analytics.Product.Clicks == nil || analytics.Product.OrderFunnel == nil || analytics.Product.BookingFunnel == nil {
+		t.Fatalf("expected non-nil product analytics slices: %+v", analytics.Product)
 	}
 	payload, err := json.Marshal(analytics)
 	if err != nil {

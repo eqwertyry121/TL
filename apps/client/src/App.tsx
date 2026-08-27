@@ -12,6 +12,7 @@ import { Icon } from "./Icon";
 import { termsVersion } from "./legal-version";
 import { maskPhone, money } from "./money";
 import { currentRoute, navigate, replaceRoute, routeFromStartParam, routeToHash } from "./route";
+import { installProductAnalytics } from "./product-analytics";
 import {
   clearCart,
   clearCheckoutProgress,
@@ -153,6 +154,14 @@ function ClientMiniApp() {
   const publicInformationRoute = isPublicInformationRoute(route);
 
   useEffect(() => installPerformanceBeacon("client", () => currentRoute().name), []);
+
+	useEffect(() => {
+		if (!token) return;
+		return installProductAnalytics({
+			screen: () => currentRoute().name,
+			send: (events) => api.productEvents(token, events),
+		});
+	}, [token]);
 
   const applySession = useCallback((session: Session) => {
     setData((current) => ({ ...current, session }));

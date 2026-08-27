@@ -12,6 +12,7 @@ export function AnalyticsSection({ analytics, range, onRange, onExport }: { anal
     pickup_customers: 0, pickup_orders: 0, reservation_customers: 0, reservations: 0,
     order_conversion_percent: 0, reservation_conversion_percent: 0,
   };
+  const product = analytics.product ?? { retention: [], screens: [], clicks: [], order_funnel: [], booking_funnel: [] };
   return (
     <section className="stack">
       <div className="toolbar panel">
@@ -41,6 +42,23 @@ export function AnalyticsSection({ analytics, range, onRange, onExport }: { anal
           <Metric title="Конверсия в бронь" value={`${audience.reservation_conversion_percent}%`} />
         </div>
       </section>
+      <section className="panel">
+        <h2>Возвращаются в приложение</h2>
+        <div className="grid analytics-audience-grid">
+          {[1, 7, 30].map((days) => {
+            const row = product.retention.find((entry) => entry.days === days);
+            return <Metric key={days} title={`D${days}`} value={row?.eligible_users ? `${row.percent}% · ${row.returned_users}/${row.eligible_users}` : "—"} />;
+          })}
+        </div>
+      </section>
+      <div className="two">
+        <SimpleTable title="Воронка заказа" rows={product.order_funnel.map((row) => [productMetricLabel(row.key), `${row.unique_users} чел`, `${row.events} действий`])} />
+        <SimpleTable title="Воронка брони" rows={product.booking_funnel.map((row) => [productMetricLabel(row.key), `${row.unique_users} чел`, `${row.events} действий`])} />
+      </div>
+      <div className="two">
+        <SimpleTable title="Экраны" rows={product.screens.map((row) => [productMetricLabel(row.key), `${row.unique_users} чел`, `${row.events} просмотров`])} />
+        <SimpleTable title="Куда нажимают" rows={product.clicks.map((row) => [productMetricLabel(row.key), `${row.unique_users} чел`, `${row.events} нажатий`])} />
+      </div>
       <section className="panel analytics-payments">
         <div><h2>Оплата</h2><p className="muted">Заказы и выручка по способам оплаты.</p></div>
         <div className="payment-breakdown">
@@ -235,6 +253,18 @@ function paymentBreakdownRows(rows: AnalyticsBreakdown[]): AnalyticsBreakdown[] 
   const byKey = new Map(rows.map((row) => [row.key, row]));
   const orderedKeys = ["cash", "card", ...rows.map((row) => row.key).filter((key) => key !== "cash" && key !== "card")];
   return [...new Set(orderedKeys)].map((key) => ({ ...empty(key), ...(byKey.get(key) || {}) }));
+}
+
+function productMetricLabel(key: string): string {
+  const labels: Record<string, string> = {
+    app_open: "Открыли Mini App", menu: "Меню", cart: "Корзина", checkout: "Оформление",
+    order_created: "Создали заказ", booking: "Бронь стола", reservation_created: "Создали бронь",
+    dish: "Карточка блюда", order: "Заказ", orders: "История", support: "Поддержка",
+  };
+  if (labels[key]) return labels[key];
+  const [screen, action = ""] = key.split(":", 2);
+  const actionLabel = action.replace(/^button_/, "").replace(/^navigate_/, "переход ").replaceAll("_", " ");
+  return actionLabel ? `${labels[screen] || screen}: ${actionLabel}` : key.replaceAll("_", " ");
 }
 
 function paymentMethodLabel(method: string): string {

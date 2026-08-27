@@ -451,6 +451,37 @@ export interface DailyAudienceRow {
   reservations: number;
 }
 
+export interface ProductMetric {
+  key: string;
+  events: number;
+  unique_users: number;
+}
+
+export interface ProductEvent {
+  name: "screen_view" | "click";
+  screen: string;
+  target: string;
+}
+
+export interface ProductEventBatch {
+  events: ProductEvent[];
+}
+
+export interface RetentionMetric {
+  days: number;
+  eligible_users: number;
+  returned_users: number;
+  percent: number;
+}
+
+export interface ProductAnalytics {
+  retention: RetentionMetric[];
+  screens: ProductMetric[];
+  clicks: ProductMetric[];
+  order_funnel: ProductMetric[];
+  booking_funnel: ProductMetric[];
+}
+
 export interface AdminAnalytics {
   currency: "RSD";
   from: string;
@@ -458,6 +489,7 @@ export interface AdminAnalytics {
   generated_at: string;
   summary: AnalyticsSummary;
   audience: AudienceAnalytics;
+  product: ProductAnalytics;
   statuses: AnalyticsBreakdown[];
   payments: AnalyticsBreakdown[];
   top_dishes: TopDish[];
