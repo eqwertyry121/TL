@@ -676,7 +676,7 @@ func (s *Store) DeliverySlots(ctx context.Context, sess core.Session, now time.T
 		if err := s.pool.QueryRow(ctx, `
 			SELECT COUNT(*)::int + 1
 			FROM orders
-			WHERE fulfillment_type='delivery' AND fulfillment_status='NEW'
+			WHERE fulfillment_type='delivery' AND fulfillment_status='NEW' AND delivery_time_mode='ASAP'
 		`).Scan(&result.ASAP.QueuePosition); err != nil {
 			return core.DeliverySlots{}, err
 		}
@@ -764,14 +764,6 @@ func validClock(value string) bool { _, _, ok := parseClock(value); return ok }
 func validPickupSlotMinutes(value int) bool {
 	switch value {
 	case 5, 10, 15, 20, 30, 60:
-		return true
-	}
-	return false
-}
-
-func validDeliverySlotMinutes(value int) bool {
-	switch value {
-	case 10, 15, 20, 30, 60:
 		return true
 	}
 	return false
@@ -870,16 +862,16 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 		input.PickupLastTime = "22:00"
 	}
 	if input.DeliveryMinLeadMinutes == 0 {
-		input.DeliveryMinLeadMinutes = 40
+		input.DeliveryMinLeadMinutes = 30
 	}
 	if input.DeliverySlotMinutes == 0 {
 		input.DeliverySlotMinutes = 30
 	}
 	if input.DeliveryMaxOrdersPerSlot == 0 {
-		input.DeliveryMaxOrdersPerSlot = 2
+		input.DeliveryMaxOrdersPerSlot = 1
 	}
 	if strings.TrimSpace(input.DeliveryLastTargetTime) == "" {
-		input.DeliveryLastTargetTime = "21:30"
+		input.DeliveryLastTargetTime = "21:00"
 	}
 	if input.FlatDeliveryFeeMinor < 0 || input.MaxItemQuantity <= 0 || input.MaxItemQuantity > maxItemQuantityHardLimit ||
 		input.MaxCommentLength <= 0 || input.MaxCommentLength > maxCustomerCommentLength || !input.CashEnabled {
@@ -912,9 +904,8 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 	if input.PickupEnabled && strings.TrimSpace(input.PickupAddress) == "" {
 		return core.Settings{}, core.ErrInvalidInput
 	}
-	if input.DeliveryMinLeadMinutes < 10 || input.DeliveryMinLeadMinutes > 180 ||
-		!validDeliverySlotMinutes(input.DeliverySlotMinutes) || input.DeliveryMaxOrdersPerSlot < 1 || input.DeliveryMaxOrdersPerSlot > 20 ||
-		!validClock(input.DeliveryLastTargetTime) {
+	if input.DeliveryMinLeadMinutes != 30 || input.DeliverySlotMinutes != 30 || input.DeliveryMaxOrdersPerSlot != 1 ||
+		strings.TrimSpace(input.DeliveryLastTargetTime) != "21:00" {
 		return core.Settings{}, core.ErrInvalidInput
 	}
 	before, err := s.Settings(ctx)
@@ -2670,11 +2661,11 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		}
 		return core.Order{}, err
 	}
-	if fulfillmentType == core.FulfillmentDelivery {
+	if fulfillmentType == core.FulfillmentDelivery && deliveryTimeMode == "ASAP" {
 		if err := tx.QueryRow(ctx, `
 			SELECT COUNT(*)::int + 1
 			FROM orders q
-			WHERE q.fulfillment_type='delivery' AND q.fulfillment_status='NEW'
+			WHERE q.fulfillment_type='delivery' AND q.fulfillment_status='NEW' AND q.delivery_time_mode='ASAP'
 				AND (q.created_at < $2 OR (q.created_at = $2 AND q.id < $1))
 		`, orderID, createdAt).Scan(&kitchenQueuePosition); err != nil {
 			return core.Order{}, err
@@ -3113,9 +3104,9 @@ func (s *Store) ClientOrders(ctx context.Context, sess core.Session, filter Clie
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
 			o.locale, o.version, o.created_at, o.pickup_at, o.delivery_time_mode, o.delivery_requested_at,
 			o.delivery_target_at, o.delivery_queue_delay_minutes,
-			CASE WHEN o.fulfillment_type='delivery' AND o.fulfillment_status='NEW' THEN (
+			CASE WHEN o.fulfillment_type='delivery' AND o.fulfillment_status='NEW' AND o.delivery_time_mode='ASAP' THEN (
 				SELECT COUNT(*)::int + 1 FROM orders q
-				WHERE q.fulfillment_type='delivery' AND q.fulfillment_status='NEW'
+				WHERE q.fulfillment_type='delivery' AND q.fulfillment_status='NEW' AND q.delivery_time_mode='ASAP'
 					AND (q.created_at < o.created_at OR (q.created_at = o.created_at AND q.id < o.id))
 			) ELSE 0 END,
 			o.estimated_ready_at,
@@ -3153,9 +3144,9 @@ func (s *Store) ClientBootstrapOrders(ctx context.Context, sess core.Session) ([
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
 			o.locale, o.version, o.created_at, o.pickup_at, o.delivery_time_mode, o.delivery_requested_at,
 			o.delivery_target_at, o.delivery_queue_delay_minutes,
-			CASE WHEN o.fulfillment_type='delivery' AND o.fulfillment_status='NEW' THEN (
+			CASE WHEN o.fulfillment_type='delivery' AND o.fulfillment_status='NEW' AND o.delivery_time_mode='ASAP' THEN (
 				SELECT COUNT(*)::int + 1 FROM orders q
-				WHERE q.fulfillment_type='delivery' AND q.fulfillment_status='NEW'
+				WHERE q.fulfillment_type='delivery' AND q.fulfillment_status='NEW' AND q.delivery_time_mode='ASAP'
 					AND (q.created_at < o.created_at OR (q.created_at = o.created_at AND q.id < o.id))
 			) ELSE 0 END,
 			o.estimated_ready_at,
@@ -5095,9 +5086,9 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 		SELECT o.id, o.pickup_at, o.pickup_original_at, o.pickup_cook_at, o.kitchen_started_at, o.courier_started_at,
 			pickup_address_snapshot, pickup_instructions_snapshot, delivery_time_mode, delivery_requested_at,
 			delivery_target_at, delivery_queue_delay_minutes,
-			CASE WHEN o.fulfillment_type='delivery' AND o.fulfillment_status='NEW' THEN (
+			CASE WHEN o.fulfillment_type='delivery' AND o.fulfillment_status='NEW' AND o.delivery_time_mode='ASAP' THEN (
 				SELECT COUNT(*)::int + 1 FROM orders q
-				WHERE q.fulfillment_type='delivery' AND q.fulfillment_status='NEW'
+				WHERE q.fulfillment_type='delivery' AND q.fulfillment_status='NEW' AND q.delivery_time_mode='ASAP'
 					AND (q.created_at < o.created_at OR (q.created_at = o.created_at AND q.id < o.id))
 			) ELSE 0 END,
 			estimated_ready_at, estimated_ready_updated_at, estimated_ready_by

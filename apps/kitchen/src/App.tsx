@@ -47,7 +47,7 @@ export function App() {
   const deliveryOrders = useMemo(() => orders.filter((order) => order.fulfillment_type !== "pickup" && order.fulfillment_status === "NEW"), [orders]);
   const pickupOrders = useMemo(() => orders.filter((order) => order.fulfillment_type === "pickup" && order.fulfillment_status === "NEW"), [orders]);
   const pickupReadyOrders = useMemo(() => orders.filter(isPickupReady), [orders]);
-  const sortedDeliveryOrders = useMemo(() => [...deliveryOrders].sort((a, b) => (a.kitchen_queue_position || Number.MAX_SAFE_INTEGER) - (b.kitchen_queue_position || Number.MAX_SAFE_INTEGER) || new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [deliveryOrders]);
+  const sortedDeliveryOrders = useMemo(() => [...deliveryOrders].sort((a, b) => new Date(a.delivery_target_at || a.created_at).getTime() - new Date(b.delivery_target_at || b.created_at).getTime() || new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), [deliveryOrders]);
   const sortedPickupOrders = useMemo(() => [...pickupOrders].sort((a, b) => pickupTimestamp(a) - pickupTimestamp(b)), [pickupOrders]);
   const sortedPickupReadyOrders = useMemo(() => [...pickupReadyOrders].sort((a, b) => new Date(a.ready_at || a.created_at).getTime() - new Date(b.ready_at || b.created_at).getTime()), [pickupReadyOrders]);
   const visibleNewOrders = useMemo(() => (activeWindow === "delivery" ? sortedDeliveryOrders : sortedPickupOrders).filter((order) => !order.kitchen_started_at), [activeWindow, sortedDeliveryOrders, sortedPickupOrders]);
@@ -619,6 +619,9 @@ function KitchenTiming({
   const target = pickup
     ? order.pickup_at
     : undefined;
+  const scheduledTarget = !pickup && order.delivery_time_mode === "SCHEDULED"
+    ? order.delivery_requested_at || order.delivery_target_at
+    : undefined;
   const exactOptions = readyTimeOptions();
   const [timePickerOpen, setTimePickerOpen] = useState(false);
 
@@ -639,8 +642,8 @@ function KitchenTiming({
         </div>
       ) : (
         <div className="delivery-time-status">
-          <span>Очередь</span>
-          <strong>{order.kitchen_queue_position ? `№${order.kitchen_queue_position}` : "Новая"}</strong>
+          <span>{scheduledTarget ? "Ко времени" : "Очередь"}</span>
+          <strong>{scheduledTarget ? timeHHMM(scheduledTarget) : order.kitchen_queue_position ? `№${order.kitchen_queue_position}` : "Новая"}</strong>
         </div>
       )}
       {!pickup && (
@@ -666,7 +669,7 @@ function KitchenTiming({
               <section className="ready-time-sheet" role="dialog" aria-modal="true" aria-label="Выбор времени готовности" onClick={(event) => event.stopPropagation()}>
                 <header>
                   <div>
-                    <small>{order.kitchen_queue_position ? `Заказ №${order.kitchen_queue_position} в очереди` : `Заказ #${order.public_number}`}</small>
+                    <small>{scheduledTarget ? `Доставка к ${timeHHMM(scheduledTarget)}` : order.kitchen_queue_position ? `Заказ №${order.kitchen_queue_position} в очереди` : `Заказ #${order.public_number}`}</small>
                     <strong>К какому времени будет готов?</strong>
                   </div>
                   <button type="button" onClick={() => setTimePickerOpen(false)} aria-label="Закрыть">×</button>

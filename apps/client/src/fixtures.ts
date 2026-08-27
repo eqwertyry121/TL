@@ -23,9 +23,9 @@ export const demoRuntime: Runtime = {
   pickup_slot_minutes: 15,
   pickup_last_time: "22:00",
   delivery_timing_enabled: true,
-  delivery_min_lead_minutes: 40,
+  delivery_min_lead_minutes: 30,
   delivery_slot_minutes: 30,
-  delivery_last_target_time: "21:30",
+  delivery_last_target_time: "21:00",
 };
 
 const media = (slug: string) => `/media/menu/${slug}.jpg`;

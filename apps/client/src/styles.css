@@ -2376,13 +2376,26 @@ textarea {
 .delivery-timing-head { display:flex; align-items:baseline; justify-content:space-between; gap:.7rem; }
 .delivery-timing-head strong { font-size:.9rem; }
 .delivery-timing-head small { color:var(--muted); font-size:.7rem; font-weight:800; }
+.delivery-timing-modes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.45rem; }
+.delivery-timing-modes button { display:grid; min-width:0; min-height:3.25rem; gap:.1rem; padding:.6rem .7rem; border:1px solid #dfd1c2; border-radius:.85rem; background:#fffaf2; color:var(--text); text-align:left; }
+.delivery-timing-modes button strong { font-size:.78rem; }
+.delivery-timing-modes button small { overflow:hidden; color:var(--muted); font-size:.64rem; text-overflow:ellipsis; white-space:nowrap; }
+.delivery-timing-modes button.active { border-color:#7c2d38; background:linear-gradient(145deg,#8e3140,#651d29); color:#fffdf8; box-shadow:0 .35rem .8rem rgba(77,20,29,.16); }
+.delivery-timing-modes button.active small { color:rgba(255,253,248,.8); }
 .delivery-timing-summary { display:grid; gap:.12rem; border-radius:.75rem; padding:.55rem .65rem; background:#f7efe4; line-height:1.25; }
 .delivery-timing-summary strong { font-size:.82rem; }
 .delivery-timing-summary small { color:var(--muted); font-size:.7rem; }
 .delivery-timing-summary.has-queue { border:1px solid rgba(166,105,31,.24); background:rgba(206,163,76,.13); }
+.scheduled-delivery-picker { display:grid; gap:.45rem; }
+.scheduled-delivery-picker > small { color:var(--muted); font-size:.68rem; line-height:1.3; }
+.delivery-slots { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.4rem; }
+.delivery-slots button { min-height:2.55rem; border:1px solid #dfd1c2; border-radius:.75rem; background:#fffaf2; color:var(--text); font-size:.76rem; font-weight:850; }
+.delivery-slots button.active { border-color:#7c2d38; background:linear-gradient(145deg,#8e3140,#651d29); color:#fffdf8; box-shadow:0 .3rem .7rem rgba(77,20,29,.16); }
 .delivery-timing-final { display:flex; align-items:baseline; gap:.25rem; padding:.7rem .85rem; border:1px solid var(--line); border-radius:.9rem; background:rgba(255,255,255,.45); }
+.delivery-timing-final strong { margin-left:auto; }
 .delivery-order-timing { display:grid; gap:.3rem; }
 .delivery-order-timing small { color:var(--muted); }
+@media (max-width:360px) { .delivery-slots { grid-template-columns:repeat(3,minmax(0,1fr)); } }
 
 .cash-location {
   display: grid;

@@ -1796,8 +1796,8 @@ func TestDeliveryTimingCapacityAndKitchenETARevision(t *testing.T) {
 	testTimezone := middayTestTimezone(now)
 	if _, err := pool.Exec(ctx, `
 		UPDATE app_settings
-		SET timezone=$1, delivery_timing_enabled=true, delivery_min_lead_minutes=10,
-			delivery_slot_minutes=10, delivery_max_orders_per_slot=1,
+		SET timezone=$1, delivery_timing_enabled=true, delivery_min_lead_minutes=30,
+			delivery_slot_minutes=30, delivery_max_orders_per_slot=1,
 			delivery_last_target_time='23:50'
 	`, testTimezone); err != nil {
 		t.Fatalf("enable delivery timing: %v", err)
@@ -1817,6 +1817,9 @@ func TestDeliveryTimingCapacityAndKitchenETARevision(t *testing.T) {
 	}
 	if first.DeliveryTargetAt == nil || !first.DeliveryTargetAt.Equal(requested) || first.DeliveryTimeMode != "SCHEDULED" {
 		t.Fatalf("stored delivery timing = %+v", first)
+	}
+	if first.KitchenQueuePosition != 0 {
+		t.Fatalf("scheduled order queue position = %d, want 0", first.KitchenQueuePosition)
 	}
 
 	secondSession, secondInput := prepareCashOrderForCart(t, ctx, st, clientTelegramID+901, "+38160111902", "Delivery timing two", []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now)
@@ -1870,10 +1873,23 @@ func TestDeliveryKitchenQueuePositions(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		UPDATE app_settings
 		SET timezone=$1, delivery_timing_enabled=true, delivery_min_lead_minutes=30,
-			delivery_slot_minutes=30, delivery_max_orders_per_slot=2,
+			delivery_slot_minutes=30, delivery_max_orders_per_slot=1,
 			delivery_last_target_time='23:30'
 	`, testTimezone); err != nil {
 		t.Fatalf("enable delivery timing queue: %v", err)
+	}
+
+	scheduledSession, scheduledInput := prepareCashOrderForCart(t, ctx, st, clientTelegramID+919, "+38160113019", "Scheduled queue address", []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now)
+	scheduledSlots, err := st.DeliverySlots(ctx, scheduledSession, now)
+	if err != nil || len(scheduledSlots.Slots) == 0 {
+		t.Fatalf("scheduled delivery slots: slots=%d err=%v", len(scheduledSlots.Slots), err)
+	}
+	scheduledInput.DeliveryTimeMode = "SCHEDULED"
+	scheduledTarget := scheduledSlots.Slots[0].TargetAt
+	scheduledInput.DeliveryRequestedAt = &scheduledTarget
+	scheduled, err := st.CreateCashOrder(ctx, scheduledSession, scheduledInput, "idem-scheduled-before-asap", "hash-scheduled-before-asap", now)
+	if err != nil || scheduled.KitchenQueuePosition != 0 {
+		t.Fatalf("scheduled order queue position = %d, err=%v", scheduled.KitchenQueuePosition, err)
 	}
 
 	orderIDs := make([]uuid.UUID, 0, 6)
@@ -1937,16 +1953,54 @@ func TestDeliveryKitchenQueuePositions(t *testing.T) {
 		t.Fatalf("queue position after first order ready = %d, want 5", page.Orders[0].KitchenQueuePosition)
 	}
 	kitchenOrders, err := st.KitchenOrders(ctx, kitchenSession)
-	if err != nil || len(kitchenOrders) != 5 {
+	if err != nil || len(kitchenOrders) != 6 {
 		t.Fatalf("load kitchen queue: orders=%d err=%v", len(kitchenOrders), err)
 	}
 	positions := make([]int, 0, len(kitchenOrders))
 	for _, order := range kitchenOrders {
-		positions = append(positions, order.KitchenQueuePosition)
+		if order.KitchenQueuePosition > 0 {
+			positions = append(positions, order.KitchenQueuePosition)
+		}
 	}
 	slices.Sort(positions)
 	if !slices.Equal(positions, []int{1, 2, 3, 4, 5}) {
 		t.Fatalf("live kitchen queue positions = %v", positions)
+	}
+}
+
+func TestDeliveryASAPReservesNextScheduledInterval(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	now := time.Now().UTC()
+	testTimezone := middayTestTimezone(now)
+	if _, err := pool.Exec(ctx, `
+		UPDATE app_settings
+		SET timezone=$1, delivery_timing_enabled=true, delivery_min_lead_minutes=30,
+			delivery_slot_minutes=30, delivery_max_orders_per_slot=1,
+			delivery_last_target_time='23:30'
+	`, testTimezone); err != nil {
+		t.Fatalf("enable delivery timing: %v", err)
+	}
+
+	asapSession, asapInput := prepareCashOrderForCart(t, ctx, st, clientTelegramID+950, "+38160113950", "ASAP interval address", []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now)
+	asapInput.DeliveryTimeMode = "ASAP"
+	asap, err := st.CreateCashOrder(ctx, asapSession, asapInput, "idem-asap-reserves-slot", "hash-asap-reserves-slot", now)
+	if err != nil || asap.DeliveryTargetAt == nil {
+		t.Fatalf("create ASAP interval order: target=%v err=%v", asap.DeliveryTargetAt, err)
+	}
+
+	scheduledSession, _ := prepareCashOrderForCart(t, ctx, st, clientTelegramID+951, "+38160113951", "Scheduled interval address", []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now)
+	slots, err := st.DeliverySlots(ctx, scheduledSession, now)
+	if err != nil || len(slots.Slots) < 2 {
+		t.Fatalf("delivery slots after ASAP: slots=%d err=%v", len(slots.Slots), err)
+	}
+	if slots.Slots[0].Available || !slots.Slots[0].TargetAt.Equal(*asap.DeliveryTargetAt) {
+		t.Fatalf("ASAP target must close first slot: target=%s first=%+v", asap.DeliveryTargetAt, slots.Slots[0])
+	}
+	if !slots.Slots[1].Available || slots.Slots[1].TargetAt.Sub(*asap.DeliveryTargetAt) != 30*time.Minute {
+		t.Fatalf("first scheduled time after ASAP = %+v, want target +30m", slots.Slots[1])
 	}
 }
 

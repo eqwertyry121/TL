@@ -564,10 +564,10 @@ function loadDemoSettings(): Settings {
     pickup_max_orders_per_slot: settings.pickup_max_orders_per_slot || 3,
     pickup_last_time: settings.pickup_last_time || "22:00",
     delivery_timing_enabled: settings.delivery_timing_enabled ?? false,
-    delivery_min_lead_minutes: settings.delivery_min_lead_minutes || 40,
+    delivery_min_lead_minutes: settings.delivery_min_lead_minutes || 30,
     delivery_slot_minutes: settings.delivery_slot_minutes || 30,
-    delivery_max_orders_per_slot: settings.delivery_max_orders_per_slot || 2,
-    delivery_last_target_time: settings.delivery_last_target_time || "21:30",
+    delivery_max_orders_per_slot: settings.delivery_max_orders_per_slot || 1,
+    delivery_last_target_time: settings.delivery_last_target_time || "21:00",
   };
   if (!localStorage.getItem(demoCryptoTestMigrationKey)) {
     const next = { ...normalized, crypto_enabled: true };
@@ -673,10 +673,10 @@ function seedDemoSettings(): Settings {
     pickup_max_orders_per_slot: 3,
     pickup_last_time: "22:00",
     delivery_timing_enabled: true,
-    delivery_min_lead_minutes: 40,
+    delivery_min_lead_minutes: 30,
     delivery_slot_minutes: 30,
-    delivery_max_orders_per_slot: 2,
-    delivery_last_target_time: "21:30",
+    delivery_max_orders_per_slot: 1,
+    delivery_last_target_time: "21:00",
     version: 1,
     schedule: defaultSchedule(),
   };

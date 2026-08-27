@@ -137,12 +137,7 @@ export function SettingsSection({ settings, demoMode, onSave }: { settings: Sett
       <div className="panel settings-card">
         <div className="settings-card-head"><h2>Время доставки</h2></div>
         <label className="check"><input type="checkbox" checked={form.delivery_timing_enabled} onChange={(event) => setForm({ ...form, delivery_timing_enabled: event.target.checked })} /> Разрешить выбор времени</label>
-        <div className="form-grid three">
-          <NumberInput label="Минимум, мин" value={form.delivery_min_lead_minutes} onChange={(delivery_min_lead_minutes) => setForm({ ...form, delivery_min_lead_minutes })} />
-          <NumberInput label="Шаг, мин" value={form.delivery_slot_minutes} onChange={(delivery_slot_minutes) => setForm({ ...form, delivery_slot_minutes })} />
-          <NumberInput label="Заказов на слот" value={form.delivery_max_orders_per_slot} onChange={(delivery_max_orders_per_slot) => setForm({ ...form, delivery_max_orders_per_slot })} />
-        </div>
-        <label><span>Последнее время</span><input type="time" value={form.delivery_last_target_time} onChange={(event) => setForm({ ...form, delivery_last_target_time: event.target.value })} /></label>
+        <p className="muted">Первое время через 30 минут · один заказ на каждые 30 минут · последнее время 21:00</p>
       </div>
 
       <div className="panel settings-card">

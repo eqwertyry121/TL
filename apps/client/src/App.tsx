@@ -478,6 +478,11 @@ function ClientMiniApp() {
     const next = { ...draft, ...patch };
     setDraft(next);
     saveCheckoutDraft(next);
+    if (next.deliveryTimeMode !== draft.deliveryTimeMode || next.deliveryRequestedAt !== draft.deliveryRequestedAt) {
+      setCalculation(null);
+      setCashLocation(null);
+      clearCheckoutProgress();
+    }
   }
 
   function updateFulfillmentType(next: FulfillmentType) {
@@ -502,7 +507,8 @@ function ClientMiniApp() {
         availableCartLines.map((line) => ({ item_id: line.itemId, quantity: line.quantity })),
         fulfillmentType,
         fulfillmentType === "delivery" && deliveryTimingEnabled ? {
-          delivery_time_mode: "ASAP",
+          delivery_time_mode: draft.deliveryTimeMode,
+          delivery_requested_at: draft.deliveryTimeMode === "SCHEDULED" ? draft.deliveryRequestedAt || undefined : undefined,
         } : undefined,
       ),
       token,
@@ -601,6 +607,10 @@ function ClientMiniApp() {
       setError(checkoutCopy(locale).pickupTimeRequired);
       return;
     }
+    if (deliverySelected && deliveryTimingEnabled && draft.deliveryTimeMode === "SCHEDULED" && !draft.deliveryRequestedAt) {
+      setError(checkoutCopy(locale).nextDeliveryTime);
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -632,7 +642,8 @@ function ClientMiniApp() {
           comment: draft.comment.trim(),
           fulfillment_type: fulfillmentType,
           pickup_at: deliverySelected ? undefined : draft.pickupAt,
-          delivery_time_mode: deliverySelected && deliveryTimingEnabled ? "ASAP" : undefined,
+          delivery_time_mode: deliverySelected && deliveryTimingEnabled ? draft.deliveryTimeMode : undefined,
+          delivery_requested_at: deliverySelected && deliveryTimingEnabled && draft.deliveryTimeMode === "SCHEDULED" ? draft.deliveryRequestedAt : undefined,
           payment_method: paymentMethod,
           cash_location_challenge_id: paymentMethod === "cash" ? cashLocation?.id : undefined,
           terms_accepted: termsAccepted,
@@ -1628,7 +1639,9 @@ function Checkout({
   onSubmit: () => Promise<void>;
 }) {
   useEffect(() => {
-    if (lines.length) void onCalculate().catch(() => undefined);
+    if (lines.length && (draft.deliveryTimeMode !== "SCHEDULED" || Boolean(draft.deliveryRequestedAt))) {
+      void onCalculate().catch(() => undefined);
+    }
   }, [fulfillmentType, lines.length, draft.deliveryTimeMode, draft.deliveryRequestedAt]);
   const deliverySelected = fulfillmentType === "delivery";
   const locationRequired = paymentMethod === "cash" && cashLocationRequired;
@@ -1656,14 +1669,17 @@ function Checkout({
   const addressReady = !deliverySelected || Boolean(draft.street.trim() && draft.houseNumber.trim());
   const phoneReady = contactVerified && Boolean(draft.phone.trim());
   const pickupTimeReady = deliverySelected || (pickupEnabled && Boolean(draft.pickupAt));
-  const canSubmit = checkoutOpen && !submitting && addressReady && phoneReady && locationVerified && pickupTimeReady && termsAccepted;
+  const deliveryTimeReady = !deliverySelected || !deliveryTimingEnabled || draft.deliveryTimeMode === "ASAP" || Boolean(draft.deliveryRequestedAt);
+  const canSubmit = checkoutOpen && !submitting && addressReady && phoneReady && locationVerified && pickupTimeReady && deliveryTimeReady && termsAccepted;
   const checkoutHint = !checkoutOpen
     ? checkoutClosedLabel
     : !addressReady
       ? copy.nextAddress
       : !pickupTimeReady
         ? copy.nextPickupTime
-        : !phoneReady
+        : !deliveryTimeReady
+          ? copy.nextDeliveryTime
+          : !phoneReady
             ? copy.nextPhone
             : !locationVerified
               ? copy.nextLocation
@@ -1732,10 +1748,37 @@ function Checkout({
         {deliverySelected && deliveryTimingEnabled && (
           <section className="delivery-timing" aria-label={timingCopy.title}>
             <div className="delivery-timing-head"><strong>{timingCopy.title}</strong></div>
-            <div className="delivery-timing-summary has-queue">
-              <strong>{deliveryQueuePositionText(deliverySlots?.asap?.queue_position || 1, locale, true)}</strong>
-              <small>{timingCopy.kitchenSetsTime}</small>
+            <div className="delivery-timing-modes">
+              <button type="button" className={draft.deliveryTimeMode === "ASAP" ? "active" : ""} onClick={() => onDraft({ deliveryTimeMode: "ASAP", deliveryRequestedAt: "" })}>
+                <strong>{timingCopy.asap}</strong>
+                <small>{timingCopy.asapHint}</small>
+              </button>
+              <button type="button" className={draft.deliveryTimeMode === "SCHEDULED" ? "active" : ""} onClick={() => onDraft({ deliveryTimeMode: "SCHEDULED" })}>
+                <strong>{timingCopy.scheduled}</strong>
+                <small>{timingCopy.scheduledHint}</small>
+              </button>
             </div>
+            {draft.deliveryTimeMode === "ASAP" ? (
+              <div className="delivery-timing-summary has-queue">
+                <strong>{deliveryQueuePositionText(deliverySlots?.asap?.queue_position || 1, locale, true)}</strong>
+                <small>{timingCopy.kitchenSetsTime}</small>
+              </div>
+            ) : (
+              <div className="scheduled-delivery-picker">
+                <small>{timingCopy.availableTimes}</small>
+                {deliverySlots?.slots.some((slot) => slot.available) ? (
+                  <div className="delivery-slots">
+                    {deliverySlots.slots.filter((slot) => slot.available).map((slot) => (
+                      <button type="button" key={slot.target_at} className={draft.deliveryRequestedAt === slot.target_at ? "active" : ""} onClick={() => onDraft({ deliveryRequestedAt: slot.target_at })}>
+                        {slot.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="pickup-slots-loading">{deliverySlots ? timingCopy.noTimes : timingCopy.loadingTimes}</div>
+                )}
+              </div>
+            )}
           </section>
         )}
         {!deliverySelected && (
@@ -1850,8 +1893,8 @@ function Checkout({
         </div>
         {deliverySelected && deliveryTimingEnabled && deliverySlots?.asap?.queue_position && (
           <div className="delivery-timing-final">
-            <span>{timingCopy.title}</span>
-            <strong>· №{deliverySlots.asap.queue_position}</strong>
+            <span>{draft.deliveryTimeMode === "SCHEDULED" ? timingCopy.scheduled : timingCopy.queue}</span>
+            <strong>{draft.deliveryTimeMode === "SCHEDULED" && draft.deliveryRequestedAt ? formatPickupTime(draft.deliveryRequestedAt) : `№${deliverySlots.asap.queue_position}`}</strong>
           </div>
         )}
         <Totals subtotal={calculation?.subtotal_minor ?? subtotal} total={checkoutTotal} locale={locale} />
@@ -1878,15 +1921,39 @@ function Checkout({
 function deliveryTimingCopy(locale: Locale) {
   return {
     ru: {
-      title: "Очередь кухни",
+      title: "Когда доставить?",
+      asap: "Как можно скорее",
+      asapHint: "в порядке очереди",
+      scheduled: "Ко времени",
+      scheduledHint: "свободный интервал",
+      queue: "Очередь кухни",
+      availableTimes: "Свободное время. Один заказ занимает 30 минут.",
+      loadingTimes: "Загружаем время…",
+      noTimes: "Сегодня свободного времени больше нет",
       kitchenSetsTime: "После оформления кухня назначит время готовности и сообщит вам.",
     },
     sr: {
-      title: "Red u kuhinji",
+      title: "Kada želite dostavu?",
+      asap: "Što pre",
+      asapHint: "po redosledu",
+      scheduled: "Do vremena",
+      scheduledHint: "slobodan termin",
+      queue: "Red u kuhinji",
+      availableTimes: "Slobodno vreme. Jedna porudžbina zauzima 30 minuta.",
+      loadingTimes: "Učitavamo termine…",
+      noTimes: "Danas više nema slobodnih termina",
       kitchenSetsTime: "Nakon poručivanja kuhinja će odrediti vreme pripreme i obavestiti vas.",
     },
     en: {
-      title: "Kitchen queue",
+      title: "When should we deliver?",
+      asap: "As soon as possible",
+      asapHint: "in queue order",
+      scheduled: "By a time",
+      scheduledHint: "available slot",
+      queue: "Kitchen queue",
+      availableTimes: "Available times. One order occupies 30 minutes.",
+      loadingTimes: "Loading times…",
+      noTimes: "There are no available times left today",
       kitchenSetsTime: "After checkout, the kitchen will set the preparation time and let you know.",
     },
   }[locale];
@@ -2296,6 +2363,11 @@ function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; 
             <>
               <strong>{locale === "en" ? "The kitchen expects the order to be ready around " : locale === "sr" ? "Kuhinja očekuje da će porudžbina biti spremna oko " : "Кухня планирует закончить примерно к "}{formatPickupTime(order.estimated_ready_at)}</strong>
               <small>{locale === "en" ? "The time is approximate and may change." : locale === "sr" ? "Vreme je okvirno i može se promeniti." : "Время примерное и может измениться."}</small>
+            </>
+          ) : order.delivery_time_mode === "SCHEDULED" && (order.delivery_requested_at || order.delivery_target_at) ? (
+            <>
+              <strong>{locale === "en" ? "Delivery requested around " : locale === "sr" ? "Željena dostava oko " : "Доставка ориентировочно к "}{formatPickupTime(order.delivery_requested_at || order.delivery_target_at)}</strong>
+              <small>{locale === "en" ? "The kitchen will confirm the preparation time separately." : locale === "sr" ? "Kuhinja će posebno potvrditi vreme pripreme." : "Кухня отдельно сообщит время готовности."}</small>
             </>
           ) : (order.kitchen_queue_position || 0) > 0 ? (
             <>
