@@ -1663,9 +1663,7 @@ function Checkout({
       ? copy.nextAddress
       : !pickupTimeReady
         ? copy.nextPickupTime
-        : !deliveryTimeReady
-          ? copy.nextDeliveryTime
-          : !phoneReady
+        : !phoneReady
             ? copy.nextPhone
             : !locationVerified
               ? copy.nextLocation
