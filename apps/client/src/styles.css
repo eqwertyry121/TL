@@ -433,55 +433,34 @@ h2 {
 	line-height: 1.2;
 }
 
-.booking-guest-select {
-	position: relative;
+.booking-guest-options {
+	display: grid;
+	grid-template-columns: repeat(5, minmax(0, 1fr));
+	gap: clamp(0.35rem, 2vw, 0.55rem);
 }
 
-.booking-guest-trigger {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	width: 100%;
-	min-height: 3.2rem;
-	padding: 0 1rem;
+.booking-guest-options button {
+	min-width: 0;
+	min-height: 3.15rem;
 	border: 1px solid var(--color-border);
 	border-radius: 0.9rem;
 	background: #fbf6ed;
 	color: var(--color-text);
-	font-weight: 800;
+	font-size: 1.05rem;
+	font-weight: 850;
+	box-shadow: 0 0.15rem 0.45rem rgba(38, 26, 23, 0.05);
+	transition: background 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
-.booking-guest-trigger svg {
-	color: var(--color-primary);
+.booking-guest-options button.active {
+	border-color: #7c1f2f;
+	background: linear-gradient(135deg, #aa452f, #6d1428);
+	color: #fffaf3;
+	box-shadow: 0 0.35rem 0.85rem rgba(109, 20, 40, 0.22);
 }
 
-.booking-guest-menu {
-	position: absolute;
-	top: calc(100% + 0.35rem);
-	right: 0;
-	left: 0;
-	z-index: 50;
-	display: grid;
-	padding: 0.35rem;
-	border: 1px solid var(--color-border);
-	border-radius: 1rem;
-	background: var(--color-surface);
-	box-shadow: 0 0.9rem 2rem rgba(38, 26, 23, 0.16);
-}
-
-.booking-guest-menu button {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	min-height: 2.8rem;
-	padding: 0 0.75rem;
-	border-radius: 0.7rem;
-	background: transparent;
-	color: var(--color-text);
-}
-
-.booking-guest-menu button.active {
-	background: var(--surface-soft);
+.booking-guest-options button:active:not(:disabled) {
+	transform: scale(0.96);
 }
 
 .booking-days {

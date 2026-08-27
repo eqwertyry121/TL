@@ -146,6 +146,22 @@ test("client legal pages stay available without Telegram authentication", () => 
   assertIncludes(legalSource, "Kartična porudžbina smatra se plaćenom samo posle potvrde pružaoca platnih usluga.");
 });
 
+test("table booking keeps all guest counts visible as one-tap buttons", () => {
+  const appSource = readSource("apps/client/src/App.tsx");
+  const styles = readSource("apps/client/src/styles.css");
+  const booking = sliceBetween(appSource, "function Booking({", "function bookingCopy");
+
+  assertIncludes(booking, 'className="booking-guest-options"');
+  assertIncludes(booking, 'role="radiogroup"');
+  assertIncludes(booking, "[1, 2, 3, 4, 5].map");
+  assertIncludes(booking, 'role="radio"');
+  assertIncludes(booking, "aria-checked={guests === count}");
+  assertNotIncludes(booking, "guestSelectOpen");
+  assertNotIncludes(booking, 'aria-haspopup="listbox"');
+  assertIncludes(styles, "grid-template-columns: repeat(5, minmax(0, 1fr))");
+  assertIncludes(styles, ".booking-guest-options button.active");
+});
+
 function readSource(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 }
