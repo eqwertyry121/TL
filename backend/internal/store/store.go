@@ -397,8 +397,13 @@ func (s *Store) CreateSession(ctx context.Context, user core.User, role core.Rol
 	}
 	expiresAt := time.Now().UTC().Add(ttl)
 	_, err = s.pool.Exec(ctx, `
-		INSERT INTO sessions (token_hash, user_id, telegram_user_id, audience, active_role, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		WITH created_session AS (
+			INSERT INTO sessions (token_hash, user_id, telegram_user_id, audience, active_role, expires_at)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			RETURNING user_id
+		)
+		INSERT INTO client_app_visits (user_id)
+		SELECT user_id FROM created_session WHERE $4 = 'client' AND $5 = 'CLIENT'
 	`, tokenHash, user.ID, user.TelegramUserID, string(audience), string(role), expiresAt)
 	if err != nil {
 		return core.Session{}, nil, err
@@ -3836,14 +3841,68 @@ func (s *Store) AdminAnalytics(ctx context.Context, sess core.Session, from, to 
 		return core.AdminAnalytics{}, err
 	}
 	analytics := core.AdminAnalytics{
-		Currency:    settings.Currency,
-		From:        from.UTC(),
-		To:          to.UTC(),
-		GeneratedAt: now.UTC(),
-		Statuses:    []core.AnalyticsBreakdown{},
-		Payments:    []core.AnalyticsBreakdown{},
-		TopDishes:   []core.TopDish{},
-		DailyRows:   []core.DailyAnalyticsRow{},
+		Currency:          settings.Currency,
+		From:              from.UTC(),
+		To:                to.UTC(),
+		GeneratedAt:       now.UTC(),
+		Statuses:          []core.AnalyticsBreakdown{},
+		Payments:          []core.AnalyticsBreakdown{},
+		TopDishes:         []core.TopDish{},
+		DailyRows:         []core.DailyAnalyticsRow{},
+		DailyAudienceRows: []core.DailyAudienceRow{},
+	}
+	err = s.pool.QueryRow(ctx, `
+		WITH visitors AS (
+			SELECT user_id
+			FROM client_app_visits
+			WHERE visited_at >= $1 AND visited_at < $2
+			GROUP BY user_id
+		), order_stats AS (
+			SELECT
+				COUNT(DISTINCT client_user_id)::int AS customers,
+				COUNT(DISTINCT client_user_id) FILTER (WHERE fulfillment_type='delivery')::int AS delivery_customers,
+				COUNT(*) FILTER (WHERE fulfillment_type='delivery')::int AS delivery_orders,
+				COUNT(DISTINCT client_user_id) FILTER (WHERE fulfillment_type='pickup')::int AS pickup_customers,
+				COUNT(*) FILTER (WHERE fulfillment_type='pickup')::int AS pickup_orders
+			FROM orders
+			WHERE created_at >= $1 AND created_at < $2
+		), reservation_stats AS (
+			SELECT COUNT(DISTINCT client_user_id)::int AS customers, COUNT(*)::int AS reservations
+			FROM reservations
+			WHERE created_at >= $1 AND created_at < $2
+		), converted AS (
+			SELECT
+				COUNT(*) FILTER (WHERE EXISTS (
+					SELECT 1 FROM orders o WHERE o.client_user_id=v.user_id AND o.created_at >= $1 AND o.created_at < $2
+				))::int AS order_customers,
+				COUNT(*) FILTER (WHERE EXISTS (
+					SELECT 1 FROM reservations r WHERE r.client_user_id=v.user_id AND r.created_at >= $1 AND r.created_at < $2
+				))::int AS reservation_customers
+			FROM visitors v
+		)
+		SELECT
+			(SELECT COUNT(*) FROM client_app_visits WHERE visited_at >= $1 AND visited_at < $2)::int,
+			(SELECT COUNT(*) FROM visitors)::int,
+			o.customers, o.delivery_customers, o.delivery_orders, o.pickup_customers, o.pickup_orders,
+			r.customers, r.reservations,
+			COALESCE(ROUND(100.0 * c.order_customers / NULLIF((SELECT COUNT(*) FROM visitors), 0)), 0)::int,
+			COALESCE(ROUND(100.0 * c.reservation_customers / NULLIF((SELECT COUNT(*) FROM visitors), 0)), 0)::int
+		FROM order_stats o CROSS JOIN reservation_stats r CROSS JOIN converted c
+	`, from.UTC(), to.UTC()).Scan(
+		&analytics.Audience.Visits,
+		&analytics.Audience.UniqueVisitors,
+		&analytics.Audience.OrderingCustomers,
+		&analytics.Audience.DeliveryCustomers,
+		&analytics.Audience.DeliveryOrders,
+		&analytics.Audience.PickupCustomers,
+		&analytics.Audience.PickupOrders,
+		&analytics.Audience.ReservationCustomers,
+		&analytics.Audience.Reservations,
+		&analytics.Audience.OrderConversionPercent,
+		&analytics.Audience.ReservationConversionPercent,
+	)
+	if err != nil {
+		return core.AdminAnalytics{}, err
 	}
 	err = s.pool.QueryRow(ctx, `
 		SELECT
@@ -3968,7 +4027,40 @@ func (s *Store) AdminAnalytics(ctx context.Context, sess core.Session, from, to 
 		}
 		analytics.DailyRows = append(analytics.DailyRows, row)
 	}
-	return analytics, dailyRows.Err()
+	if err := dailyRows.Err(); err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	audienceRows, err := s.pool.Query(ctx, `
+		WITH activity AS (
+			SELECT (visited_at AT TIME ZONE $3)::date AS day, COUNT(*)::int AS visits,
+				COUNT(DISTINCT user_id)::int AS unique_visitors, 0::int AS delivery_orders,
+				0::int AS pickup_orders, 0::int AS reservations
+			FROM client_app_visits WHERE visited_at >= $1 AND visited_at < $2 GROUP BY day
+			UNION ALL
+			SELECT (created_at AT TIME ZONE $3)::date, 0, 0,
+				COUNT(*) FILTER (WHERE fulfillment_type='delivery')::int,
+				COUNT(*) FILTER (WHERE fulfillment_type='pickup')::int, 0
+			FROM orders WHERE created_at >= $1 AND created_at < $2 GROUP BY 1
+			UNION ALL
+			SELECT (created_at AT TIME ZONE $3)::date, 0, 0, 0, 0, COUNT(*)::int
+			FROM reservations WHERE created_at >= $1 AND created_at < $2 GROUP BY 1
+		)
+		SELECT to_char(day, 'YYYY-MM-DD'), SUM(visits)::int, SUM(unique_visitors)::int,
+			SUM(delivery_orders)::int, SUM(pickup_orders)::int, SUM(reservations)::int
+		FROM activity GROUP BY day ORDER BY day
+	`, from.UTC(), to.UTC(), settings.Timezone)
+	if err != nil {
+		return core.AdminAnalytics{}, err
+	}
+	defer audienceRows.Close()
+	for audienceRows.Next() {
+		var row core.DailyAudienceRow
+		if err := audienceRows.Scan(&row.Day, &row.Visits, &row.UniqueVisitors, &row.DeliveryOrders, &row.PickupOrders, &row.Reservations); err != nil {
+			return core.AdminAnalytics{}, err
+		}
+		analytics.DailyAudienceRows = append(analytics.DailyAudienceRows, row)
+	}
+	return analytics, audienceRows.Err()
 }
 
 func (s *Store) AuditLog(ctx context.Context, sess core.Session, filter AuditLogFilter) (AuditLogPage, error) {

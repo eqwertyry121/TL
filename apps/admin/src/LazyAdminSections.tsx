@@ -7,6 +7,11 @@ import { parseNumberDraft } from "./number-draft";
 export function AnalyticsSection({ analytics, range, onRange, onExport }: { analytics: AdminAnalytics; range: AnalyticsRange; onRange(range: AnalyticsRange): void; onExport(): void }) {
   const labels: Record<AnalyticsRange, string> = { today: "Сегодня", "7d": "7 дней", month: "Месяц" };
   const paymentRows = paymentBreakdownRows(analytics.payments ?? []);
+  const audience = analytics.audience ?? {
+    visits: 0, unique_visitors: 0, ordering_customers: 0, delivery_customers: 0, delivery_orders: 0,
+    pickup_customers: 0, pickup_orders: 0, reservation_customers: 0, reservations: 0,
+    order_conversion_percent: 0, reservation_conversion_percent: 0,
+  };
   return (
     <section className="stack">
       <div className="toolbar panel">
@@ -23,6 +28,19 @@ export function AnalyticsSection({ analytics, range, onRange, onExport }: { anal
         <Metric title="Средняя очередь" value={`${analytics.summary.average_delivery_queue_delay_minutes} мин`} />
         <Metric title="Отклонение готовности" value={`${analytics.summary.average_ready_plan_deviation_minutes} мин`} />
       </div>
+      <section className="panel">
+        <h2>Аудитория и действия</h2>
+        <div className="grid analytics-audience-grid">
+          <Metric title="Уникальные посетители" value={audience.unique_visitors} />
+          <Metric title="Открытия Mini App" value={audience.visits} />
+          <Metric title="Заказали еду" value={audience.ordering_customers} />
+          <Metric title="Доставка" value={`${audience.delivery_customers} чел · ${audience.delivery_orders} зак.`} />
+          <Metric title="Самовывоз" value={`${audience.pickup_customers} чел · ${audience.pickup_orders} зак.`} />
+          <Metric title="Брони столов" value={`${audience.reservation_customers} чел · ${audience.reservations} брон.`} />
+          <Metric title="Конверсия в заказ" value={`${audience.order_conversion_percent}%`} />
+          <Metric title="Конверсия в бронь" value={`${audience.reservation_conversion_percent}%`} />
+        </div>
+      </section>
       <section className="panel analytics-payments">
         <div><h2>Оплата</h2><p className="muted">Заказы и выручка по способам оплаты.</p></div>
         <div className="payment-breakdown">
@@ -41,6 +59,7 @@ export function AnalyticsSection({ analytics, range, onRange, onExport }: { anal
         <SimpleTable title="Популярные блюда" rows={(analytics.top_dishes ?? []).map((dish) => [dish.title, `${dish.quantity} шт`, money(dish.revenue_minor)])} />
         <SimpleTable title="По дням" rows={(analytics.daily_rows ?? []).map((row) => [row.day, `${row.orders} заказов`, money(row.revenue_minor)])} />
       </div>
+      <SimpleTable title="Активность по дням" rows={(analytics.daily_audience_rows ?? []).map((row) => [row.day, `${row.unique_visitors} чел / ${row.visits} входов`, `Д ${row.delivery_orders} · С ${row.pickup_orders} · Б ${row.reservations}`])} />
     </section>
   );
 }

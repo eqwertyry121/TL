@@ -570,16 +570,41 @@ type DailyAnalyticsRow struct {
 	RevenueMinor int    `json:"revenue_minor"`
 }
 
+type AudienceAnalytics struct {
+	Visits                       int `json:"visits"`
+	UniqueVisitors               int `json:"unique_visitors"`
+	OrderingCustomers            int `json:"ordering_customers"`
+	DeliveryCustomers            int `json:"delivery_customers"`
+	DeliveryOrders               int `json:"delivery_orders"`
+	PickupCustomers              int `json:"pickup_customers"`
+	PickupOrders                 int `json:"pickup_orders"`
+	ReservationCustomers         int `json:"reservation_customers"`
+	Reservations                 int `json:"reservations"`
+	OrderConversionPercent       int `json:"order_conversion_percent"`
+	ReservationConversionPercent int `json:"reservation_conversion_percent"`
+}
+
+type DailyAudienceRow struct {
+	Day            string `json:"day"`
+	Visits         int    `json:"visits"`
+	UniqueVisitors int    `json:"unique_visitors"`
+	DeliveryOrders int    `json:"delivery_orders"`
+	PickupOrders   int    `json:"pickup_orders"`
+	Reservations   int    `json:"reservations"`
+}
+
 type AdminAnalytics struct {
-	Currency    string               `json:"currency"`
-	From        time.Time            `json:"from"`
-	To          time.Time            `json:"to"`
-	GeneratedAt time.Time            `json:"generated_at"`
-	Summary     AnalyticsSummary     `json:"summary"`
-	Statuses    []AnalyticsBreakdown `json:"statuses"`
-	Payments    []AnalyticsBreakdown `json:"payments"`
-	TopDishes   []TopDish            `json:"top_dishes"`
-	DailyRows   []DailyAnalyticsRow  `json:"daily_rows"`
+	Currency          string               `json:"currency"`
+	From              time.Time            `json:"from"`
+	To                time.Time            `json:"to"`
+	GeneratedAt       time.Time            `json:"generated_at"`
+	Summary           AnalyticsSummary     `json:"summary"`
+	Audience          AudienceAnalytics    `json:"audience"`
+	Statuses          []AnalyticsBreakdown `json:"statuses"`
+	Payments          []AnalyticsBreakdown `json:"payments"`
+	TopDishes         []TopDish            `json:"top_dishes"`
+	DailyRows         []DailyAnalyticsRow  `json:"daily_rows"`
+	DailyAudienceRows []DailyAudienceRow   `json:"daily_audience_rows"`
 }
 
 type AuditEntry struct {

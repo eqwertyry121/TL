@@ -511,6 +511,32 @@ func TestCreateSessionRejectsUnassignedStaffRole(t *testing.T) {
 	}
 }
 
+func TestClientSessionsAreRecordedAsVisits(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	adminSession := bootstrapOwnerSession(t, ctx, st)
+	client := clientSession(t, ctx, st, clientTelegramID)
+	if _, _, err := st.CreateSession(ctx, core.User{
+		ID:             client.UserID,
+		TelegramUserID: client.TelegramUserID,
+		Username:       client.Username,
+		FirstName:      client.FirstName,
+	}, core.RoleClient, time.Hour); err != nil {
+		t.Fatalf("create second client session: %v", err)
+	}
+
+	now := time.Now().UTC()
+	analytics, err := st.AdminAnalytics(ctx, adminSession, now.Add(-time.Minute), now.Add(time.Minute), now)
+	if err != nil {
+		t.Fatalf("admin analytics: %v", err)
+	}
+	if analytics.Audience.Visits != 2 || analytics.Audience.UniqueVisitors != 1 {
+		t.Fatalf("unexpected visit analytics: %+v", analytics.Audience)
+	}
+}
+
 func TestOnlyOneActiveCourierAllowed(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)
@@ -593,14 +619,14 @@ func TestAdminAnalyticsReturnsEmptyArrays(t *testing.T) {
 	if err != nil {
 		t.Fatalf("admin analytics: %v", err)
 	}
-	if analytics.Statuses == nil || analytics.Payments == nil || analytics.TopDishes == nil || analytics.DailyRows == nil {
-		t.Fatalf("expected non-nil analytics slices: statuses=%v payments=%v top_dishes=%v daily_rows=%v", analytics.Statuses, analytics.Payments, analytics.TopDishes, analytics.DailyRows)
+	if analytics.Statuses == nil || analytics.Payments == nil || analytics.TopDishes == nil || analytics.DailyRows == nil || analytics.DailyAudienceRows == nil {
+		t.Fatalf("expected non-nil analytics slices: statuses=%v payments=%v top_dishes=%v daily_rows=%v daily_audience_rows=%v", analytics.Statuses, analytics.Payments, analytics.TopDishes, analytics.DailyRows, analytics.DailyAudienceRows)
 	}
 	payload, err := json.Marshal(analytics)
 	if err != nil {
 		t.Fatalf("marshal analytics: %v", err)
 	}
-	for _, field := range []string{"statuses", "payments", "top_dishes", "daily_rows"} {
+	for _, field := range []string{"statuses", "payments", "top_dishes", "daily_rows", "daily_audience_rows"} {
 		if !strings.Contains(string(payload), `"`+field+`":[]`) {
 			t.Fatalf("expected %s to encode as [], got %s", field, payload)
 		}

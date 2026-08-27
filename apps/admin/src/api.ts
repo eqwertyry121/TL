@@ -647,11 +647,25 @@ function demoApi(): AdminApi {
     async analyticsCSV(_token, range) {
       const analytics = calculateAnalytics(range);
       const rows = [
+        "audience_metric,value",
+        `visits,${analytics.audience.visits}`,
+        `unique_visitors,${analytics.audience.unique_visitors}`,
+        `ordering_customers,${analytics.audience.ordering_customers}`,
+        `delivery_customers,${analytics.audience.delivery_customers}`,
+        `delivery_orders,${analytics.audience.delivery_orders}`,
+        `pickup_customers,${analytics.audience.pickup_customers}`,
+        `pickup_orders,${analytics.audience.pickup_orders}`,
+        `reservation_customers,${analytics.audience.reservation_customers}`,
+        `reservations,${analytics.audience.reservations}`,
+        "",
         "day,orders,delivered,cancelled,revenue_minor",
         ...analytics.daily_rows.map((row) => `${row.day},${row.orders},${row.delivered},${row.cancelled},${row.revenue_minor}`),
         "",
         "payment_method,orders,delivered,paid,cancelled,revenue_minor",
         ...analytics.payments.map((row) => `${row.key},${row.count},${row.delivered_count},${row.paid_count},${row.cancelled_count},${row.revenue_minor}`),
+        "",
+        "day,visits,unique_visitors,delivery_orders,pickup_orders,reservations",
+        ...analytics.daily_audience_rows.map((row) => `${row.day},${row.visits},${row.unique_visitors},${row.delivery_orders},${row.pickup_orders},${row.reservations}`),
       ];
       return new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
     },
@@ -1441,6 +1455,9 @@ function calculateAnalytics(range: AnalyticsRange): AdminAnalytics {
     top.set(item.snapshot_title, current);
   }));
   const daily = groupDaily(orders);
+  const deliveryOrders = orders.filter((order) => order.fulfillment_type === "delivery").length;
+  const pickupOrders = orders.filter((order) => order.fulfillment_type === "pickup").length;
+  const demoVisitors = orders.length > 0 ? Math.max(orders.length, 1) : 0;
   return {
     currency: "RSD",
     from: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -1456,10 +1473,31 @@ function calculateAnalytics(range: AnalyticsRange): AdminAnalytics {
       average_delivery_queue_delay_minutes: average(orders.filter((order) => order.fulfillment_type === "delivery").map((order) => order.delivery_queue_delay_minutes || 0)),
       average_ready_plan_deviation_minutes: average(orders.filter((order) => order.fulfillment_type === "delivery" && order.ready_at && order.delivery_target_at).map((order) => Math.round((new Date(order.ready_at!).getTime() - new Date(order.delivery_target_at!).getTime()) / 60000))),
     },
+    audience: {
+      visits: demoVisitors,
+      unique_visitors: demoVisitors,
+      ordering_customers: orders.length,
+      delivery_customers: deliveryOrders,
+      delivery_orders: deliveryOrders,
+      pickup_customers: pickupOrders,
+      pickup_orders: pickupOrders,
+      reservation_customers: 0,
+      reservations: 0,
+      order_conversion_percent: demoVisitors ? 100 : 0,
+      reservation_conversion_percent: 0,
+    },
     statuses,
     payments,
     top_dishes: [...top.entries()].map(([title, value]) => ({ title, quantity: value.quantity, revenue_minor: value.revenue_minor })).sort((a, b) => b.quantity - a.quantity).slice(0, 10),
     daily_rows: daily,
+    daily_audience_rows: daily.map((row) => ({
+      day: row.day,
+      visits: row.orders,
+      unique_visitors: row.orders,
+      delivery_orders: orders.filter((order) => order.created_at.slice(0, 10) === row.day && order.fulfillment_type === "delivery").length,
+      pickup_orders: orders.filter((order) => order.created_at.slice(0, 10) === row.day && order.fulfillment_type === "pickup").length,
+      reservations: 0,
+    })),
   };
 }
 

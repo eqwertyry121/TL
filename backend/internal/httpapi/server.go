@@ -1976,6 +1976,21 @@ func (s *Server) adminAnalyticsCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", "attachment; filename=tk-analytics.csv")
 	writer := csv.NewWriter(w)
+	_ = writer.Write([]string{"audience_metric", "value"})
+	for _, row := range [][]string{
+		{"visits", fmt.Sprintf("%d", analytics.Audience.Visits)},
+		{"unique_visitors", fmt.Sprintf("%d", analytics.Audience.UniqueVisitors)},
+		{"ordering_customers", fmt.Sprintf("%d", analytics.Audience.OrderingCustomers)},
+		{"delivery_customers", fmt.Sprintf("%d", analytics.Audience.DeliveryCustomers)},
+		{"delivery_orders", fmt.Sprintf("%d", analytics.Audience.DeliveryOrders)},
+		{"pickup_customers", fmt.Sprintf("%d", analytics.Audience.PickupCustomers)},
+		{"pickup_orders", fmt.Sprintf("%d", analytics.Audience.PickupOrders)},
+		{"reservation_customers", fmt.Sprintf("%d", analytics.Audience.ReservationCustomers)},
+		{"reservations", fmt.Sprintf("%d", analytics.Audience.Reservations)},
+	} {
+		_ = writer.Write(row)
+	}
+	_ = writer.Write([]string{})
 	_ = writer.Write([]string{"day", "orders", "delivered", "cancelled", "revenue_minor"})
 	for _, row := range analytics.DailyRows {
 		_ = writer.Write([]string{
@@ -1997,6 +2012,11 @@ func (s *Server) adminAnalyticsCSV(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("%d", row.CancelledCount),
 			fmt.Sprintf("%d", row.RevenueMinor),
 		})
+	}
+	_ = writer.Write([]string{})
+	_ = writer.Write([]string{"day", "visits", "unique_visitors", "delivery_orders", "pickup_orders", "reservations"})
+	for _, row := range analytics.DailyAudienceRows {
+		_ = writer.Write([]string{row.Day, fmt.Sprintf("%d", row.Visits), fmt.Sprintf("%d", row.UniqueVisitors), fmt.Sprintf("%d", row.DeliveryOrders), fmt.Sprintf("%d", row.PickupOrders), fmt.Sprintf("%d", row.Reservations)})
 	}
 	writer.Flush()
 }

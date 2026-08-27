@@ -886,10 +886,54 @@ components:
           type: integer
         revenue_minor:
           type: integer
+    AudienceAnalytics:
+      type: object
+      additionalProperties: false
+      required: [visits, unique_visitors, ordering_customers, delivery_customers, delivery_orders, pickup_customers, pickup_orders, reservation_customers, reservations, order_conversion_percent, reservation_conversion_percent]
+      properties:
+        visits:
+          type: integer
+        unique_visitors:
+          type: integer
+        ordering_customers:
+          type: integer
+        delivery_customers:
+          type: integer
+        delivery_orders:
+          type: integer
+        pickup_customers:
+          type: integer
+        pickup_orders:
+          type: integer
+        reservation_customers:
+          type: integer
+        reservations:
+          type: integer
+        order_conversion_percent:
+          type: integer
+        reservation_conversion_percent:
+          type: integer
+    DailyAudienceRow:
+      type: object
+      additionalProperties: false
+      required: [day, visits, unique_visitors, delivery_orders, pickup_orders, reservations]
+      properties:
+        day:
+          type: string
+        visits:
+          type: integer
+        unique_visitors:
+          type: integer
+        delivery_orders:
+          type: integer
+        pickup_orders:
+          type: integer
+        reservations:
+          type: integer
     AdminAnalytics:
       type: object
       additionalProperties: false
-      required: [currency, from, to, generated_at, summary, statuses, payments, top_dishes, daily_rows]
+      required: [currency, from, to, generated_at, summary, audience, statuses, payments, top_dishes, daily_rows, daily_audience_rows]
       properties:
         currency:
           type: string
@@ -905,6 +949,8 @@ components:
           format: date-time
         summary:
           $ref: "#/components/schemas/AnalyticsSummary"
+        audience:
+          $ref: "#/components/schemas/AudienceAnalytics"
         statuses:
           type: array
           items:
@@ -921,6 +967,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DailyAnalyticsRow"
+        daily_audience_rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/DailyAudienceRow"
     Reservation:
       type: object
       required: [id, public_number, table_label, date, start_hour, end_hour, guests, status, locale, version, created_at]

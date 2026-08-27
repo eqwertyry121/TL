@@ -428,16 +428,41 @@ export interface DailyAnalyticsRow {
   revenue_minor: number;
 }
 
+export interface AudienceAnalytics {
+  visits: number;
+  unique_visitors: number;
+  ordering_customers: number;
+  delivery_customers: number;
+  delivery_orders: number;
+  pickup_customers: number;
+  pickup_orders: number;
+  reservation_customers: number;
+  reservations: number;
+  order_conversion_percent: number;
+  reservation_conversion_percent: number;
+}
+
+export interface DailyAudienceRow {
+  day: string;
+  visits: number;
+  unique_visitors: number;
+  delivery_orders: number;
+  pickup_orders: number;
+  reservations: number;
+}
+
 export interface AdminAnalytics {
   currency: "RSD";
   from: string;
   to: string;
   generated_at: string;
   summary: AnalyticsSummary;
+  audience: AudienceAnalytics;
   statuses: AnalyticsBreakdown[];
   payments: AnalyticsBreakdown[];
   top_dishes: TopDish[];
   daily_rows: DailyAnalyticsRow[];
+  daily_audience_rows: DailyAudienceRow[];
 }
 
 export interface AuditEntry {
