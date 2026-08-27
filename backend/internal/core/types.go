@@ -188,6 +188,7 @@ type DeliveryASAP struct {
 	TargetAt          time.Time `json:"target_at"`
 	WaitMinutes       int       `json:"wait_minutes"`
 	QueueDelayMinutes int       `json:"queue_delay_minutes"`
+	QueuePosition     int       `json:"queue_position"`
 }
 
 type DeliverySlot struct {
@@ -429,6 +430,7 @@ type Order struct {
 	DeliveryRequestedAt        *time.Time        `json:"delivery_requested_at,omitempty"`
 	DeliveryTargetAt           *time.Time        `json:"delivery_target_at,omitempty"`
 	DeliveryQueueDelayMinutes  int               `json:"delivery_queue_delay_minutes"`
+	KitchenQueuePosition       int               `json:"kitchen_queue_position,omitempty"`
 	EstimatedReadyAt           *time.Time        `json:"estimated_ready_at,omitempty"`
 	EstimatedReadyUpdatedAt    *time.Time        `json:"estimated_ready_updated_at,omitempty"`
 	EstimatedReadyBy           *uuid.UUID        `json:"estimated_ready_by,omitempty"`
@@ -467,6 +469,7 @@ type OrderSummary struct {
 	DeliveryRequestedAt        *time.Time        `json:"delivery_requested_at,omitempty"`
 	DeliveryTargetAt           *time.Time        `json:"delivery_target_at,omitempty"`
 	DeliveryQueueDelayMinutes  int               `json:"delivery_queue_delay_minutes"`
+	KitchenQueuePosition       int               `json:"kitchen_queue_position,omitempty"`
 	EstimatedReadyAt           *time.Time        `json:"estimated_ready_at,omitempty"`
 	DeliveredAt                *time.Time        `json:"delivered_at,omitempty"`
 	CancelledAt                *time.Time        `json:"cancelled_at,omitempty"`

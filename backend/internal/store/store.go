@@ -672,6 +672,15 @@ func (s *Store) DeliverySlots(ctx context.Context, sess core.Session, now time.T
 			break
 		}
 	}
+	if result.ASAP != nil {
+		if err := s.pool.QueryRow(ctx, `
+			SELECT COUNT(*)::int + 1
+			FROM orders
+			WHERE fulfillment_type='delivery' AND fulfillment_status='NEW'
+		`).Scan(&result.ASAP.QueuePosition); err != nil {
+			return core.DeliverySlots{}, err
+		}
+	}
 	return result, nil
 }
 
@@ -2639,6 +2648,7 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	var orderID uuid.UUID
 	var publicNumber int
 	var createdAt time.Time
+	kitchenQueuePosition := 0
 	err = tx.QueryRow(ctx, `
 		INSERT INTO orders (
 			client_user_id, fulfillment_type, fulfillment_status, payment_method, payment_status, subtotal_minor, delivery_fee_minor,
@@ -2659,6 +2669,16 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 			return core.Order{}, core.ErrActiveOrderExists
 		}
 		return core.Order{}, err
+	}
+	if fulfillmentType == core.FulfillmentDelivery {
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*)::int + 1
+			FROM orders q
+			WHERE q.fulfillment_type='delivery' AND q.fulfillment_status='NEW'
+				AND (q.created_at < $2 OR (q.created_at = $2 AND q.id < $1))
+		`, orderID, createdAt).Scan(&kitchenQueuePosition); err != nil {
+			return core.Order{}, err
+		}
 	}
 	if err := copyOrderItemsTx(ctx, tx, orderID, items); err != nil {
 		return core.Order{}, err
@@ -2731,6 +2751,7 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		DeliveryRequestedAt:        deliveryRequestedAt,
 		DeliveryTargetAt:           deliveryTargetAt,
 		DeliveryQueueDelayMinutes:  deliveryQueueDelayMinutes,
+		KitchenQueuePosition:       kitchenQueuePosition,
 		CashLocationVerifiedAt:     cashLocationVerifiedAt,
 		CashLocationDistanceMeters: cashLocationDistance,
 	}
@@ -3091,7 +3112,13 @@ func (s *Store) ClientOrders(ctx context.Context, sess core.Session, filter Clie
 			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
 			o.locale, o.version, o.created_at, o.pickup_at, o.delivery_time_mode, o.delivery_requested_at,
-			o.delivery_target_at, o.delivery_queue_delay_minutes, o.estimated_ready_at,
+			o.delivery_target_at, o.delivery_queue_delay_minutes,
+			CASE WHEN o.fulfillment_type='delivery' AND o.fulfillment_status='NEW' THEN (
+				SELECT COUNT(*)::int + 1 FROM orders q
+				WHERE q.fulfillment_type='delivery' AND q.fulfillment_status='NEW'
+					AND (q.created_at < o.created_at OR (q.created_at = o.created_at AND q.id < o.id))
+			) ELSE 0 END,
+			o.estimated_ready_at,
 			o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
 		FROM orders o
@@ -3125,7 +3152,13 @@ func (s *Store) ClientBootstrapOrders(ctx context.Context, sess core.Session) ([
 			o.fulfillment_type, o.fulfillment_status, o.payment_method, o.payment_status,
 			o.subtotal_minor, o.delivery_fee_minor, o.total_minor, o.currency,
 			o.locale, o.version, o.created_at, o.pickup_at, o.delivery_time_mode, o.delivery_requested_at,
-			o.delivery_target_at, o.delivery_queue_delay_minutes, o.estimated_ready_at,
+			o.delivery_target_at, o.delivery_queue_delay_minutes,
+			CASE WHEN o.fulfillment_type='delivery' AND o.fulfillment_status='NEW' THEN (
+				SELECT COUNT(*)::int + 1 FROM orders q
+				WHERE q.fulfillment_type='delivery' AND q.fulfillment_status='NEW'
+					AND (q.created_at < o.created_at OR (q.created_at = o.created_at AND q.id < o.id))
+			) ELSE 0 END,
+			o.estimated_ready_at,
 			o.ready_at, o.delivered_at, o.cancelled_at,
 			o.cash_location_verified_at, o.cash_location_distance_meters
 		FROM orders o
@@ -4936,7 +4969,7 @@ func scanOrderSummaries(rows pgx.Rows) ([]core.OrderSummary, error) {
 			&summary.SubtotalMinor, &summary.DeliveryFeeMinor, &summary.TotalMinor, &summary.Currency,
 			&summary.Locale, &summary.Version, &summary.CreatedAt,
 			&pickup, &summary.DeliveryTimeMode, &deliveryRequested, &deliveryTarget,
-			&summary.DeliveryQueueDelayMinutes, &estimatedReady, &ready, &delivered, &cancelled,
+			&summary.DeliveryQueueDelayMinutes, &summary.KitchenQueuePosition, &estimatedReady, &ready, &delivered, &cancelled,
 			&locationVerified, &locationDistance,
 		); err != nil {
 			return nil, err
@@ -5059,10 +5092,16 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 		return []core.Order{}, nil
 	}
 	pickupRows, err := s.pool.Query(ctx, `
-		SELECT id, pickup_at, pickup_original_at, pickup_cook_at, kitchen_started_at, courier_started_at,
+		SELECT o.id, o.pickup_at, o.pickup_original_at, o.pickup_cook_at, o.kitchen_started_at, o.courier_started_at,
 			pickup_address_snapshot, pickup_instructions_snapshot, delivery_time_mode, delivery_requested_at,
-			delivery_target_at, delivery_queue_delay_minutes, estimated_ready_at, estimated_ready_updated_at, estimated_ready_by
-		FROM orders WHERE id=ANY($1)
+			delivery_target_at, delivery_queue_delay_minutes,
+			CASE WHEN o.fulfillment_type='delivery' AND o.fulfillment_status='NEW' THEN (
+				SELECT COUNT(*)::int + 1 FROM orders q
+				WHERE q.fulfillment_type='delivery' AND q.fulfillment_status='NEW'
+					AND (q.created_at < o.created_at OR (q.created_at = o.created_at AND q.id < o.id))
+			) ELSE 0 END,
+			estimated_ready_at, estimated_ready_updated_at, estimated_ready_by
+		FROM orders o WHERE o.id=ANY($1)
 	`, ids)
 	if err != nil {
 		return nil, err
@@ -5074,8 +5113,9 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 		var address, instructions string
 		var deliveryMode string
 		var queueDelay int
+		var queuePosition int
 		if err := pickupRows.Scan(&id, &pickupAt, &pickupOriginalAt, &pickupCookAtValue, &kitchenStartedAt, &courierStartedAt, &address, &instructions,
-			&deliveryMode, &deliveryRequestedAt, &deliveryTargetAt, &queueDelay, &estimatedReadyAt, &estimatedReadyUpdatedAt, &estimatedReadyBy); err != nil {
+			&deliveryMode, &deliveryRequestedAt, &deliveryTargetAt, &queueDelay, &queuePosition, &estimatedReadyAt, &estimatedReadyUpdatedAt, &estimatedReadyBy); err != nil {
 			pickupRows.Close()
 			return nil, err
 		}
@@ -5099,6 +5139,7 @@ func (s *Store) scanOrdersWithItems(ctx context.Context, rows pgx.Rows, includeP
 		order.PickupInstructions = instructions
 		order.DeliveryTimeMode = deliveryMode
 		order.DeliveryQueueDelayMinutes = queueDelay
+		order.KitchenQueuePosition = queuePosition
 		if deliveryRequestedAt.Valid {
 			order.DeliveryRequestedAt = &deliveryRequestedAt.Time
 		}

@@ -205,6 +205,7 @@ export interface OrderSummary {
   delivery_requested_at?: string;
   delivery_target_at?: string;
   delivery_queue_delay_minutes?: number;
+  kitchen_queue_position?: number;
   estimated_ready_at?: string;
   delivered_at?: string;
   cancelled_at?: string;
@@ -305,7 +306,7 @@ export interface DeliverySlots {
   slots: DeliverySlot[];
 }
 
-export interface DeliveryASAP { target_at: string; wait_minutes: number; queue_delay_minutes: number; }
+export interface DeliveryASAP { target_at: string; wait_minutes: number; queue_delay_minutes: number; queue_position: number; }
 export interface DeliverySlot { target_at: string; label: string; available: boolean; queue_delay_minutes: number; next_available_at?: string; }
 
 export interface AdminDashboard {

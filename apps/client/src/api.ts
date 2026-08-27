@@ -159,7 +159,7 @@ function demoApi(): Api {
         const at = new Date(first.getTime() + index * 30 * 60 * 1000);
         return { target_at: at.toISOString(), label: at.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }), available: true, queue_delay_minutes: 0 };
       });
-      return { timezone: "Europe/Belgrade" as const, date: first.toISOString().slice(0, 10), asap: { target_at: slots[0].target_at, wait_minutes: 40, queue_delay_minutes: 0 }, slots };
+      return { timezone: "Europe/Belgrade" as const, date: first.toISOString().slice(0, 10), asap: { target_at: slots[0].target_at, wait_minutes: 40, queue_delay_minutes: 0, queue_position: 1 }, slots };
     },
     async pickupSlots() {
       const settings = loadDemoSettings();

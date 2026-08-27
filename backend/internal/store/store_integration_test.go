@@ -1860,7 +1860,7 @@ func TestDeliveryTimingCapacityAndKitchenETARevision(t *testing.T) {
 	}
 }
 
-func TestDeliveryTimingASAPQueueDelayTiers(t *testing.T) {
+func TestDeliveryKitchenQueuePositions(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)
 	defer pool.Close()
@@ -1876,9 +1876,9 @@ func TestDeliveryTimingASAPQueueDelayTiers(t *testing.T) {
 		t.Fatalf("enable delivery timing queue: %v", err)
 	}
 
-	wantDelays := []int{0, 0, 30, 30, 60, 60}
-	targets := make([]time.Time, 0, len(wantDelays))
-	for index, wantDelay := range wantDelays {
+	orderIDs := make([]uuid.UUID, 0, 6)
+	clientSessions := make([]core.Session, 0, 6)
+	for index := 0; index < 6; index++ {
 		telegramID := clientTelegramID + 920 + int64(index)
 		session, input := prepareCashOrderForCart(
 			t,
@@ -1890,6 +1890,13 @@ func TestDeliveryTimingASAPQueueDelayTiers(t *testing.T) {
 			[]core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}},
 			now,
 		)
+		slots, err := st.DeliverySlots(ctx, session, now)
+		if err != nil || slots.ASAP == nil {
+			t.Fatalf("delivery queue before order %d: slots=%+v err=%v", index+1, slots, err)
+		}
+		if slots.ASAP.QueuePosition != index+1 {
+			t.Fatalf("projected queue position before order %d = %d, want %d", index+1, slots.ASAP.QueuePosition, index+1)
+		}
 		input.DeliveryTimeMode = "ASAP"
 		order, err := st.CreateCashOrder(
 			ctx,
@@ -1902,20 +1909,44 @@ func TestDeliveryTimingASAPQueueDelayTiers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create ASAP queue order %d: %v", index+1, err)
 		}
-		if order.DeliveryQueueDelayMinutes != wantDelay {
-			t.Fatalf("ASAP queue order %d delay = %d, want %d", index+1, order.DeliveryQueueDelayMinutes, wantDelay)
+		if order.KitchenQueuePosition != index+1 {
+			t.Fatalf("created order %d queue position = %d, want %d", index+1, order.KitchenQueuePosition, index+1)
 		}
-		if order.DeliveryTargetAt == nil {
-			t.Fatalf("ASAP queue order %d has no target", index+1)
-		}
-		targets = append(targets, *order.DeliveryTargetAt)
+		orderIDs = append(orderIDs, order.ID)
+		clientSessions = append(clientSessions, session)
 	}
 
-	if !targets[0].Equal(targets[1]) || !targets[2].Equal(targets[3]) || !targets[4].Equal(targets[5]) {
-		t.Fatalf("orders in each capacity tier must share a target: %v", targets)
+	bootstrapOwnerSession(t, ctx, st)
+	owner, err := st.UpsertTelegramUser(ctx, core.User{TelegramUserID: ownerTelegramID, Username: "owner", FirstName: "Owner", LanguageCode: "ru"})
+	if err != nil {
+		t.Fatalf("upsert kitchen owner: %v", err)
 	}
-	if targets[2].Sub(targets[0]) != 30*time.Minute || targets[4].Sub(targets[0]) != time.Hour {
-		t.Fatalf("ASAP queue targets do not advance by 30-minute tiers: %v", targets)
+	kitchenSession, _, err := st.CreateSession(ctx, owner, core.RoleKitchen, time.Hour)
+	if err != nil {
+		t.Fatalf("create kitchen session: %v", err)
+	}
+	if _, err := st.MarkReady(ctx, kitchenSession, orderIDs[0], "idem-queue-first-ready", "hash-queue-first-ready", 1); err != nil {
+		t.Fatalf("mark first queue order ready: %v", err)
+	}
+
+	page, err := st.ClientOrders(ctx, clientSessions[5], store.ClientOrderFilter{Limit: 1})
+	if err != nil || len(page.Orders) != 1 {
+		t.Fatalf("load last client queue: orders=%d err=%v", len(page.Orders), err)
+	}
+	if page.Orders[0].KitchenQueuePosition != 5 {
+		t.Fatalf("queue position after first order ready = %d, want 5", page.Orders[0].KitchenQueuePosition)
+	}
+	kitchenOrders, err := st.KitchenOrders(ctx, kitchenSession)
+	if err != nil || len(kitchenOrders) != 5 {
+		t.Fatalf("load kitchen queue: orders=%d err=%v", len(kitchenOrders), err)
+	}
+	positions := make([]int, 0, len(kitchenOrders))
+	for _, order := range kitchenOrders {
+		positions = append(positions, order.KitchenQueuePosition)
+	}
+	slices.Sort(positions)
+	if !slices.Equal(positions, []int{1, 2, 3, 4, 5}) {
+		t.Fatalf("live kitchen queue positions = %v", positions)
 	}
 }
 

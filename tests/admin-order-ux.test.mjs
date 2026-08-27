@@ -22,20 +22,21 @@ test("kitchen keeps a native Telegram link fallback", async () => {
   assert.match(source, /if \(openTelegramLink\(href\)\) event\.preventDefault\(\)/);
 });
 
-test("kitchen ready time uses two clear actions and a compact bottom sheet", async () => {
+test("kitchen ready time uses one exact-time action and a compact bottom sheet", async () => {
   const source = await readFile(new URL("../apps/kitchen/src/App.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../apps/kitchen/src/styles.css", import.meta.url), "utf8");
 
   assert.match(source, /Когда будет готов\?/);
-  assert.match(source, /<strong>Через…<\/strong><small>5–60 минут<\/small>/);
-  assert.match(source, /<strong>Ко времени…<\/strong><small>например 14:45<\/small>/);
-  assert.match(source, /timePicker === "minutes"/);
+  assert.match(source, /Назначить время/);
+  assert.match(source, /К какому времени будет готов\?/);
+  assert.doesNotMatch(source, /<strong>Через…<\/strong>/);
+  assert.doesNotMatch(source, /Другое время/);
   assert.match(source, /createPortal\(/);
   assert.match(source, /className="ready-time-sheet"/);
   assert.match(source, /className="ready-time-list"/);
   assert.match(source, /readyTimeOptions\(\)/);
   assert.match(source, /setMinutes\(Math\.floor\(first\.getMinutes\(\) \/ 5\) \* 5 \+ 5/);
-  assert.match(source, /Заказ нужен как можно скорее/);
+  assert.match(source, /kitchen_queue_position/);
   assert.doesNotMatch(source, /<small>Кухня<\/small>/);
   assert.match(source, /onEstimateReady\(order, undefined, option\.at\)/);
   assert.match(styles, /\.ready-time-backdrop/);
@@ -43,21 +44,20 @@ test("kitchen ready time uses two clear actions and a compact bottom sheet", asy
   assert.match(styles, /\.ready-time-list/);
 });
 
-test("ASAP delivery never exposes the internal capacity slot as a kitchen promise", async () => {
+test("delivery shows only queue position until the kitchen sets a ready time", async () => {
   const client = await readFile(new URL("../apps/client/src/App.tsx", import.meta.url), "utf8");
   const kitchen = await readFile(new URL("../apps/kitchen/src/App.tsx", import.meta.url), "utf8");
 
-  assert.match(client, /Сразу передадим заказ кухне/);
   assert.match(client, /Заказ сразу передан кухне/);
-  assert.match(client, /Сейчас на кухне очередь/);
-  assert.match(client, /deliverySlots\?\.asap\?\.queue_delay_minutes/);
-  assert.match(client, /calculation\.delivery_queue_delay_minutes/);
-  assert.match(client, /Ожидание увеличится примерно на/);
-  assert.match(client, /order\.delivery_time_mode === "SCHEDULED" && \(order\.delivery_requested_at \|\| order\.delivery_target_at\)/);
+  assert.match(client, /deliverySlots\?\.asap\?\.queue_position/);
+  assert.match(client, /order\.kitchen_queue_position/);
+  assert.match(client, /Ваш заказ/);
+  assert.doesNotMatch(client, /Ожидание увеличится примерно на/);
+  assert.doesNotMatch(client, /Желаемая доставка/);
   assert.doesNotMatch(client, /deliverySlots\.asap\.wait_minutes/);
-  assert.match(kitchen, /order\.delivery_time_mode === "SCHEDULED"/);
-  assert.match(kitchen, /Приоритет/);
-  assert.match(kitchen, /как можно скорее/);
+  assert.match(kitchen, /Очередь/);
+  assert.match(kitchen, /order\.kitchen_queue_position/);
+  assert.doesNotMatch(kitchen, /Очередь \+\{order\.delivery_queue_delay_minutes\}/);
 });
 
 test("checkout readiness includes required delivery address before enabling submit", async () => {

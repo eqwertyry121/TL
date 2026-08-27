@@ -760,11 +760,12 @@ components:
           format: date
         asap:
           type: object
-          required: [target_at, wait_minutes, queue_delay_minutes]
+          required: [target_at, wait_minutes, queue_delay_minutes, queue_position]
           properties:
             target_at: { type: string, format: date-time }
             wait_minutes: { type: integer }
             queue_delay_minutes: { type: integer }
+            queue_position: { type: integer, minimum: 1 }
         slots:
           type: array
           items:

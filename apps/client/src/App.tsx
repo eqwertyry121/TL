@@ -502,8 +502,7 @@ function ClientMiniApp() {
         availableCartLines.map((line) => ({ item_id: line.itemId, quantity: line.quantity })),
         fulfillmentType,
         fulfillmentType === "delivery" && deliveryTimingEnabled ? {
-          delivery_time_mode: draft.deliveryTimeMode,
-          delivery_requested_at: draft.deliveryTimeMode === "SCHEDULED" ? draft.deliveryRequestedAt || undefined : undefined,
+          delivery_time_mode: "ASAP",
         } : undefined,
       ),
       token,
@@ -633,8 +632,7 @@ function ClientMiniApp() {
           comment: draft.comment.trim(),
           fulfillment_type: fulfillmentType,
           pickup_at: deliverySelected ? undefined : draft.pickupAt,
-          delivery_time_mode: deliverySelected && deliveryTimingEnabled ? draft.deliveryTimeMode : undefined,
-          delivery_requested_at: deliverySelected && deliveryTimingEnabled && draft.deliveryTimeMode === "SCHEDULED" ? draft.deliveryRequestedAt : undefined,
+          delivery_time_mode: deliverySelected && deliveryTimingEnabled ? "ASAP" : undefined,
           payment_method: paymentMethod,
           cash_location_challenge_id: paymentMethod === "cash" ? cashLocation?.id : undefined,
           terms_accepted: termsAccepted,
@@ -1658,8 +1656,7 @@ function Checkout({
   const addressReady = !deliverySelected || Boolean(draft.street.trim() && draft.houseNumber.trim());
   const phoneReady = contactVerified && Boolean(draft.phone.trim());
   const pickupTimeReady = deliverySelected || (pickupEnabled && Boolean(draft.pickupAt));
-  const deliveryTimeReady = !deliverySelected || !deliveryTimingEnabled || draft.deliveryTimeMode !== "SCHEDULED" || Boolean(draft.deliveryRequestedAt);
-  const canSubmit = checkoutOpen && !submitting && addressReady && phoneReady && locationVerified && pickupTimeReady && deliveryTimeReady && termsAccepted;
+  const canSubmit = checkoutOpen && !submitting && addressReady && phoneReady && locationVerified && pickupTimeReady && termsAccepted;
   const checkoutHint = !checkoutOpen
     ? checkoutClosedLabel
     : !addressReady
@@ -1737,32 +1734,10 @@ function Checkout({
         {deliverySelected && deliveryTimingEnabled && (
           <section className="delivery-timing" aria-label={timingCopy.title}>
             <div className="delivery-timing-head"><strong>{timingCopy.title}</strong></div>
-            <div className="delivery-timing-modes">
-              <button type="button" className={draft.deliveryTimeMode === "ASAP" ? "active" : ""} onClick={() => onDraft({ deliveryTimeMode: "ASAP", deliveryRequestedAt: "" })}>
-                {timingCopy.asap}
-              </button>
-              <button type="button" className={draft.deliveryTimeMode === "SCHEDULED" ? "active" : ""} onClick={() => onDraft({ deliveryTimeMode: "SCHEDULED" })}>
-                {timingCopy.chooseTime}
-              </button>
+            <div className="delivery-timing-summary has-queue">
+              <strong>{deliveryQueuePositionText(deliverySlots?.asap?.queue_position || 1, locale, true)}</strong>
+              <small>{timingCopy.kitchenSetsTime}</small>
             </div>
-            {draft.deliveryTimeMode === "ASAP" && (
-              <div className={`delivery-timing-summary${(deliverySlots?.asap?.queue_delay_minutes || 0) > 0 ? " has-queue" : ""}`}>
-                <strong>{(deliverySlots?.asap?.queue_delay_minutes || 0) > 0 ? timingCopy.queueTitle : timingCopy.asapImmediate}</strong>
-                <small>{(deliverySlots?.asap?.queue_delay_minutes || 0) > 0
-                  ? deliveryQueueText(deliverySlots?.asap?.queue_delay_minutes || 0, locale)
-                  : timingCopy.asapUpdate}</small>
-              </div>
-            )}
-            {draft.deliveryTimeMode === "SCHEDULED" && (
-              <div className="delivery-slots">
-                {deliverySlots?.slots.map((slot) => (
-                  <button type="button" key={slot.target_at} disabled={!slot.available} className={draft.deliveryRequestedAt === slot.target_at ? "active" : ""} onClick={() => onDraft({ deliveryRequestedAt: slot.target_at })}>
-                    {slot.label}{!slot.available ? ` · ${locale === "en" ? "busy" : locale === "sr" ? "zauzeto" : "занято"}` : ""}
-                  </button>
-                ))}
-              </div>
-            )}
-            <small className="delivery-timing-note">{timingCopy.note}</small>
           </section>
         )}
         {!deliverySelected && (
@@ -1875,16 +1850,10 @@ function Checkout({
           </div>
         )}
         </div>
-        {deliverySelected && deliveryTimingEnabled && calculation?.delivery_target_at && (
+        {deliverySelected && deliveryTimingEnabled && deliverySlots?.asap?.queue_position && (
           <div className="delivery-timing-final">
-            <span>{draft.deliveryTimeMode === "SCHEDULED"
-              ? (locale === "en" ? "Requested delivery" : locale === "sr" ? "Željena dostava" : "Желаемая доставка")
-              : (locale === "en" ? "As soon as possible" : locale === "sr" ? "Što pre" : "Как можно скорее")}</span>
-            {draft.deliveryTimeMode === "SCHEDULED" ? (
-              <strong>· ~{formatPickupTime(calculation.delivery_target_at)}</strong>
-            ) : (calculation.delivery_queue_delay_minutes || 0) > 0 ? (
-              <strong>· {formatDeliveryQueueDelay(calculation.delivery_queue_delay_minutes || 0, locale, true)}</strong>
-            ) : null}
+            <span>{timingCopy.title}</span>
+            <strong>· №{deliverySlots.asap.queue_position}</strong>
           </div>
         )}
         <Totals subtotal={calculation?.subtotal_minor ?? subtotal} total={checkoutTotal} locale={locale} />
@@ -1911,31 +1880,16 @@ function Checkout({
 function deliveryTimingCopy(locale: Locale) {
   return {
     ru: {
-      title: "Когда доставить?",
-      asap: "Как можно скорее",
-      chooseTime: "Ко времени",
-      asapImmediate: "Сразу передадим заказ кухне",
-      asapUpdate: "После оформления кухня сообщит примерное время готовности.",
-      queueTitle: "Сейчас на кухне очередь",
-      note: "«Ко времени» — пожелание, а не гарантия приезда минута в минуту.",
+      title: "Очередь кухни",
+      kitchenSetsTime: "После оформления кухня назначит время готовности и сообщит вам.",
     },
     sr: {
-      title: "Kada želite dostavu?",
-      asap: "Što pre",
-      chooseTime: "Do vremena",
-      asapImmediate: "Odmah šaljemo porudžbinu kuhinji",
-      asapUpdate: "Posle poručivanja kuhinja će javiti okvirno vreme pripreme.",
-      queueTitle: "Kuhinja trenutno ima red",
-      note: "Vreme je želja, a ne garancija dolaska u minut.",
+      title: "Red u kuhinji",
+      kitchenSetsTime: "Nakon poručivanja kuhinja će odrediti vreme pripreme i obavestiti vas.",
     },
     en: {
-      title: "When should we deliver?",
-      asap: "As soon as possible",
-      chooseTime: "By a time",
-      asapImmediate: "We will send the order to the kitchen immediately",
-      asapUpdate: "After checkout, the kitchen will share an approximate preparation time.",
-      queueTitle: "The kitchen currently has a queue",
-      note: "A selected time is a preference, not a minute-perfect arrival guarantee.",
+      title: "Kitchen queue",
+      kitchenSetsTime: "After checkout, the kitchen will set the preparation time and let you know.",
     },
   }[locale];
 }
@@ -2345,15 +2299,10 @@ function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; 
               <strong>{locale === "en" ? "The kitchen expects the order to be ready around " : locale === "sr" ? "Kuhinja očekuje da će porudžbina biti spremna oko " : "Кухня планирует закончить примерно к "}{formatPickupTime(order.estimated_ready_at)}</strong>
               <small>{locale === "en" ? "The time is approximate and may change." : locale === "sr" ? "Vreme je okvirno i može se promeniti." : "Время примерное и может измениться."}</small>
             </>
-          ) : order.delivery_time_mode === "SCHEDULED" && (order.delivery_requested_at || order.delivery_target_at) ? (
+          ) : (order.kitchen_queue_position || 0) > 0 ? (
             <>
-              <strong>{locale === "en" ? "Requested delivery around " : locale === "sr" ? "Željena dostava oko " : "Вы выбрали доставку примерно к "}{formatPickupTime(order.delivery_requested_at || order.delivery_target_at)}</strong>
-              <small>{locale === "en" ? "The kitchen will share the preparation time separately." : locale === "sr" ? "Kuhinja će posebno javiti vreme pripreme." : "Кухня отдельно сообщит время готовности."}</small>
-            </>
-          ) : (order.delivery_queue_delay_minutes || 0) > 0 ? (
-            <>
-              <strong>{deliveryTimingCopy(locale).queueTitle}</strong>
-              <small>{deliveryQueueText(order.delivery_queue_delay_minutes || 0, locale)}</small>
+              <strong>{deliveryQueuePositionText(order.kitchen_queue_position || 1, locale, false)}</strong>
+              <small>{deliveryTimingCopy(locale).kitchenSetsTime}</small>
             </>
           ) : (
             <>
@@ -2398,37 +2347,15 @@ function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; 
   );
 }
 
-function formatDeliveryQueueDelay(minutes: number, locale: Locale, compact = false) {
-  const safeMinutes = Math.max(0, Math.round(minutes));
-  const hours = Math.floor(safeMinutes / 60);
-  const restMinutes = safeMinutes % 60;
-  if (compact) {
-    const hourUnit = locale === "sr" ? "č" : locale === "en" ? "h" : "ч";
-    const minuteUnit = locale === "en" ? "min" : "мин";
-    if (hours === 0) return `+${restMinutes} ${minuteUnit}`;
-    if (restMinutes === 0) return `+${hours} ${hourUnit}`;
-    return `+${hours} ${hourUnit} ${restMinutes} ${minuteUnit}`;
-  }
-  if (locale === "en") {
-    if (hours === 0) return `${restMinutes} minutes`;
-    if (restMinutes === 0) return `${hours} ${hours === 1 ? "hour" : "hours"}`;
-    return `${hours} ${hours === 1 ? "hour" : "hours"} ${restMinutes} minutes`;
-  }
-  if (locale === "sr") {
-    if (hours === 0) return `${restMinutes} min`;
-    if (restMinutes === 0) return `${hours} č`;
-    return `${hours} č ${restMinutes} min`;
-  }
-  if (hours === 0) return `${restMinutes} минут`;
-  if (restMinutes === 0) return hours === 1 ? "1 час" : `${hours} ч`;
-  return `${hours} ч ${restMinutes} мин`;
-}
-
-function deliveryQueueText(minutes: number, locale: Locale) {
-  const delay = formatDeliveryQueueDelay(minutes, locale);
-  if (locale === "en") return `The wait is approximately ${delay} longer. The kitchen will confirm the preparation time after checkout.`;
-  if (locale === "sr") return `Čekanje je duže približno ${delay}. Kuhinja će potvrditi vreme pripreme nakon poručivanja.`;
-  return `Ожидание увеличится примерно на ${delay}. Кухня уточнит время после оформления.`;
+function deliveryQueuePositionText(position: number, locale: Locale, projected: boolean) {
+  const safePosition = Math.max(1, Math.round(position));
+  if (locale === "en") return `Your order ${projected ? "will be" : "is now"} number ${safePosition} in the queue`;
+  if (locale === "sr") return `Vaša porudžbina ${projected ? "će biti" : "je sada"} broj ${safePosition} u redu`;
+  const projectedOrdinals = ["первым", "вторым", "третьим", "четвёртым", "пятым", "шестым", "седьмым", "восьмым", "девятым", "десятым"];
+  const currentOrdinals = ["первый", "второй", "третий", "четвёртый", "пятый", "шестой", "седьмой", "восьмой", "девятый", "десятый"];
+  const ordinal = (projected ? projectedOrdinals : currentOrdinals)[safePosition - 1];
+  if (ordinal) return `Ваш заказ ${projected ? "будет" : "сейчас"} ${ordinal} в очереди`;
+  return `Ваш заказ ${projected ? "будет" : "сейчас"} №${safePosition} в очереди`;
 }
 
 function Orders({
