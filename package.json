@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@11.16.0",
   "scripts": {
-    "check": "pnpm openapi:check && pnpm docs:links:test && pnpm media:check && pnpm media:rendering:test && pnpm media:backfill:cli:test && pnpm go:test:postgres:cli:test && pnpm perf:external-smoke:cli:test && pnpm perf:production-contract:cli:test && pnpm perf:legacy-public-contract:cli:test && pnpm perf:cors-contract:cli:test && pnpm perf:release-acceptance:cli:test && pnpm perf:deployment-diagnostics:cli:test && pnpm perf:release-lab:cli:test && pnpm env:contract:test && pnpm migrations:contract:test && pnpm api:compatibility:test && pnpm performance:beacon:test && pnpm product:analytics:test && pnpm role-switch:test && pnpm architecture:guard:test && pnpm ui:recovery:test && pnpm operations:contract:test && pnpm polling:test && pnpm storage:test && pnpm auth:test && pnpm bootstrap:fallback:test && pnpm startup:contract:test && pnpm startup:assets:test && pnpm admin:order-ux:test && pnpm load-smoke:test && pnpm -r check",
+    "check": "pnpm openapi:check && pnpm docs:links:test && pnpm media:check && pnpm media:rendering:test && pnpm media:backfill:cli:test && pnpm go:test:postgres:cli:test && pnpm perf:external-smoke:cli:test && pnpm perf:production-contract:cli:test && pnpm perf:legacy-public-contract:cli:test && pnpm perf:cors-contract:cli:test && pnpm perf:release-acceptance:cli:test && pnpm perf:deployment-diagnostics:cli:test && pnpm perf:release-lab:cli:test && pnpm env:contract:test && pnpm migrations:contract:test && pnpm api:compatibility:test && pnpm performance:beacon:test && pnpm product:analytics:test && pnpm client:i18n:test && pnpm role-switch:test && pnpm architecture:guard:test && pnpm ui:recovery:test && pnpm operations:contract:test && pnpm polling:test && pnpm storage:test && pnpm auth:test && pnpm bootstrap:fallback:test && pnpm startup:contract:test && pnpm startup:assets:test && pnpm admin:order-ux:test && pnpm load-smoke:test && pnpm -r check",
     "openapi:check": "node scripts/check-openapi-routes.mjs",
     "docs:links:test": "node --test tests/docs-links.test.mjs",
     "media:check": "node scripts/check-media-references.mjs",
@@ -16,6 +16,7 @@
     "api:compatibility:test": "node --test tests/api-compatibility.test.mjs",
     "performance:beacon:test": "node --experimental-strip-types --test tests/performance-beacon.test.mjs",
     "product:analytics:test": "node --test tests/product-analytics.test.mjs",
+    "client:i18n:test": "node --experimental-strip-types --test tests/client-i18n.test.mjs",
     "role-switch:test": "node --experimental-strip-types --test tests/role-switch.test.mjs",
     "architecture:guard:test": "node --test tests/architecture-guard.test.mjs",
     "ui:recovery:test": "node --test tests/error-boundary-contract.test.mjs",

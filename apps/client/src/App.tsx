@@ -6,6 +6,7 @@ import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switc
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { createApi } from "./api";
+import { clientCopy, localizedWeightText } from "./client-copy";
 import { orderStatusText } from "./fixtures";
 import { t } from "./i18n";
 import { Icon } from "./Icon";
@@ -78,7 +79,7 @@ export function App() {
   if (isPortalPath()) {
     if (rawInitData()) return <ClientMiniApp />;
     if (isPublicInformationRoute(entryRoute)) return <ClientMiniApp />;
-    return <PortalLanding />;
+    return <PortalLanding locale={loadLocale(initialLocale())} />;
   }
   return <ClientMiniApp />;
 }
@@ -118,7 +119,8 @@ function ClientMiniApp() {
 	const [selectedReservation, setSelectedReservation] = useState<{ date: string; hour: number } | null>(null);
 	const [reservationLoading, setReservationLoading] = useState(false);
 	const [reservationSubmitting, setReservationSubmitting] = useState(false);
-	const [reservationIdempotencyKey, setReservationIdempotencyKey] = useState("");
+  const [reservationIdempotencyKey, setReservationIdempotencyKey] = useState("");
+  const ui = clientCopy(locale);
 
   const token = data.session?.token || "";
   const items = useMemo(() => data.categories.flatMap((category) => category.items), [data.categories]);
@@ -362,7 +364,7 @@ function ClientMiniApp() {
         mergeOrder(order);
       } catch {
         if (signal.aborted) return;
-        setError("Не удалось обновить статус заказа");
+        setError(ui.statusUpdateFailed);
       }
     }, 10000, true);
   }, [route, token, routeOrderTerminal, withAuth]);
@@ -698,7 +700,7 @@ function ClientMiniApp() {
   async function submitAddition(order: Order) {
     if (!token || additionSubmitting || !additionSignature) return;
     if (!order.can_add_items) {
-      setError(additionBlockedText(order));
+      setError(additionBlockedText(order, locale));
       return;
     }
     setAdditionSubmitting(true);
@@ -810,20 +812,20 @@ function ClientMiniApp() {
 
   if (publicInformationRoute) {
     return (
-      <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header="Tako Lako - Грузинская кухня" runtime={data.runtime} session={data.session}>
+      <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header={ui.brand} runtime={data.runtime} session={data.session}>
         <PublicInformation route={route} locale={locale} support={data.runtime?.support_text || "@Tako_Lako"} />
       </Shell>
     );
   }
 
   if (loading && !data.runtime) {
-    return <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={0} header="Tako Lako - Грузинская кухня"><div className="state">Загрузка...</div></Shell>;
+    return <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={0} header={ui.brand}><div className="state">{ui.loading}</div></Shell>;
   }
 
   if (!data.runtime) {
     return (
-      <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={0} header="Tako Lako - Грузинская кухня">
-        {devSandbox ? <DevSandboxUnavailable /> : <PublicBotLanding />}
+      <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={0} header={ui.brand}>
+        {devSandbox ? <DevSandboxUnavailable locale={locale} /> : <PublicBotLanding locale={locale} />}
       </Shell>
     );
   }
@@ -910,14 +912,14 @@ function ClientMiniApp() {
     );
 
   return (
-    <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header="Tako Lako - Грузинская кухня" runtime={data.runtime} session={data.session}>
+    <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header={ui.brand} runtime={data.runtime} session={data.session}>
       {error && (
         <div className="notice error">
           <Icon name="alert" size={18} />
           <span>{error}</span>
         </div>
       )}
-      {route.name === "menu" && !data.session && !devSandbox && <OpenInTelegramCard />}
+      {route.name === "menu" && !data.session && !devSandbox && <OpenInTelegramCard locale={locale} />}
       {content}
       {cartQuantity > 0 && route.name !== "checkout" && route.name !== "cart" && route.name !== "add" && (
         <button className="cart-float" onClick={() => navigate({ name: "cart" })}>
@@ -926,7 +928,7 @@ function ClientMiniApp() {
           <strong>{money(total)}</strong>
         </button>
       )}
-      {confirmDialog && <ConfirmDialog dialog={confirmDialog} onClose={closeConfirm} />}
+      {confirmDialog && <ConfirmDialog dialog={confirmDialog} locale={locale} onClose={closeConfirm} />}
     </Shell>
   );
 }
@@ -935,14 +937,14 @@ function initialClientRoute(): Route {
   return routeFromStartParam(currentRoute(), miniAppStartParam());
 }
 
-function ConfirmDialog({ dialog, onClose }: { dialog: ConfirmDialogState; onClose(confirmed: boolean): void }) {
+function ConfirmDialog({ dialog, locale, onClose }: { dialog: ConfirmDialogState; locale: Locale; onClose(confirmed: boolean): void }) {
   return (
     <div className="dialog-backdrop" role="presentation" onClick={() => onClose(false)}>
       <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={(event) => event.stopPropagation()}>
         <h2 id="confirm-title">{dialog.title}</h2>
         <p>{dialog.message}</p>
         <div className="dialog-actions">
-          <button type="button" onClick={() => onClose(false)}>{dialog.cancelLabel || "Отмена"}</button>
+          <button type="button" onClick={() => onClose(false)}>{dialog.cancelLabel || clientCopy(locale).cancel}</button>
           <button className="primary" type="button" onClick={() => onClose(true)}>{dialog.confirmLabel}</button>
         </div>
       </section>
@@ -955,7 +957,8 @@ function isPortalPath(): boolean {
   return pathname === "/";
 }
 
-function PortalLanding() {
+function PortalLanding({ locale }: { locale: Locale }) {
+  const copy = clientCopy(locale);
   useEffect(() => {
     const timer = window.setTimeout(() => {
       window.location.assign(clientBotMiniAppURL);
@@ -966,7 +969,7 @@ function PortalLanding() {
   return (
     <main className="portal-page">
       <section className="portal-card">
-        <h1>Грузинская кухня в Telegram</h1>
+        <h1>{copy.portalTitle}</h1>
         <a
           className="portal-button"
           href={clientBotMiniAppURL}
@@ -975,43 +978,46 @@ function PortalLanding() {
             window.location.assign(clientBotMiniAppURL);
           }}
         >
-          Открыть Mini App
+          {copy.openMiniApp}
           <Icon name="chevron-right" size={18} />
         </a>
-        <small>Если Telegram не открылся автоматически, найдите бота @takolako_main_bot.</small>
+        <small>{copy.portalHint}</small>
       </section>
     </main>
   );
 }
 
-function PublicBotLanding() {
+function PublicBotLanding({ locale }: { locale: Locale }) {
+  const copy = clientCopy(locale);
   return (
     <section className="bot-landing">
-      <h1>Грузинская кухня в Telegram</h1>
-      <TelegramBotButton label="Открыть Mini App" />
-      <small>Если Telegram не открылся автоматически, найдите бота @takolako_main_bot.</small>
+      <h1>{copy.portalTitle}</h1>
+      <TelegramBotButton label={copy.openMiniApp} />
+      <small>{copy.portalHint}</small>
     </section>
   );
 }
 
-function DevSandboxUnavailable() {
+function DevSandboxUnavailable({ locale }: { locale: Locale }) {
+  const copy = clientCopy(locale);
   return (
     <section className="state dev-sandbox-unavailable">
-      <strong>DEV временно не загрузился</strong>
-      <span>Обновите Mini App. Переход в рабочее приложение отключён.</span>
-      <button className="primary" type="button" onClick={() => window.location.reload()}>Обновить DEV</button>
+      <strong>{copy.devUnavailable}</strong>
+      <span>{copy.devUnavailableText}</span>
+      <button className="primary" type="button" onClick={() => window.location.reload()}>{copy.refreshDev}</button>
     </section>
   );
 }
 
-function OpenInTelegramCard() {
+function OpenInTelegramCard({ locale }: { locale: Locale }) {
+  const copy = clientCopy(locale);
   return (
     <section className="telegram-open-card">
       <div>
-        <strong>Заказ оформляется в Telegram</strong>
-        <p>Так мы безопасно получаем ваш Telegram contact и подтверждаем геолокацию для cash-заказа.</p>
+        <strong>{copy.openBotTitle}</strong>
+        <p>{copy.openBotText}</p>
       </div>
-      <TelegramBotButton label="Открыть бота" compact />
+      <TelegramBotButton label={copy.openBot} compact />
     </section>
   );
 }
@@ -1042,7 +1048,7 @@ function PublicInformation({ route, locale, support }: { route: Route; locale: L
       : Privacy;
 
   return (
-    <Suspense fallback={<div className="state">Загрузка...</div>}>
+    <Suspense fallback={<div className="state">{clientCopy(locale).loading}</div>}>
       <Page locale={locale} />
     </Suspense>
   );
@@ -1068,6 +1074,7 @@ function Shell({
   onLocale: (locale: Locale) => void;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
+  const copy = clientCopy(locale);
   const isRoot = route.name === "menu";
   const showLocale = isRoot || isPublicInformationRoute(route);
   const dayOffBlocked = isDayOffRuntime(runtime) && (runtime?.reason === "manual_day_off" || route.name !== "booking") && !isOwnerTelegramId(session?.telegram_user_id);
@@ -1079,15 +1086,15 @@ function Shell({
         <div className="top-row">
           <div className="header-main">
             {!isRoot && (
-              <button className="icon-button" onClick={() => window.history.back()} aria-label="Назад">
+              <button className="icon-button" onClick={() => window.history.back()} aria-label={copy.back}>
                 <Icon name="arrow-left" size={20} />
               </button>
             )}
             {isRoot && <span className="brand-mark" aria-hidden="true">TL</span>}
             <div className="brand">
               <strong>{header}{devSandbox && <em className="dev-environment-badge">DEV</em>}</strong>
-              <span className="worktime" aria-label="Приём заказов с 13:00 до 21:00">
-                <span>Заказы</span>
+              <span className="worktime" aria-label={copy.orderHoursAria}>
+                <span>{copy.orderHours}</span>
                 <strong>13:00–21:00</strong>
               </span>
             </div>
@@ -1123,7 +1130,7 @@ function Shell({
             {t(locale, "booking")}
           </a>
         </nav>
-        {isOwnerTelegramId(session?.telegram_user_id) && <OwnerRoleSwitch activeRole="CLIENT" />}
+        {isOwnerTelegramId(session?.telegram_user_id) && <OwnerRoleSwitch activeRole="CLIENT" locale={locale} />}
       </header>
 		{moreOpen && createPortal(
 			<div className="client-popover-layer" onClick={() => setMoreOpen(false)}>
@@ -1205,12 +1212,14 @@ function ProfileBadge({ session }: { session?: Session | null }) {
   );
 }
 
-function OwnerRoleSwitch({ activeRole }: { activeRole: Role }) {
+function OwnerRoleSwitch({ activeRole, locale }: { activeRole: Role; locale: Locale }) {
+  const copy = clientCopy(locale);
+  const labels: Record<Role, string> = { CLIENT: copy.roleClient, ADMIN: copy.roleAdmin, KITCHEN: copy.roleKitchen, COURIER: copy.roleCourier };
   return (
-    <div className="role-switch" aria-label="Переключение роли owner">
+    <div className="role-switch" aria-label={clientCopy(locale).ownerRoleSwitch}>
       {roleLinks(activeRole).map((link) => (
         <a key={link.role} className={link.active ? "active" : ""} href={link.href}>
-          {link.label}
+          {labels[link.role]}
         </a>
       ))}
     </div>
@@ -1252,6 +1261,7 @@ function MenuPrice({ item }: { item: MenuItem }) {
 }
 
 function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["categories"]; cart: CartState; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
+  const copy = clientCopy(locale);
   const [comboIndex, setComboIndex] = useState(0);
   const comboCategory = categories.find((category) => category.id === comboCategoryID);
   const regularCategories = categories.filter((category) => category.id !== comboCategoryID);
@@ -1305,17 +1315,17 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
                             </>
                           ) : (
                             <>
-                              <span>{item.weight_text}</span>
+                              <span>{localizedWeightText(item.weight_text, locale)}</span>
                               <MenuPrice item={item} />
                             </>
                           )}
                         </div>
                         <div className="row-actions">
                           {qty > 0 ? (
-                            <Qty value={qty} onMinus={() => onSetLine(item, qty <= minQuantity ? 0 : qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />
+                            <Qty value={qty} locale={locale} onMinus={() => onSetLine(item, qty <= minQuantity ? 0 : qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />
                           ) : (
                             <button className="primary add-only" onClick={() => onSetLine(item, minQuantity)}>
-                              В корзину{minQuantity > 1 ? ` · ${minQuantity} шт` : ""}
+                              {copy.addToCart}{minQuantity > 1 ? ` · ${minQuantity} ${copy.unitShort}` : ""}
                             </button>
                           )}
                         </div>
@@ -1331,7 +1341,7 @@ function Menu({ categories, cart, locale, onSetLine }: { categories: AppData["ca
                     key={item.id}
                     className={index === comboIndex ? "active" : ""}
                     type="button"
-                    aria-label={`Комбо ${index + 1}`}
+                    aria-label={copy.combo(index + 1)}
                     onClick={() => {
                       const strip = document.getElementById("combo-strip");
                       const card = strip?.children[index] as HTMLElement | undefined;
@@ -1373,24 +1383,25 @@ function AddToOrder({
   onCalculate: (orderId: string) => Promise<Calculation | null>;
   onSubmit: (order: Order) => Promise<void>;
 }) {
+  const copy = clientCopy(locale);
   const signature = lines.map((line) => `${line.itemId}:${line.quantity}:${line.unitPriceMinor}:${line.menuVersion}`).sort().join("|");
   useEffect(() => {
     if (order?.id && lines.length) void onCalculate(order.id).catch(() => undefined);
   }, [order?.id, lines.length, signature]);
-  if (!order) return <div className="state">Загружаем заказ...</div>;
+  if (!order) return <div className="state">{copy.orderLoading}</div>;
   const flatItems = menuDisplayItems(categories);
-  const disabledReason = order.can_add_items ? "" : additionBlockedText(order);
+  const disabledReason = order.can_add_items ? "" : additionBlockedText(order, locale);
   const amount = calculation?.subtotal_minor || subtotal;
   return (
     <div className="page add-order-page">
       <section className={order.can_add_items ? "addition-panel" : "addition-panel blocked"}>
         <div>
-          <span className="eyebrow">Дозаказ</span>
-          <h1>К заказу #{order.public_number}</h1>
-          <p>{order.can_add_items ? <>Осталось <Countdown value={order.add_items_until} /></> : disabledReason}</p>
+          <span className="eyebrow">{copy.addition}</span>
+          <h1>{copy.toOrder(order.public_number)}</h1>
+          <p>{order.can_add_items ? <>{copy.timeRemaining} <Countdown value={order.add_items_until} locale={locale} /></> : disabledReason}</p>
         </div>
         <button className="secondary" type="button" onClick={() => navigate({ name: "order", id: order.id })}>
-          Назад к заказу
+          {copy.backToOrder}
         </button>
       </section>
       <section className="menu-section">
@@ -1416,17 +1427,17 @@ function AddToOrder({
                       </>
                     ) : (
                       <>
-                        <span>{item.weight_text}</span>
+                        <span>{localizedWeightText(item.weight_text, locale)}</span>
                         <MenuPrice item={item} />
                       </>
                     )}
                   </div>
                   <div className="row-actions">
                     {qty > 0 ? (
-                      <Qty value={qty} onMinus={() => onSetLine(item, qty <= minSelectedQuantity ? 0 : qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />
+                      <Qty value={qty} locale={locale} onMinus={() => onSetLine(item, qty <= minSelectedQuantity ? 0 : qty - 1)} onPlus={() => onSetLine(item, qty + 1)} />
                     ) : (
                       <button className="primary add-only" disabled={!order.can_add_items} onClick={() => onSetLine(item, startQuantity)}>
-                        Добавить{startQuantity > 1 ? ` · ${startQuantity} шт` : ""}
+                        {copy.add}{startQuantity > 1 ? ` · ${startQuantity} ${copy.unitShort}` : ""}
                       </button>
                     )}
                   </div>
@@ -1438,11 +1449,11 @@ function AddToOrder({
       </section>
       <div className="bottom-action add-bottom-action">
         <div className="addition-total">
-          <span>{lines.length ? `${lines.reduce((sum, line) => sum + line.quantity, 0)} поз.` : "Ничего не выбрано"}</span>
+          <span>{lines.length ? `${lines.reduce((sum, line) => sum + line.quantity, 0)} ${copy.positionsShort}` : copy.nothingSelected}</span>
           <strong>{money(amount)}</strong>
         </div>
         <button className="primary full" disabled={!order.can_add_items || submitting || !lines.length} onClick={() => void onSubmit(order)}>
-          {submitting ? "..." : `Добавить к заказу · ${money(amount)}`}
+          {submitting ? "..." : `${copy.addToOrder} · ${money(amount)}`}
         </button>
       </div>
     </div>
@@ -1451,7 +1462,7 @@ function AddToOrder({
 
 function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartLine; locale: Locale; onSetLine: (item: MenuItem, quantity: number) => void }) {
   const [qty, setQty] = useState(line?.quantity || (item ? itemMinQuantity(item) : 1));
-  if (!item) return <div className="state">Блюдо не найдено</div>;
+  if (!item) return <div className="state">{clientCopy(locale).dishNotFound}</div>;
   const minQuantity = itemMinQuantity(item);
   const { description } = splitRecommendationDescription(item.description);
   const isCombo = item.category_id === comboCategoryID;
@@ -1470,14 +1481,14 @@ function Dish({ item, line, locale, onSetLine }: { item?: MenuItem; line?: CartL
             </>
           ) : (
             <>
-              <span>{item.weight_text}</span>
+              <span>{localizedWeightText(item.weight_text, locale)}</span>
               <MenuPrice item={item} />
             </>
           )}
         </div>
       </div>
       <div className="bottom-action">
-        <Qty value={qty} onMinus={() => setQty(Math.max(minQuantity, qty - 1))} onPlus={() => setQty(Math.min(99, qty + 1))} />
+        <Qty value={qty} locale={locale} onMinus={() => setQty(Math.max(minQuantity, qty - 1))} onPlus={() => setQty(Math.min(99, qty + 1))} />
         <button className="primary" onClick={() => {
           onSetLine(item, qty);
           navigate({ name: "cart" });
@@ -1534,7 +1545,7 @@ function DishVisual({
         />
       )}
       <span className="dish-emoji">{foodVisual(item.title)}</span>
-      {showBadge && item.weight_text && <small className="dish-badge">{item.weight_text}</small>}
+      {showBadge && item.weight_text && <small className="dish-badge">{localizedWeightText(item.weight_text, locale)}</small>}
     </>
   );
   if (asButton) {
@@ -1570,7 +1581,8 @@ function Cart({
   onSetLine: (item: MenuItem, quantity: number) => void;
   onRemoveLine: (itemId: string) => void;
 }) {
-  if (!lines.length) return <div className="state">{t(locale, "emptyCart")}</div>;
+  const copy = clientCopy(locale);
+  if (!lines.length) return <div className="state">{copy.emptyCart}</div>;
   const hasAvailableLines = lines.some((line) => itemLookup.has(line.itemId));
   return (
     <div className="page narrow cart-page">
@@ -1584,12 +1596,12 @@ function Cart({
               <div>
                 <strong>{line.title}</strong>
                 <span>{isUnavailable ? `0 × ${money(0)}` : `${line.quantity} × ${money(line.unitPriceMinor)}`}</span>
-                {isUnavailable && <span className="danger-text">Блюдо недоступно</span>}
+                {isUnavailable && <span className="danger-text">{copy.unavailable}</span>}
               </div>
               {item ? (
-                <Qty value={line.quantity} onMinus={() => onSetLine(item, line.quantity <= itemMinQuantity(item) ? 0 : line.quantity - 1)} onPlus={() => onSetLine(item, line.quantity + 1)} />
+                <Qty value={line.quantity} locale={locale} onMinus={() => onSetLine(item, line.quantity <= itemMinQuantity(item) ? 0 : line.quantity - 1)} onPlus={() => onSetLine(item, line.quantity + 1)} />
               ) : (
-                <button className="trash-button" type="button" aria-label="Удалить недоступное блюдо" onClick={() => onRemoveLine(line.itemId)}>
+                <button className="trash-button" type="button" aria-label={copy.removeUnavailable} onClick={() => onRemoveLine(line.itemId)}>
                   <Icon name="trash" size={18} />
                 </button>
               )}
@@ -2329,12 +2341,12 @@ function cashLocationTitle(challenge: CashLocationChallenge | null, locale: Loca
 function cashLocationText(challenge: CashLocationChallenge | null, radiusMeters: number, locale: Locale, fulfillmentType: FulfillmentType): string {
   const copy = checkoutCopy(locale);
   if (challenge?.status === "VERIFIED") {
-    const distance = typeof challenge.distance_meters === "number" ? copy.locationDistance(formatDistance(challenge.distance_meters)) : "";
+    const distance = typeof challenge.distance_meters === "number" ? copy.locationDistance(formatDistance(challenge.distance_meters, locale)) : "";
     return `${copy.locationVerifiedText}${distance}`;
   }
   if (challenge?.status === "PENDING") return copy.locationPendingText;
   if (challenge?.status === "EXPIRED") return copy.locationExpiredText;
-  if (challenge?.rejection_reason === "OUTSIDE_CASH_AREA") return copy.locationOutsideText(formatDistance(radiusMeters));
+  if (challenge?.rejection_reason === "OUTSIDE_CASH_AREA") return copy.locationOutsideText(formatDistance(radiusMeters, locale));
   if (challenge?.rejection_reason === "LOCATION_INACCURATE" || challenge?.rejection_reason === "LOCATION_ACCURACY_MISSING") return copy.locationInaccurateText;
   if (challenge?.rejection_reason === "LOCATION_NOT_CONFIGURED") return copy.locationNotConfiguredText;
   if (fulfillmentType === "pickup") {
@@ -2345,22 +2357,23 @@ function cashLocationText(challenge: CashLocationChallenge | null, radiusMeters:
   return copy.locationDefaultText;
 }
 
-function formatDistance(meters: number): string {
-  if (meters >= 1000) return `${(meters / 1000).toFixed(1).replace(".", ",")} км`;
-  return `${meters} м`;
+function formatDistance(meters: number, locale: Locale): string {
+  const kilometers = (meters / 1000).toLocaleString(locale === "en" ? "en-GB" : locale === "sr" ? "sr-Latn-RS" : "ru-RU", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+  if (meters >= 1000) return `${kilometers} ${locale === "ru" ? "км" : "km"}`;
+  return `${meters} ${locale === "ru" ? "м" : "m"}`;
 }
 
-function Countdown({ value }: { value?: string }) {
+function Countdown({ value, locale }: { value?: string; locale: Locale }) {
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = window.setInterval(() => setTick((value) => value + 1), 1000);
     return () => window.clearInterval(id);
   }, []);
-  return <>{timeLeft(value)}</>;
+  return <>{timeLeft(value, locale)}</>;
 }
 
-function timeLeft(value?: string): string {
-  if (!value) return "несколько минут";
+function timeLeft(value: string | undefined, locale: Locale): string {
+  if (!value) return clientCopy(locale).fewMinutes;
   const seconds = Math.max(0, Math.floor((new Date(value).getTime() - Date.now()) / 1000));
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
@@ -2385,27 +2398,29 @@ function checkoutClosedText(runtime: Runtime | undefined, locale: Locale): strin
   return `Заказать можно с ${openTime} до ${cutoffTime}`;
 }
 
-function additionBlockedText(order: Order): string {
+function additionBlockedText(order: Order, locale: Locale): string {
+  const copy = clientCopy(locale);
   switch (order.add_items_reason) {
     case "already_added":
-      return "Дозаказ уже был добавлен";
+      return copy.additionalAlreadyAdded;
     case "time_expired":
-      return order.fulfillment_type === "pickup" ? "Кухня уже готовит заказ к выбранному времени" : "Прошло больше 5 минут";
+      return order.fulfillment_type === "pickup" ? copy.pickupPreparationStarted : copy.additionExpired;
     case "manual_day_off":
-      return "Приём заказов закрыт";
+      return copy.ordersClosed;
     case "schedule_closed":
-      return "Приём заказов завершён";
+      return copy.orderingEnded;
     case "payment_method":
-      return "Доступно только для наличных";
+      return copy.cashOnly;
     case "status":
-      return "Заказ уже передан дальше";
+      return copy.orderProgressed;
     default:
-      return order.can_add_items ? "" : "Сейчас добавить нельзя";
+      return order.can_add_items ? "" : copy.additionNotAllowed;
   }
 }
 
 function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; onAdd: () => void }) {
-  if (!order) return <div className="state">Загружаем заказ...</div>;
+  const copy = clientCopy(locale);
+  if (!order) return <div className="state">{copy.orderLoading}</div>;
   return (
     <div className="page narrow order-page">
       <div className="order-status">
@@ -2443,11 +2458,11 @@ function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; 
       {order.fulfillment_status === "NEW" && (
         <div className={order.can_add_items ? "add-order-cta" : "add-order-cta disabled"}>
           <div>
-            <strong>{order.can_add_items ? "Забыли что-то?" : "Дозаказ недоступен"}</strong>
-            <span>{order.can_add_items ? <>Можно добавить ещё <Countdown value={order.add_items_until} /></> : additionBlockedText(order)}</span>
+            <strong>{order.can_add_items ? copy.forgotSomething : copy.additionUnavailable}</strong>
+            <span>{order.can_add_items ? <>{copy.canAddFor} <Countdown value={order.add_items_until} locale={locale} /></> : additionBlockedText(order, locale)}</span>
           </div>
           <button className="primary" type="button" disabled={!order.can_add_items} onClick={onAdd}>
-            Добавить
+            {copy.add}
           </button>
         </div>
       )}
@@ -2457,18 +2472,18 @@ function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; 
             <div>
               <strong>{item.quantity} × {item.snapshot_title}</strong>
               <span>{money(item.line_total_minor)}</span>
-              {item.addition_id && <span className="addition-chip">Добавлено{item.addition_created_at ? ` в ${timeHHMM(item.addition_created_at)}` : ""}</span>}
+              {item.addition_id && <span className="addition-chip">{item.addition_created_at ? copy.addedAt(timeHHMM(item.addition_created_at)) : copy.added}</span>}
             </div>
           </div>
         ))}
       </div>
       <Totals subtotal={order.subtotal_minor} total={order.total_minor} locale={locale} />
       <div className="panel-list">
-        <div className="split"><span>Получение</span><strong>{fulfillmentText(order)}</strong></div>
-        {order.fulfillment_type === "pickup" && <div className="split"><span>Забрать</span><strong>{formatPickupTime(order.pickup_at)}</strong></div>}
-        {order.fulfillment_type === "pickup" && order.pickup_address && <div className="split"><span>Адрес</span><strong>{order.pickup_address}</strong></div>}
+        <div className="split"><span>{copy.receiving}</span><strong>{fulfillmentText(order, locale)}</strong></div>
+        {order.fulfillment_type === "pickup" && <div className="split"><span>{copy.pickupAt}</span><strong>{formatPickupTime(order.pickup_at)}</strong></div>}
+        {order.fulfillment_type === "pickup" && order.pickup_address && <div className="split"><span>{copy.address}</span><strong>{order.pickup_address}</strong></div>}
         <div className="split"><span>{t(locale, "phone")}</span><strong>{maskPhone(order.phone)}</strong></div>
-        <div className="split"><span>Оплата</span><strong>{paymentStatusLabel(order)}</strong></div>
+        <div className="split"><span>{copy.payment}</span><strong>{paymentStatusLabel(order, locale)}</strong></div>
       </div>
       <button className="secondary full" onClick={() => navigate({ name: "support" })}>{t(locale, "support")}</button>
     </div>
@@ -2497,7 +2512,8 @@ function Orders({
   locale: Locale;
   onLoadMore(): Promise<void>;
 }) {
-  if (!orders.length) return <div className="state">{t(locale, "orders")} пустая</div>;
+  const copy = clientCopy(locale);
+  if (!orders.length) return <div className="state">{copy.historyEmpty}</div>;
   return (
     <div className="page narrow">
       <h1>{t(locale, "orders")}</h1>
@@ -2505,13 +2521,13 @@ function Orders({
         {orders.map((order) => (
           <button className="history-line" key={order.id} onClick={() => navigate({ name: "order", id: order.id })}>
             <Icon name="receipt" size={20} />
-            <span>#{order.public_number}<small>{fulfillmentText(order)} · {localizedStatus(order, locale)}</small></span>
+            <span>#{order.public_number}<small>{fulfillmentText(order, locale)} · {localizedStatus(order, locale)}</small></span>
             <strong>{money(order.total_minor)}</strong>
             <Icon name="chevron-right" size={18} />
           </button>
         ))}
       </div>
-      {page.has_more && <button className="secondary full" type="button" onClick={() => void onLoadMore()}>Показать ещё</button>}
+      {page.has_more && <button className="secondary full" type="button" onClick={() => void onLoadMore()}>{copy.showMore}</button>}
     </div>
   );
 }
@@ -2612,7 +2628,7 @@ function Booking({
 		return (
 			<div className="page narrow booking-page">
 				<div className="page-title"><span>Tako Lako</span><h1>{copy.title}</h1></div>
-				<OpenInTelegramCard />
+				<OpenInTelegramCard locale={locale} />
 			</div>
 		);
 	}
@@ -2727,12 +2743,13 @@ function formatBookingDateCompact(date: string, locale: Locale): string {
 	return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
-function Qty({ value, onMinus, onPlus }: { value: number; onMinus: () => void; onPlus: () => void }) {
+function Qty({ value, locale, onMinus, onPlus }: { value: number; locale: Locale; onMinus: () => void; onPlus: () => void }) {
+  const copy = clientCopy(locale);
   return (
     <div className="qty">
-      <button onClick={onMinus} aria-label="Минус"><Icon name="minus" size={16} /></button>
+      <button onClick={onMinus} aria-label={copy.minus}><Icon name="minus" size={16} /></button>
       <span>{value}</span>
-      <button onClick={onPlus} aria-label="Плюс"><Icon name="plus" size={16} /></button>
+      <button onClick={onPlus} aria-label={copy.plus}><Icon name="plus" size={16} /></button>
     </div>
   );
 }
@@ -2770,15 +2787,17 @@ function paymentMethodDescription(method: Extract<PaymentMethod, "cash" | "crypt
   return copy.cashDeliveryDescription;
 }
 
-function paymentStatusLabel(order: Order): string {
+function paymentStatusLabel(order: Order, locale: Locale): string {
+  const copy = clientCopy(locale);
   if (order.payment_method === "crypto") return order.payment_status === "PAID" ? "Crypto TEST · PAID" : "Crypto TEST";
-  if (order.payment_method === "card") return order.payment_status === "PAID" ? "Карта · PAID" : "Карта";
-  if (order.fulfillment_type === "pickup") return order.payment_status === "PAID" ? "Наличные при самовывозе · PAID" : "Наличные при самовывозе";
-  return order.payment_status === "PAID" ? "Наличные · PAID" : "Наличные";
+  if (order.payment_method === "card") return order.payment_status === "PAID" ? `${copy.card} · ${copy.paid}` : copy.card;
+  if (order.fulfillment_type === "pickup") return order.payment_status === "PAID" ? `${copy.cashPickup} · ${copy.paid}` : copy.cashPickup;
+  return order.payment_status === "PAID" ? `${copy.cash} · ${copy.paid}` : copy.cash;
 }
 
-function fulfillmentText(order: OrderSummary): string {
-  return order.fulfillment_type === "pickup" ? "Самовывоз" : "Доставка";
+function fulfillmentText(order: OrderSummary, locale: Locale): string {
+  const copy = clientCopy(locale);
+  return order.fulfillment_type === "pickup" ? copy.pickup : copy.delivery;
 }
 
 function formatPickupTime(value?: string): string {
@@ -2787,10 +2806,11 @@ function formatPickupTime(value?: string): string {
 }
 
 function localizedStatus(order: OrderSummary, locale: Locale): string {
+  const copy = clientCopy(locale);
   if (order.fulfillment_type === "pickup") {
-    if (order.fulfillment_status === "NEW") return locale === "ru" ? `Принят · забрать в ${formatPickupTime(order.pickup_at)}` : t(locale, "accepted");
-    if (order.fulfillment_status === "READY_FOR_PICKUP") return locale === "ru" ? `Готов · ждём к ${formatPickupTime(order.pickup_at)}` : "Ready for pickup";
-    if (order.fulfillment_status === "DELIVERED") return locale === "ru" ? "Заказ выдан" : t(locale, "delivered");
+    if (order.fulfillment_status === "NEW") return copy.pickupAccepted(formatPickupTime(order.pickup_at));
+    if (order.fulfillment_status === "READY_FOR_PICKUP") return copy.pickupReady(formatPickupTime(order.pickup_at));
+    if (order.fulfillment_status === "DELIVERED") return copy.pickupCompleted;
   }
   if (locale === "ru") return orderStatusText(order);
   if (order.fulfillment_status === "NEW") return t(locale, "accepted");
@@ -2956,7 +2976,7 @@ function fullMonthText(month: number, locale: Locale): string {
 
 function dayOffTitle(runtime: AppData["runtime"] | undefined, locale: Locale): string {
   const title = (runtime?.day_off_banner || "").trim();
-  if (!title || /^\?+$/.test(title)) return t(locale, "closed");
+  if (locale !== "ru" || !title || /^\?+$/.test(title)) return t(locale, "closed");
   return title;
 }
 

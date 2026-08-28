@@ -20,7 +20,7 @@ test("client DEV sandbox never falls back to the production bot card", () => {
 
   assertIncludes(appSource, "const [loading, setLoading] = useState(!data.runtime)");
   assertIncludes(appSource, "setLoading(true)");
-  assertIncludes(appSource, "devSandbox ? <DevSandboxUnavailable /> : <PublicBotLanding />");
+  assertIncludes(appSource, "devSandbox ? <DevSandboxUnavailable locale={locale} /> : <PublicBotLanding locale={locale} />");
   assertIncludes(appSource, "route.name === \"menu\" && !data.session && !devSandbox");
 });
 
