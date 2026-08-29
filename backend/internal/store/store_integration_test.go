@@ -127,6 +127,15 @@ func TestCreateCashLocationChallengeReusesVerifiedChallengeForCalculation(t *tes
 	if err != nil {
 		t.Fatalf("create verified challenge: %v", err)
 	}
+	// A Telegram WebView restart can race with expiry bookkeeping. A recent,
+	// unused verification is still valid proof and must survive that race.
+	if _, err := pool.Exec(ctx, `
+		UPDATE cash_location_challenges
+		SET status='EXPIRED', expires_at=$2
+		WHERE id=$1
+	`, first.ID, now.Add(-time.Second)); err != nil {
+		t.Fatalf("simulate expired frontend challenge: %v", err)
+	}
 	refreshedCalc, err := st.Calculate(ctx, sess, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now.Add(time.Second))
 	if err != nil {
 		t.Fatalf("refresh calculation: %v", err)

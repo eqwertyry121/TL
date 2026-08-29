@@ -235,12 +235,19 @@ function ClientMiniApp() {
   }, [route]);
 
   useEffect(() => {
-    if (!token || cashLocation?.status !== "PENDING") return;
+    if (!token || cashLocation?.status !== "PENDING" || !calculation?.calculation_token) return;
     return startVisiblePolling(async (signal) => {
-      const next = await withAuth((authToken) => api.getCashLocationChallenge(authToken, cashLocation.id, signal), token);
+      if (signal.aborted) return;
+      // Telegram can recreate the Mini App while the user shares a location in
+      // the bot. Resolve the user's latest active challenge instead of polling
+      // only the id held by the previous WebView.
+      const next = await withAuth((authToken) => api.createCashLocationChallenge(authToken, {
+        calculation_token: calculation.calculation_token,
+        send_prompt: false,
+      }), token);
       setCashLocation(next);
     }, 2000, true);
-  }, [token, cashLocation?.id, cashLocation?.status, withAuth]);
+  }, [token, cashLocation?.status, calculation?.calculation_token, withAuth]);
 
   useEffect(() => {
     document.body.classList.toggle("has-day-off-overlay", dayOffBlocked);

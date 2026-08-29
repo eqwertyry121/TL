@@ -2322,18 +2322,25 @@ func (s *Store) CreateCashLocationChallenge(ctx context.Context, sess core.Sessi
 	err = tx.QueryRow(ctx, `
 		SELECT id
 		FROM cash_location_challenges
-		WHERE user_id=$1 AND status IN ('PENDING', 'VERIFIED')
-			AND used_at IS NULL AND expires_at > $2
+		WHERE telegram_user_id=$1
+			AND used_at IS NULL
+			AND (
+				(status IN ('PENDING', 'VERIFIED') AND expires_at > $2)
+				OR (verified_at IS NOT NULL AND verified_at > $2 - ($3::int * interval '1 second'))
+			)
 		ORDER BY created_at DESC
 		LIMIT 1
 		FOR UPDATE
-	`, sess.UserID, now.UTC()).Scan(&reusableID)
+	`, sess.TelegramUserID, now.UTC(), int(ttl/time.Second)).Scan(&reusableID)
 	if err == nil {
 		if _, err := tx.Exec(ctx, `
 			UPDATE cash_location_challenges
-			SET calculation_token_hash=$1, updated_at=now()
+			SET calculation_token_hash=$1,
+				status=CASE WHEN verified_at IS NOT NULL THEN 'VERIFIED' ELSE status END,
+				expires_at=CASE WHEN verified_at IS NOT NULL THEN verified_at + ($3::int * interval '1 second') ELSE expires_at END,
+				updated_at=now()
 			WHERE id=$2
-		`, tokenHash, reusableID); err != nil {
+		`, tokenHash, reusableID, int(ttl/time.Second)); err != nil {
 			return core.CashLocationChallenge{}, err
 		}
 		if err := tx.Commit(ctx); err != nil {
