@@ -582,6 +582,9 @@ function ClientMiniApp() {
         send_prompt: true,
       }), token);
       setCashLocation(challenge);
+      // Telegram may destroy the current WebView as soon as the bot chat opens.
+      // Persist synchronously so the verified challenge can be restored on return.
+      saveCheckoutProgress(checkoutSignature, calc, challenge);
       if (challenge.status !== "PENDING") return;
       if (challenge.bot_url) {
         openTelegramLink(challenge.bot_url);

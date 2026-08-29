@@ -110,6 +110,34 @@ func TestCreateCashOrderRejectsStaleHiddenItemCalculation(t *testing.T) {
 	}
 }
 
+func TestCreateCashLocationChallengeReusesVerifiedChallengeForCalculation(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	sess := clientSession(t, ctx, st, clientTelegramID)
+	now := time.Now().UTC()
+	calc, err := st.Calculate(ctx, sess, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now)
+	if err != nil {
+		t.Fatalf("calculate: %v", err)
+	}
+	first, err := st.CreateCashLocationChallenge(ctx, sess, store.CreateCashLocationChallengeInput{
+		CalculationToken: calc.Token,
+	}, now, true)
+	if err != nil {
+		t.Fatalf("create verified challenge: %v", err)
+	}
+	second, err := st.CreateCashLocationChallenge(ctx, sess, store.CreateCashLocationChallengeInput{
+		CalculationToken: calc.Token,
+	}, now.Add(time.Second), false)
+	if err != nil {
+		t.Fatalf("retry challenge: %v", err)
+	}
+	if second.ID != first.ID || second.Status != core.CashLocationVerified {
+		t.Fatalf("retry replaced verified challenge: first=%+v second=%+v", first, second)
+	}
+}
+
 func TestAddOrderItemsAppendsOnceAndProtectsKitchenVersion(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)

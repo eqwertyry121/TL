@@ -2311,6 +2311,29 @@ func (s *Store) CreateCashLocationChallenge(ctx context.Context, sess core.Sessi
 	}
 	defer rollback(ctx, tx)
 
+	// Opening the bot chat can destroy Telegram's WebView. If the client retries
+	// after returning, keep the active challenge for this exact calculation
+	// instead of invalidating a location that Telegram has already verified.
+	var reusableID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		SELECT id
+		FROM cash_location_challenges
+		WHERE user_id=$1 AND calculation_token_hash=$2
+			AND status IN ('PENDING', 'VERIFIED') AND used_at IS NULL AND expires_at > $3
+		ORDER BY created_at DESC
+		LIMIT 1
+		FOR UPDATE
+	`, sess.UserID, tokenHash, now.UTC()).Scan(&reusableID)
+	if err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return core.CashLocationChallenge{}, err
+		}
+		return s.CashLocationChallenge(ctx, sess, reusableID, now)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return core.CashLocationChallenge{}, err
+	}
+
 	if _, err := tx.Exec(ctx, `
 		UPDATE cash_location_challenges
 		SET status='EXPIRED', updated_at=now()
