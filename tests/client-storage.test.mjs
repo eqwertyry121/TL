@@ -6,7 +6,6 @@ import {
   loadCachedPublicData,
   loadCart,
   loadCheckoutDraft,
-  loadCheckoutProgress,
   loadLocale,
   pendingIdempotencyKey,
   saveCachedPublicData,
@@ -15,29 +14,6 @@ import {
   saveCheckoutProgress,
   saveLocale,
 } from "../apps/client/src/storage.ts";
-
-test("cash location progress survives a destroyed Telegram WebView", () => {
-  const env = installLocalStorage();
-  try {
-    const expiresAt = new Date(Date.now() + 3 * 60 * 1000).toISOString();
-    const calculation = { calculation_token: "short-lived-calculation", expires_at: expiresAt };
-    const challenge = { id: "challenge-1", status: "VERIFIED", expires_at: expiresAt };
-
-    saveCheckoutProgress("cart-1", calculation, challenge);
-
-    const restored = loadCheckoutProgress("cart-1");
-    assert.equal(typeof restored?.savedAt, "string");
-    assert.deepEqual({ ...restored, savedAt: "saved" }, {
-      version: 1,
-      cartSignature: "cart-1",
-      calculation,
-      cashLocation: challenge,
-      savedAt: "saved",
-    });
-  } finally {
-    env.restore();
-  }
-});
 
 test("public menu cache is isolated per locale and clears the legacy shared key", () => {
   const env = installLocalStorage();

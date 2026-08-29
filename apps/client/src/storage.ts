@@ -40,6 +40,7 @@ function clearLegacySensitiveLocalStorage(): void {
   if (legacySensitiveLocalStorageCleared) return;
   legacySensitiveLocalStorageCleared = true;
   removeLocalStorageItem(CHECKOUT_KEY);
+  removeLocalStorageItem(CHECKOUT_PROGRESS_KEY);
   removeLocalStorageItem(IDEMPOTENCY_KEY);
 }
 
@@ -163,7 +164,7 @@ export function loadCheckoutProgress(cartSignature: string): CheckoutProgress | 
   clearLegacySensitiveLocalStorage();
   if (!cartSignature) return null;
   try {
-    const parsed = JSON.parse(localStorage.getItem(CHECKOUT_PROGRESS_KEY) || "") as CheckoutProgress;
+    const parsed = JSON.parse(sessionStorage.getItem(CHECKOUT_PROGRESS_KEY) || "") as CheckoutProgress;
     if (parsed?.version !== 1 || parsed.cartSignature !== cartSignature || !isFuture(parsed.calculation?.expires_at)) {
       clearCheckoutProgress();
       return null;
@@ -190,14 +191,14 @@ export function saveCheckoutProgress(cartSignature: string, calculation: Calcula
     savedAt: new Date().toISOString(),
   };
   try {
-    localStorage.setItem(CHECKOUT_PROGRESS_KEY, JSON.stringify(progress));
+    sessionStorage.setItem(CHECKOUT_PROGRESS_KEY, JSON.stringify(progress));
   } catch {
     // Progress cache is an accelerator only.
   }
 }
 
 export function clearCheckoutProgress(): void {
-  removeLocalStorageItem(CHECKOUT_PROGRESS_KEY);
+  removeSessionStorageItem(CHECKOUT_PROGRESS_KEY);
 }
 
 export function loadLocale(fallback: Locale): Locale {

@@ -309,6 +309,25 @@ function ClientMiniApp() {
   }, [checkoutSignature, restoredCheckoutSignature, calculation, cashLocation]);
 
   useEffect(() => {
+    if (
+      !token || route.name !== "checkout" || paymentMethod !== "cash" || !cashLocationRequired ||
+      !verifiedContact?.verified || !calculation || cashLocation
+    ) return;
+    let stopped = false;
+    withAuth((authToken) => api.createCashLocationChallenge(authToken, {
+      calculation_token: calculation.calculation_token,
+      send_prompt: false,
+    }), token)
+      .then((challenge) => {
+        if (!stopped) setCashLocation(challenge);
+      })
+      .catch(() => undefined);
+    return () => {
+      stopped = true;
+    };
+  }, [token, route.name, paymentMethod, cashLocationRequired, verifiedContact?.verified, calculation?.calculation_token, cashLocation, withAuth]);
+
+  useEffect(() => {
     if (!token || route.name !== "checkout" || verifiedContact?.verified) return;
     let stopped = false;
     withAuth((authToken) => api.contact(authToken), token)

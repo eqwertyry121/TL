@@ -127,8 +127,12 @@ func TestCreateCashLocationChallengeReusesVerifiedChallengeForCalculation(t *tes
 	if err != nil {
 		t.Fatalf("create verified challenge: %v", err)
 	}
+	refreshedCalc, err := st.Calculate(ctx, sess, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now.Add(time.Second))
+	if err != nil {
+		t.Fatalf("refresh calculation: %v", err)
+	}
 	second, err := st.CreateCashLocationChallenge(ctx, sess, store.CreateCashLocationChallengeInput{
-		CalculationToken: calc.Token,
+		CalculationToken: refreshedCalc.Token,
 	}, now.Add(time.Second), false)
 	if err != nil {
 		t.Fatalf("retry challenge: %v", err)
