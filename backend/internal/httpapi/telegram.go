@@ -86,6 +86,16 @@ func (s *Server) createCashLocationChallenge(w http.ResponseWriter, r *http.Requ
 		writeError(w, err)
 		return
 	}
+	// Owners can switch the shared Telegram bot to the DEV sandbox. If they
+	// later open the production Mini App directly, route the requested location
+	// back to production; otherwise the bot relays it to DEV where this
+	// production challenge does not exist.
+	if !s.cfg.DevSandboxMode && s.isDevSandboxAllowedTelegramID(sess.TelegramUserID) {
+		if err := s.store.SetTelegramSandboxPreference(r.Context(), sess.TelegramUserID, false); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
 	challenge.BotURL = clientBotURL(s.cfg.ClientBotUsername)
 	sendPrompt := true
 	if req.SendPrompt != nil {
