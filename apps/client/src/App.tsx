@@ -1549,9 +1549,10 @@ function DishVisual({
   const src = menuPhotoURL(item.photo_path, item.version);
   const srcSet = menuPhotoSrcSet(item);
   const dimensions = menuPhotoDimensions(item, hero);
+  const portraitPhoto = Boolean(dimensions && dimensions.height > dimensions.width);
   const embeddedBadge = splitRecommendationDescription(item.description).recommendationBadge;
   const recommendationBadge = embeddedBadge || recommendationBadgeForItem(item, locale);
-  const className = `${hero ? "hero-art" : "dish-art"} art-${visualIndex % 6}${src ? " has-photo" : ""}`;
+  const className = `${hero ? "hero-art" : "dish-art"} art-${visualIndex % 6}${src ? " has-photo" : ""}${portraitPhoto ? " portrait-photo" : ""}`;
   const content = (
     <>
       {recommendationBadge && <span className="recommendation-badge">{recommendationBadge}</span>}

@@ -1155,6 +1155,12 @@ body.has-day-off-overlay {
   background: var(--color-primary-dark);
 }
 
+.portrait-photo .dish-photo {
+  object-fit: contain;
+  padding: clamp(0.3rem, 1vw, 0.55rem);
+  background: #fff;
+}
+
 .dish-art.has-photo .dish-emoji,
 .hero-art.has-photo .dish-emoji {
   opacity: 0;
