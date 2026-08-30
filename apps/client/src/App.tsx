@@ -51,6 +51,7 @@ const clientBotMiniAppURL = "https://t.me/TakoLako_main_bot?startapp";
 const devSandbox = import.meta.env.VITE_DEV_SANDBOX === "true";
 const developerTelegramURL = "https://t.me/eqwertyry";
 const comboCategoryID = "66666666-6666-6666-6666-666666666001";
+const borjomiMenuItemID = "e487229d-84ed-4bdf-94ad-e6e51f6ec382";
 const recommendedMenuItemIDs = new Set(["44444444-4444-4444-4444-444444444013"]);
 const Terms = lazy(() => import("./legal").then((module) => ({ default: module.Terms })));
 const Returns = lazy(() => import("./legal").then((module) => ({ default: module.Returns })));
@@ -1549,7 +1550,7 @@ function DishVisual({
   const src = menuPhotoURL(item.photo_path, item.version);
   const srcSet = menuPhotoSrcSet(item);
   const dimensions = menuPhotoDimensions(item, hero);
-  const portraitPhoto = Boolean(dimensions && dimensions.height > dimensions.width);
+  const portraitPhoto = item.id === borjomiMenuItemID;
   const embeddedBadge = splitRecommendationDescription(item.description).recommendationBadge;
   const recommendationBadge = embeddedBadge || recommendationBadgeForItem(item, locale);
   const className = `${hero ? "hero-art" : "dish-art"} art-${visualIndex % 6}${src ? " has-photo" : ""}${portraitPhoto ? " portrait-photo" : ""}`;
