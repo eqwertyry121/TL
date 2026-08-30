@@ -52,6 +52,7 @@ test("delivery separates the ASAP queue from one-order scheduled slots", async (
   assert.match(client, /Заказ сразу передан кухне/);
   assert.match(client, /deliverySlots\?\.asap\?\.queue_position/);
   assert.match(client, /order\.kitchen_queue_position/);
+  assert.match(client, /Ваш заказ \$\{projected \? "будет " : ""\}в очереди №\$\{safePosition\}/);
   assert.match(client, /deliveryTimeMode === "SCHEDULED"/);
   assert.match(client, /delivery_requested_at: deliverySelected && deliveryTimingEnabled && draft\.deliveryTimeMode === "SCHEDULED"/);
   assert.match(client, /deliverySlots\.slots\.filter\(\(slot\) => slot\.available\)/);

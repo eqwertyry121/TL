@@ -2523,13 +2523,9 @@ function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; 
 
 function deliveryQueuePositionText(position: number, locale: Locale, projected: boolean) {
   const safePosition = Math.max(1, Math.round(position));
-  if (locale === "en") return `Your order ${projected ? "will be" : "is now"} number ${safePosition} in the queue`;
-  if (locale === "sr") return `Vaša porudžbina ${projected ? "će biti" : "je sada"} broj ${safePosition} u redu`;
-  const projectedOrdinals = ["первым", "вторым", "третьим", "четвёртым", "пятым", "шестым", "седьмым", "восьмым", "девятым", "десятым"];
-  const currentOrdinals = ["первый", "второй", "третий", "четвёртый", "пятый", "шестой", "седьмой", "восьмой", "девятый", "десятый"];
-  const ordinal = (projected ? projectedOrdinals : currentOrdinals)[safePosition - 1];
-  if (ordinal) return `Ваш заказ ${projected ? "будет" : "сейчас"} ${ordinal} в очереди`;
-  return `Ваш заказ ${projected ? "будет" : "сейчас"} №${safePosition} в очереди`;
+  if (locale === "en") return `Your order ${projected ? "will be" : "is"} No. ${safePosition} in the queue`;
+  if (locale === "sr") return `Vaša porudžbina ${projected ? "će biti" : "je"} broj ${safePosition} u redu`;
+  return `Ваш заказ ${projected ? "будет " : ""}в очереди №${safePosition}`;
 }
 
 function Orders({
