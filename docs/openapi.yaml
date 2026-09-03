@@ -152,7 +152,27 @@ paths:
     get:
       responses:
         "200":
-          description: Verified Telegram contact for current client session
+          description: Verified Telegram contact for current client session. Sandbox additionally returns city_verification_enabled=true and optional city_verified_at (persistent account fact, not current location). Production omits both fields.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [verified]
+                properties:
+                  verified:
+                    type: boolean
+                  phone:
+                    type: string
+                  masked:
+                    type: string
+                  verified_at:
+                    type: string
+                    format: date-time
+                  city_verification_enabled:
+                    type: boolean
+                  city_verified_at:
+                    type: string
+                    format: date-time
   /cash-location/challenges:
     post:
       responses:
@@ -171,7 +191,7 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200":
-          description: Development-only browser fallback. Production returns 403; cash orders must be verified by native Telegram location through /telegram/client/webhook.
+          description: Session-authenticated location verification in development or whitelisted DEV sandbox only. Production outside sandbox returns 403. Sandbox persists successful city verification on the authenticated account without exact coordinates.
   /pickup/slots:
     get:
       responses:

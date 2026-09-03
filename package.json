@@ -17,6 +17,7 @@
     "performance:beacon:test": "node --experimental-strip-types --test tests/performance-beacon.test.mjs",
     "product:analytics:test": "node --test tests/product-analytics.test.mjs",
     "client:i18n:test": "node --experimental-strip-types --test tests/client-i18n.test.mjs",
+    "client:location:test": "node --experimental-strip-types --test tests/client-location.test.mjs",
     "role-switch:test": "node --experimental-strip-types --test tests/role-switch.test.mjs",
     "architecture:guard:test": "node --test tests/architecture-guard.test.mjs",
     "ui:recovery:test": "node --test tests/error-boundary-contract.test.mjs",

@@ -395,10 +395,12 @@ type CashLocationChallenge struct {
 }
 
 type VerifiedContact struct {
-	Verified   bool       `json:"verified"`
-	Phone      string     `json:"phone,omitempty"`
-	Masked     string     `json:"masked,omitempty"`
-	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+	CityVerificationEnabled bool       `json:"city_verification_enabled,omitempty"`
+	CityVerifiedAt          *time.Time `json:"city_verified_at,omitempty"`
+	Verified                bool       `json:"verified"`
+	Phone                   string     `json:"phone,omitempty"`
+	Masked                  string     `json:"masked,omitempty"`
+	VerifiedAt              *time.Time `json:"verified_at,omitempty"`
 }
 
 type Order struct {

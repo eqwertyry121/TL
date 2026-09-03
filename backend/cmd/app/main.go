@@ -70,6 +70,9 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	st := store.New(pool, box, cfg.PIIHashKey, cfg.DeliveryTimingBetaIDs...)
+	if cfg.DevSandboxMode {
+		st.EnablePersistentCityVerification()
+	}
 	if err := st.MigrateLegacyPhoneHashes(ctx); err != nil {
 		return err
 	}

@@ -45,6 +45,15 @@ func TestPerformanceBeaconAcceptsSafePayload(t *testing.T) {
 	}
 }
 
+func TestProductionStillRejectsMiniAppLocation(t *testing.T) {
+	server := New(config.Config{Env: "production"}, nil)
+	w := httptest.NewRecorder()
+	server.verifyCashLocationChallenge(w, httptest.NewRequest(http.MethodPost, "/api/v1/cash-location/challenges/any/telegram-webapp-location", strings.NewReader(`{}`)))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("production location status = %d, want 403", w.Code)
+	}
+}
+
 func TestVersionEndpointExposesSafeBuildAndSupportsConditionalGET(t *testing.T) {
 	server := New(config.Config{BuildSHA: "Release/ABC 123?", ServerTimingEnabled: false}, nil)
 	handler := server.Routes()

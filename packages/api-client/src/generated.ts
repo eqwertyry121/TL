@@ -97,6 +97,8 @@ export interface Session {
 }
 
 export interface VerifiedContact {
+  city_verification_enabled?: boolean;
+  city_verified_at?: string;
   verified: boolean;
   phone?: string;
   masked?: string;

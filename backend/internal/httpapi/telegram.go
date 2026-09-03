@@ -144,7 +144,7 @@ type verifyCashLocationRequest struct {
 }
 
 func (s *Server) verifyCashLocationChallenge(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.Env == "production" {
+	if s.cfg.Env == "production" && !s.cfg.DevSandboxMode {
 		writeError(w, core.ErrForbidden)
 		return
 	}

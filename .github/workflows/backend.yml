@@ -103,6 +103,9 @@ jobs:
           curl -fsS "$PERF_BASE_URL/health"
           run_public_api_checks
 
+      - name: Native location interaction tests
+        run: node --experimental-strip-types --test tests/client-location.test.mjs
+
       - name: Vet
         run: go vet ./...
 

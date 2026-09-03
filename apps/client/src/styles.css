@@ -3517,3 +3517,14 @@ body {
   letter-spacing: .06em;
   vertical-align: middle;
 }
+.checkout-phone-confirmed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  color: #59683d;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.checkout-phone-confirmed svg { flex-shrink: 0; }

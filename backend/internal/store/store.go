@@ -27,10 +27,11 @@ import (
 )
 
 type Store struct {
-	pool                  *pgxpool.Pool
-	box                   *cryptobox.Box
-	piiHashKey            []byte
-	deliveryTimingBetaIDs map[int64]struct{}
+	pool                       *pgxpool.Pool
+	box                        *cryptobox.Box
+	piiHashKey                 []byte
+	deliveryTimingBetaIDs      map[int64]struct{}
+	persistentCityVerification bool
 }
 
 type ProductEventInput struct {
@@ -2231,19 +2232,33 @@ func (s *Store) VerifiedContact(ctx context.Context, sess core.Session) (core.Ve
 	if err != nil {
 		return core.VerifiedContact{}, err
 	}
+	result := core.VerifiedContact{CityVerificationEnabled: s.persistentCityVerification}
+	if s.persistentCityVerification {
+		var cityVerifiedAt sql.NullTime
+		if err := s.pool.QueryRow(ctx, `SELECT city_verified_at FROM users WHERE id=$1`, sess.UserID).Scan(&cityVerifiedAt); err != nil {
+			return core.VerifiedContact{}, err
+		}
+		if cityVerifiedAt.Valid {
+			result.CityVerifiedAt = &cityVerifiedAt.Time
+		}
+	}
 	if !verifiedAt.Valid || strings.TrimSpace(phoneCipher) == "" {
-		return core.VerifiedContact{Verified: false}, nil
+		return result, nil
 	}
 	phone, err := s.box.Decrypt(phoneCipher)
 	if err != nil {
 		return core.VerifiedContact{}, err
 	}
-	return core.VerifiedContact{
-		Verified:   true,
-		Phone:      phone,
-		Masked:     maskPhone(phone),
-		VerifiedAt: &verifiedAt.Time,
-	}, nil
+	result.Verified = true
+	result.Phone = phone
+	result.Masked = maskPhone(phone)
+	result.VerifiedAt = &verifiedAt.Time
+	return result, nil
+}
+
+// EnablePersistentCityVerification is configured at startup only for the isolated sandbox.
+func (s *Store) EnablePersistentCityVerification() {
+	s.persistentCityVerification = true
 }
 
 func (s *Store) VerifyTelegramContact(ctx context.Context, telegramUserID, contactUserID int64, phone string) error {
@@ -2266,6 +2281,9 @@ func (s *Store) VerifyTelegramContact(ctx context.Context, telegramUserID, conta
 }
 
 func (s *Store) CreateCashLocationChallenge(ctx context.Context, sess core.Session, input CreateCashLocationChallengeInput, now time.Time, devBypass bool) (core.CashLocationChallenge, error) {
+	if s.persistentCityVerification {
+		devBypass = false // DEV must exercise real consent and location, including for owners.
+	}
 	if sess.ActiveRole != core.RoleClient {
 		return core.CashLocationChallenge{}, core.ErrForbidden
 	}
@@ -2324,6 +2342,7 @@ func (s *Store) CreateCashLocationChallenge(ctx context.Context, sess core.Sessi
 		FROM cash_location_challenges
 		WHERE telegram_user_id=$1
 			AND used_at IS NULL
+			AND (NOT $4::boolean OR NOT dev_bypass)
 			AND (
 				(status IN ('PENDING', 'VERIFIED') AND expires_at > $2)
 				OR (verified_at IS NOT NULL AND verified_at > $2 - ($3::int * interval '1 second'))
@@ -2331,7 +2350,7 @@ func (s *Store) CreateCashLocationChallenge(ctx context.Context, sess core.Sessi
 		ORDER BY created_at DESC
 		LIMIT 1
 		FOR UPDATE
-	`, sess.TelegramUserID, now.UTC(), int(ttl/time.Second)).Scan(&reusableID)
+	`, sess.TelegramUserID, now.UTC(), int(ttl/time.Second), s.persistentCityVerification).Scan(&reusableID)
 	if err == nil {
 		if _, err := tx.Exec(ctx, `
 			UPDATE cash_location_challenges
@@ -2551,6 +2570,11 @@ func (s *Store) verifyCashLocationChallengeTx(ctx context.Context, tx pgx.Tx, se
 		WHERE id=$1
 	`, id, distance, accuracy, settings.CashLocationTTLSeconds); err != nil {
 		return core.CashLocationChallenge{}, err
+	}
+	if s.persistentCityVerification {
+		if _, err := tx.Exec(ctx, `UPDATE users SET city_verified_at=COALESCE(city_verified_at, $2) WHERE id=$1`, userID, now.UTC()); err != nil {
+			return core.CashLocationChallenge{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return core.CashLocationChallenge{}, err
@@ -5809,6 +5833,16 @@ func (s *Store) verifiedPhoneForCashOrder(ctx context.Context, tx pgx.Tx, userID
 func (s *Store) useCashLocationChallengeTx(ctx context.Context, tx pgx.Tx, sess core.Session, challengeIDText, calculationTokenHash string, settings core.Settings, now time.Time) (*uuid.UUID, *time.Time, *int, error) {
 	if !settings.CashLocationRequired {
 		return nil, nil, nil, nil
+	}
+	if s.persistentCityVerification {
+		var verifiedAt sql.NullTime
+		if err := tx.QueryRow(ctx, `SELECT city_verified_at FROM users WHERE id=$1`, sess.UserID).Scan(&verifiedAt); err != nil {
+			return nil, nil, nil, err
+		}
+		if verifiedAt.Valid {
+			return nil, &verifiedAt.Time, nil, nil
+		}
+		return nil, nil, nil, core.ErrCashLocationRequired
 	}
 	challengeID, err := uuid.Parse(strings.TrimSpace(challengeIDText))
 	if err != nil || challengeID == uuid.Nil {
