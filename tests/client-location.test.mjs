@@ -31,3 +31,10 @@ test("late native callback cannot change a timed-out result", async () => {
   callback({ latitude: 45.25, longitude: 19.84 });
   assert.equal(result.status, "timeout");
 });
+
+test("Telegram altitude and speed fields never reach the strict verification API", async () => {
+  const result = await requestCityLocation({ isInited: true, init() {}, getLocation(cb) {
+    cb({ latitude: 45.25, longitude: 19.84, horizontal_accuracy: 10, altitude: null, speed: 0, course: null, vertical_accuracy: null });
+  } });
+  assert.deepEqual(result, { status: "success", location: { latitude: 45.25, longitude: 19.84, horizontal_accuracy: 10 } });
+});

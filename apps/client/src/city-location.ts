@@ -37,7 +37,13 @@ export function requestCityLocation(manager?: LocationManager, timeoutMs = 15000
               Math.abs(location.latitude) > 90 || Math.abs(location.longitude) > 180) {
             return finish({ status: "unavailable" });
           }
-          finish({ status: "success", location });
+          // Telegram also returns altitude/course/speed. The API deliberately
+          // accepts only the fields needed for the city check.
+          const coordinates: LocationData = { latitude: location.latitude, longitude: location.longitude };
+          if (typeof location.horizontal_accuracy === "number" && Number.isFinite(location.horizontal_accuracy)) {
+            coordinates.horizontal_accuracy = location.horizontal_accuracy;
+          }
+          finish({ status: "success", location: coordinates });
         });
       } catch {
         finish({ status: "unavailable" });

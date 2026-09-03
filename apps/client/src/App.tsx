@@ -263,6 +263,15 @@ function ClientMiniApp() {
   }, [token, cashLocation?.id, cashLocation?.status, calculation?.calculation_token, withAuth, persistentCityEnabled, savedCityVerified]);
 
   useEffect(() => {
+    if (!token || !persistentCityEnabled || savedCityVerified || cashLocation?.status !== "VERIFIED") return;
+    // Retry account refresh if the first response was lost after a successful check.
+    return startVisiblePolling(async (signal) => {
+      const contact = await withAuth((authToken) => api.contact(authToken), token);
+      if (!signal.aborted) setVerifiedContact(contact);
+    }, 2000, true);
+  }, [token, persistentCityEnabled, savedCityVerified, cashLocation?.status, withAuth]);
+
+  useEffect(() => {
     document.body.classList.toggle("has-day-off-overlay", dayOffBlocked);
     return () => document.body.classList.remove("has-day-off-overlay");
   }, [dayOffBlocked]);
@@ -2036,8 +2045,9 @@ function Checkout({
               <Icon name="location" size={18} />
               <div>
                 <strong>{persistentCityEnabled && !locationBotRequested && (!cashLocation || cashLocation.status === "PENDING") ? copy.locationDefaultTitle : cashLocationTitle(cashLocation, locale)}</strong>
-                <p aria-live="polite">{persistentCityEnabled && !locationBotRequested && (!cashLocation || cashLocation.status === "PENDING")
-                  ? locationFallback ? cityLocationCopy(locale).fallback : cityLocationCopy(locale).description
+                <p aria-live="polite">{persistentCityEnabled && locationFallback ? cityLocationCopy(locale).fallback
+                  : persistentCityEnabled && !locationBotRequested && (!cashLocation || cashLocation.status === "PENDING")
+                  ? cityLocationCopy(locale).description
                   : cashLocationText(cashLocation, cashLocationRadiusMeters, locale, fulfillmentType)}</p>
               </div>
             </div>
