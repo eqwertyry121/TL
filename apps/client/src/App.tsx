@@ -6,7 +6,8 @@ import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switc
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { createApi } from "./api";
-import { cityLocationCopy, requestCityLocation } from "./city-location";
+import { cityLocationCopy, cityLocationFailure, cityLocationHelpCopy, requestCityLocation, type CityLocationFailure } from "./city-location";
+import { CityLocationHelp } from "./CityLocationHelp";
 import { clientCopy, localizedWeightText } from "./client-copy";
 import { orderStatusText } from "./fixtures";
 import { t } from "./i18n";
@@ -108,7 +109,7 @@ function ClientMiniApp() {
   const [paymentMethod, setPaymentMethod] = useState<Extract<PaymentMethod, "cash" | "crypto">>("cash");
   const [contactLoading, setContactLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
-  const [locationFallback, setLocationFallback] = useState(false);
+  const [locationFallback, setLocationFallback] = useState<CityLocationFailure | null>(null);
   const [locationBotRequested, setLocationBotRequested] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [restoredCheckoutSignature, setRestoredCheckoutSignature] = useState("");
@@ -621,7 +622,7 @@ function ClientMiniApp() {
   async function confirmCashLocation(throughBot = false) {
     if (!token || locationLoading || savedCityVerified) return;
     setLocationLoading(true);
-    setLocationFallback(false);
+    setLocationFallback(null);
     setLocationBotRequested(throughBot);
     setError("");
     try {
@@ -629,7 +630,7 @@ function ClientMiniApp() {
         // Request from the tap itself, before network calls can lose the user gesture.
         const result = await requestCityLocation(telegram()?.LocationManager);
         if (result.status !== "success") {
-          setLocationFallback(true);
+          setLocationFallback(result.status);
           return;
         }
         const calc = calculation || (await calculate());
@@ -641,6 +642,7 @@ function ClientMiniApp() {
         const verified = challenge.status === "VERIFIED" ? challenge : await withAuth((authToken) =>
           api.verifyCashLocationChallenge(authToken, challenge.id, result.location), token);
         setCashLocation(verified);
+        setLocationFallback(cityLocationFailure(verified));
         if (verified.status === "VERIFIED") {
           const contact = await withAuth((authToken) => api.contact(authToken), token);
           setVerifiedContact(contact);
@@ -662,6 +664,7 @@ function ClientMiniApp() {
         openTelegramLink(challenge.bot_url);
       }
     } catch (err) {
+      if (persistentCityEnabled) setLocationFallback("retry");
       setError(errorText(err, locale));
     } finally {
       setLocationLoading(false);
@@ -1779,7 +1782,7 @@ function Checkout({
   cashLocation: CashLocationChallenge | null;
   cashLocationRequired: boolean;
   persistentCityEnabled: boolean;
-  locationFallback: boolean;
+  locationFallback: CityLocationFailure | null;
   locationBotRequested: boolean;
   onOpenLocationBot: () => Promise<void>;
   cashLocationRadiusMeters: number;
@@ -2045,7 +2048,7 @@ function Checkout({
               <Icon name="location" size={18} />
               <div>
                 <strong>{persistentCityEnabled && !locationBotRequested && (!cashLocation || cashLocation.status === "PENDING") ? copy.locationDefaultTitle : cashLocationTitle(cashLocation, locale)}</strong>
-                <p aria-live="polite">{persistentCityEnabled && locationFallback ? cityLocationCopy(locale).fallback
+                <p aria-live="polite">{persistentCityEnabled && locationFallback ? cityLocationHelpCopy(locale).messages[locationFallback]
                   : persistentCityEnabled && !locationBotRequested && (!cashLocation || cashLocation.status === "PENDING")
                   ? cityLocationCopy(locale).description
                   : cashLocationText(cashLocation, cashLocationRadiusMeters, locale, fulfillmentType)}</p>
@@ -2054,7 +2057,8 @@ function Checkout({
             <button className="primary full" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
               {!contactVerified ? copy.firstSharePhone : locationLoading ? copy.checkingLocation : cashLocation?.status === "VERIFIED" ? copy.updateLocation : copy.confirmLocation}
             </button>
-            {persistentCityEnabled && locationFallback && <button className="secondary full" type="button" disabled={locationLoading} onClick={() => void onOpenLocationBot()}>{cityLocationCopy(locale).bot}</button>}
+            {persistentCityEnabled && locationFallback === "denied" && <CityLocationHelp locale={locale} />}
+            {persistentCityEnabled && locationFallback && locationFallback !== "outside" && <button className="secondary full" type="button" disabled={locationLoading} onClick={() => void onOpenLocationBot()}>{cityLocationCopy(locale).bot}</button>}
           </div>
         )}
         </div>

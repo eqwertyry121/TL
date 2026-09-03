@@ -1,6 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { requestCityLocation } from "../apps/client/src/city-location.ts";
+import { requestCityLocation, cityLocationFailure, cityLocationHelpCopy } from "../apps/client/src/city-location.ts";
+
+test("failed city checks get relevant help, never permission instructions for outside area", () => {
+  assert.equal(cityLocationFailure({ status: "VERIFIED" }), null);
+  assert.equal(cityLocationFailure({ status: "REJECTED", rejection_reason: "OUTSIDE_CASH_AREA" }), "outside");
+  for (const rejection_reason of ["LOCATION_INACCURATE", "LOCATION_ACCURACY_MISSING"]) {
+    assert.equal(cityLocationFailure({ status: "REJECTED", rejection_reason }), "inaccurate");
+  }
+  assert.equal(cityLocationFailure({ status: "EXPIRED" }), "retry");
+  for (const locale of ["ru", "sr", "en"]) {
+    const copy = cityLocationHelpCopy(locale);
+    assert.equal(copy.steps.length, 3);
+    for (const reason of ["denied", "unavailable", "timeout", "inaccurate", "outside", "retry"]) {
+      assert.ok(copy.messages[reason]);
+    }
+  }
+});
+
+test("a missing fix with granted access does not tell users permission is denied", async () => {
+  assert.equal((await requestCityLocation({ isInited: true, isAccessGranted: true, init() {}, getLocation(cb) { cb(null); } })).status, "unavailable");
+});
 
 test("native location initializes and requests once", async () => {
   let requests = 0;

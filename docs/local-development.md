@@ -181,3 +181,31 @@ logs.
 If the restaurant is closed by schedule or manual `ВЫХОДНОЙ`, order creation
 returns `RESTAURANT_CLOSED` or `MANUAL_DAY_OFF`. Menu and calculation remain
 available.
+
+## DEV city-location help smoke
+
+The one-time Mini App city check and its contextual help are gated by both
+`VITE_DEV_SANDBOX=true` and the server's `city_verification_enabled` flag.
+No guide is shown before an attempt. Denied permission shows three steps and
+an OFF-to-ON animation of the supplied Telegram Android screenshots; other
+failures show relevant short instructions. Outside-area rejection does not
+show permission instructions. Successful verification hides the block.
+
+Run the isolated UI smoke (no restaurant orders or real Telegram calls):
+
+```powershell
+pnpm client:location:test
+$env:VITE_APP_ENV = "production"
+$env:VITE_DEMO_MODE = "false"
+$env:VITE_DEV_SANDBOX = "true"
+$env:VITE_API_BASE_URL = "https://city-test.invalid"
+$env:VITE_BASE_PATH = "/"
+pnpm --filter @tk-delivery/client build
+pnpm --filter @tk-delivery/client exec vite preview --host 127.0.0.1 --port 4183
+```
+
+In another terminal run `node tests/city-location-ui.mjs`. It covers success,
+denial, retry, timeout, unavailable location, inaccurate/outside-area results,
+network failure, RU/SR/EN, 320/360 px layouts and reduced motion. Screenshots
+are written to `test-results/city-location/`. Stop the preview after testing;
+do not publish this mock-API build.
