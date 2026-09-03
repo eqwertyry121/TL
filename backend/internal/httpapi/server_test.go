@@ -21,6 +21,7 @@ import (
 
 	"github.com/eqwertyry121/TL/backend/internal/config"
 	"github.com/eqwertyry121/TL/backend/internal/core"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
@@ -45,12 +46,26 @@ func TestPerformanceBeaconAcceptsSafePayload(t *testing.T) {
 	}
 }
 
-func TestProductionStillRejectsMiniAppLocation(t *testing.T) {
+func TestProductionMiniAppLocationRequiresSession(t *testing.T) {
 	server := New(config.Config{Env: "production"}, nil)
 	w := httptest.NewRecorder()
-	server.verifyCashLocationChallenge(w, httptest.NewRequest(http.MethodPost, "/api/v1/cash-location/challenges/any/telegram-webapp-location", strings.NewReader(`{}`)))
+	server.Routes().ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/cash-location/challenges/any/telegram-webapp-location", strings.NewReader(`{}`)))
 	if w.Code != http.StatusForbidden {
-		t.Fatalf("production location status = %d, want 403", w.Code)
+		t.Fatalf("production location status = %d, want 403 without session", w.Code)
+	}
+}
+
+func TestProductionMiniAppLocationValidatesPayload(t *testing.T) {
+	server := New(config.Config{Env: "production"}, nil)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+	routeContext := chi.NewRouteContext()
+	routeContext.URLParams.Add("id", uuid.NewString())
+	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, routeContext))
+	// Call the handler directly: authentication is covered by the route test above.
+	server.verifyCashLocationChallenge(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("production handler status = %d, want validation error (not environment rejection)", w.Code)
 	}
 }
 

@@ -149,7 +149,7 @@ function ClientMiniApp() {
   const dayOffBlocked = isDayOffRuntime(data.runtime) && (data.runtime?.reason === "manual_day_off" || route.name !== "booking") && !isOwnerTelegramId(data.session?.telegram_user_id);
   const paymentMethods = useMemo(() => checkoutPaymentMethods(data.runtime?.enabled_payments || []), [data.runtime?.enabled_payments]);
   const cashLocationRequired = data.runtime?.cash_location_required ?? true;
-  const persistentCityEnabled = devSandbox && verifiedContact?.city_verification_enabled === true;
+  const persistentCityEnabled = verifiedContact?.city_verification_enabled === true;
   const savedCityVerified = persistentCityEnabled && Boolean(verifiedContact?.city_verified_at);
   const deliveryTimingEnabled = data.runtime?.delivery_timing_enabled === true && data.session?.delivery_timing_access === true;
   const routedOrder = route.name === "order"
@@ -2027,7 +2027,7 @@ function Checkout({
           <strong>{copy.requiredSteps}</strong>
           <span>{contactVerified && locationVerified ? copy.ready : copy.required}</span>
         </div>
-        {devSandbox && contactVerified ? (
+        {contactVerified ? (
           <div className="checkout-phone-confirmed">
             <Icon name="check" size={18} />
             <span>{copy.phoneConfirmed} · {verifiedContact?.masked || maskPhone(draft.phone)}</span>

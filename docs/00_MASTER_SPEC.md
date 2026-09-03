@@ -290,17 +290,19 @@ SMS-подтверждения нет.
 - frontend не принимает произвольные координаты, не показывает карту и не даёт
   вручную выбрать точку;
 - клиент нажимает кнопку, backend создаёт короткоживущий challenge;
-- основной путь: backend отправляет клиенту в bot native Telegram
-  `request_location` кнопку, а frontend сразу открывает этот bot-chat, чтобы
-  пользователь не искал кнопку вручную;
+- основной путь: Telegram LocationManager запрашивает разрешение и геолокацию
+  внутри Mini App; переход в bot-chat доступен только как явный fallback;
 - если Telegram скрывает кнопку, команда `/share` повторно показывает
   `request_location`; команда не может сама отправить GPS за пользователя;
 - на desktop/web Telegram, где bot-кнопка может отправляться как обычный текст,
   пользователь открывает заказ на телефоне и отправляет native Telegram
   location из bot-чата;
-- production backend принимает cash-location только из Telegram webhook от того
-  же Telegram user; session-protected WebApp/browser endpoint допустим только в
-  development/testing и не считается защитой для реальных заказов;
+- после приёмки 2026-09-03 production принимает location из Mini App через
+  session-protected endpoint только для собственного pending challenge клиента;
+  webhook того же Telegram user остаётся запасным способом;
+- это разовая UX-проверка города, а не защита от подделки GPS: координаты из
+  Mini App не подписаны Telegram. Факт `users.city_verified_at` сохраняется;
+  существующие успешные проверки переносятся без сброса сессий и телефонов;
 - backend считает расстояние до ресторана и сравнивает с радиусом;
 - в PostgreSQL не хранится точная координата клиента — только status проверки,
   distance/accuracy, время и причина отказа;

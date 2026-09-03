@@ -144,9 +144,11 @@ Real Telegram contact/location confirmation requires the backend to be reachable
 from Telegram by public HTTPS. Local `127.0.0.1` is not enough; use the VPS or a
 temporary HTTPS tunnel during integration testing.
 
-Production cash-location verification accepts only native Telegram location
-sent to the bot. Browser or Mini App coordinates are accepted only in
-development/testing and must not be used for real cash orders.
+Production and DEV accept native Mini App city verification for the authenticated
+client's own pending challenge. Bot location remains an explicit fallback.
+This is a once-per-account convenience check, not signed GPS/anti-spoofing proof.
+Migration 057 carries forward successful historical checks without altering
+sessions, phone verification or orders. Deployment must never reset these records.
 
 Set a secret in `.env.local` or deployment secrets:
 
@@ -182,10 +184,10 @@ If the restaurant is closed by schedule or manual `ВЫХОДНОЙ`, order crea
 returns `RESTAURANT_CLOSED` or `MANUAL_DAY_OFF`. Menu and calculation remain
 available.
 
-## DEV city-location help smoke
+## City-location help smoke (production and DEV)
 
-The one-time Mini App city check and its contextual help are gated by both
-`VITE_DEV_SANDBOX=true` and the server's `city_verification_enabled` flag.
+The one-time Mini App city check and its contextual help are enabled by the
+server's `city_verification_enabled` flag in both production and DEV.
 No help is shown before an attempt. Denied permission opens a compact centered
 application dialog over a dimmed checkout. It has one permission action, two
 CSS-cropped original Telegram screenshots (off/on) and a support link to
@@ -212,7 +214,7 @@ Run the isolated UI smoke (no restaurant orders or real Telegram calls):
 pnpm client:location:test
 $env:VITE_APP_ENV = "production"
 $env:VITE_DEMO_MODE = "false"
-$env:VITE_DEV_SANDBOX = "true"
+$env:VITE_DEV_SANDBOX = "false"
 $env:VITE_API_BASE_URL = "https://city-test.invalid"
 $env:VITE_BASE_PATH = "/"
 pnpm --filter @tk-delivery/client build

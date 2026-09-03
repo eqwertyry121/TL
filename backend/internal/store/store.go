@@ -2256,7 +2256,7 @@ func (s *Store) VerifiedContact(ctx context.Context, sess core.Session) (core.Ve
 	return result, nil
 }
 
-// EnablePersistentCityVerification is configured at startup only for the isolated sandbox.
+// EnablePersistentCityVerification enables account-level city confirmation at startup.
 func (s *Store) EnablePersistentCityVerification() {
 	s.persistentCityVerification = true
 }
@@ -2282,7 +2282,7 @@ func (s *Store) VerifyTelegramContact(ctx context.Context, telegramUserID, conta
 
 func (s *Store) CreateCashLocationChallenge(ctx context.Context, sess core.Session, input CreateCashLocationChallengeInput, now time.Time, devBypass bool) (core.CashLocationChallenge, error) {
 	if s.persistentCityVerification {
-		devBypass = false // DEV must exercise real consent and location, including for owners.
+		devBypass = false // Persistent confirmation always requires a real check, including for owners.
 	}
 	if sess.ActiveRole != core.RoleClient {
 		return core.CashLocationChallenge{}, core.ErrForbidden

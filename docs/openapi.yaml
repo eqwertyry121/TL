@@ -152,7 +152,7 @@ paths:
     get:
       responses:
         "200":
-          description: Verified Telegram contact for current client session. Sandbox additionally returns city_verification_enabled=true and optional city_verified_at (persistent account fact, not current location). Production omits both fields.
+          description: Verified Telegram contact for current client session. city_verification_enabled=true enables persistent city confirmation; optional city_verified_at is an account fact, not proof of current location. Available in production and sandbox.
           content:
             application/json:
               schema:
@@ -191,7 +191,7 @@ paths:
         - $ref: "#/components/parameters/id"
       responses:
         "200":
-          description: Session-authenticated location verification in development or whitelisted DEV sandbox only. Production outside sandbox returns 403. Sandbox persists successful city verification on the authenticated account without exact coordinates.
+          description: Session-authenticated city verification for the current client's own pending challenge. Successful verification persists on the account without exact coordinates. Native coordinates are client-reported, not signed Telegram proof or an anti-spoofing guarantee.
   /pickup/slots:
     get:
       responses:

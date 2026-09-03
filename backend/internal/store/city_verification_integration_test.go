@@ -4,34 +4,36 @@ import (
 	"context"
 	"errors"
 	"math"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/eqwertyry121/TL/backend/internal/core"
+	"github.com/eqwertyry121/TL/backend/internal/db"
 	"github.com/eqwertyry121/TL/backend/internal/store"
 )
 
 func TestCityVerificationAcceptsCoarseLocationOnlyInsideArea(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
-		sandbox        bool
+		persistent     bool
 		latitudeOffset float64
 		accuracy       float64
 		want           core.CashLocationStatus
 	}{
-		{"sandbox coarse inside", true, 0, 3000, core.CashLocationVerified},
-		{"production keeps accuracy cap", false, 0, 3000, core.CashLocationRejected},
-		{"sandbox uncertainty crosses boundary", true, 0.09, 3000, core.CashLocationRejected},
-		{"sandbox outside", true, 0.2, 10, core.CashLocationRejected},
-		{"sandbox enormous uncertainty", true, 0, 1e30, core.CashLocationRejected},
-		{"sandbox negative accuracy", true, 0, -1, core.CashLocationRejected},
-		{"sandbox nonfinite accuracy", true, 0, math.NaN(), core.CashLocationRejected},
+		{"persistent coarse inside", true, 0, 3000, core.CashLocationVerified},
+		{"legacy keeps accuracy cap", false, 0, 3000, core.CashLocationRejected},
+		{"persistent uncertainty crosses boundary", true, 0.09, 3000, core.CashLocationRejected},
+		{"persistent outside", true, 0.2, 10, core.CashLocationRejected},
+		{"persistent enormous uncertainty", true, 0, 1e30, core.CashLocationRejected},
+		{"persistent negative accuracy", true, 0, -1, core.CashLocationRejected},
+		{"persistent nonfinite accuracy", true, 0, math.NaN(), core.CashLocationRejected},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			st, pool := newIntegrationStore(t, ctx)
 			defer pool.Close()
-			if tc.sandbox {
+			if tc.persistent {
 				st.EnablePersistentCityVerification()
 			}
 			sess := clientSession(t, ctx, st, clientTelegramID)
@@ -56,20 +58,73 @@ func TestCityVerificationAcceptsCoarseLocationOnlyInsideArea(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got, want := contact.CityVerifiedAt != nil, tc.sandbox && tc.want == core.CashLocationVerified; got != want {
+			if got, want := contact.CityVerifiedAt != nil, tc.persistent && tc.want == core.CashLocationVerified; got != want {
 				t.Fatalf("saved city = %t, want %t", got, want)
 			}
 		})
 	}
 }
 
-func TestPersistentCityVerificationIsSandboxOnly(t *testing.T) {
-	for _, sandbox := range []bool{false, true} {
-		t.Run(map[bool]string{false: "production", true: "sandbox"}[sandbox], func(t *testing.T) {
+func TestCityMigrationPreservesExistingVerificationAndSession(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+	sess := clientSession(t, ctx, st, clientTelegramID)
+	if err := st.VerifyTelegramContact(ctx, clientTelegramID, clientTelegramID, "+38160111222"); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	calc, err := st.Calculate(ctx, sess, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	challenge, err := st.CreateCashLocationChallenge(ctx, sess, store.CreateCashLocationChallengeInput{CalculationToken: calc.Token}, now, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := st.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accuracy := 10.0
+	if _, err := st.VerifyCashLocationForSession(ctx, sess, challenge.ID, settings.RestaurantLatitude, settings.RestaurantLongitude, &accuracy, now); err != nil {
+		t.Fatal(err)
+	}
+	// Reproduce the legacy schema immediately before migration 057.
+	if _, err := pool.Exec(ctx, `ALTER TABLE users DROP COLUMN city_verified_at; DELETE FROM schema_migrations WHERE version='057_persistent_city_verification.sql';`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE cash_location_challenges SET status='USED', used_at=now(), expires_at=now()-interval '1 day' WHERE id=$1`, challenge.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(ctx, pool, filepath.Join("..", "..", "migrations")); err != nil {
+		t.Fatal(err)
+	}
+	st.EnablePersistentCityVerification()
+	contact, err := st.VerifiedContact(ctx, sess)
+	if err != nil || !contact.Verified || contact.CityVerifiedAt == nil {
+		t.Fatalf("migration lost confirmation: %v %+v", err, contact)
+	}
+	if _, err := st.SessionByToken(ctx, sess.Token); err != nil {
+		t.Fatalf("migration invalidated session: %v", err)
+	}
+	calc, err = st.Calculate(ctx, sess, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 6}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = st.CreateCashOrder(ctx, sess, store.CreateOrderInput{CalculationToken: calc.Token, Phone: "+38160111222", Address: "Novi Sad test", PaymentMethod: core.PaymentCash, TermsAccepted: true, Locale: "ru"}, "migrated-city-order", "migrated-city-hash", now)
+	if err != nil {
+		t.Fatalf("migrated user cannot order without new location: %v", err)
+	}
+}
+
+func TestPersistentCityVerificationPolicy(t *testing.T) {
+	for _, persistent := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy", true: "persistent"}[persistent], func(t *testing.T) {
 			ctx := context.Background()
 			st, pool := newIntegrationStore(t, ctx)
 			defer pool.Close()
-			if sandbox {
+			if persistent {
 				st.EnablePersistentCityVerification()
 			}
 			sess := clientSession(t, ctx, st, clientTelegramID)
@@ -94,7 +149,7 @@ func TestPersistentCityVerificationIsSandboxOnly(t *testing.T) {
 			if err != nil || verified.Status != core.CashLocationVerified {
 				t.Fatalf("verify: %v %+v", err, verified)
 			}
-			// The old challenge is consumed/expired. Only sandbox may trust the account fact.
+			// The old challenge is consumed/expired. Only persistent may trust the account fact.
 			if _, err := pool.Exec(ctx, `UPDATE cash_location_challenges SET status='USED', used_at=now(), expires_at=now()-interval '1 day' WHERE id=$1`, challenge.ID); err != nil {
 				t.Fatal(err)
 			}
@@ -102,7 +157,7 @@ func TestPersistentCityVerificationIsSandboxOnly(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if contact.CityVerificationEnabled != sandbox || (contact.CityVerifiedAt != nil) != sandbox {
+			if contact.CityVerificationEnabled != persistent || (contact.CityVerifiedAt != nil) != persistent {
 				t.Fatalf("unexpected city state: %+v", contact)
 			}
 			calc, err = st.Calculate(ctx, sess, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 6}}, now)
@@ -111,14 +166,14 @@ func TestPersistentCityVerificationIsSandboxOnly(t *testing.T) {
 			}
 			input := store.CreateOrderInput{CalculationToken: calc.Token, Phone: "+38160111222", Address: "Novi Sad test", PaymentMethod: core.PaymentCash, TermsAccepted: true, Locale: "ru"}
 			order, err := st.CreateCashOrder(ctx, sess, input, "city-persist-order", "city-persist-hash", now)
-			if !sandbox {
+			if !persistent {
 				if !errors.Is(err, core.ErrCashLocationRequired) {
-					t.Fatalf("production must require challenge, got %v", err)
+					t.Fatalf("legacy must require challenge, got %v", err)
 				}
 			} else if err != nil || order.FulfillmentStatus != core.StatusNew {
-				t.Fatalf("sandbox order: %v %+v", err, order)
+				t.Fatalf("persistent order: %v %+v", err, order)
 			}
-			if sandbox {
+			if persistent {
 				calc2, err := st.Calculate(ctx, sess, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now)
 				if err != nil {
 					t.Fatal(err)

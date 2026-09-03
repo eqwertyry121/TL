@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
 const apps = {
-  client: { js: 115 * 1024, css: 13 * 1024 },
+  // Includes the native city permission flow and RU/SR/EN recovery dialog.
+  client: { js: 118 * 1024, css: 13 * 1024 },
   admin: { js: 102 * 1024, css: 10 * 1024 },
   kitchen: { js: 90 * 1024, css: 10 * 1024 },
   courier: { js: 90 * 1024, css: 10 * 1024 },
