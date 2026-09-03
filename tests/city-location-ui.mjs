@@ -8,7 +8,7 @@ const browser = await chromium.launch();
 const output = "test-results/city-location";
 await mkdir(output, { recursive: true });
 try {
-  for (const mode of ["success", "denied", "inaccurate", "outside", "unavailable", "timeout", "network", "denied-retry", "denied-en", "denied-sr", "denied-no-settings", "denied-settings-error", "denied-tablet", "denied-resume", "denied-close"]) {
+  for (const mode of ["success", "denied", "inaccurate", "outside", "unavailable", "timeout", "network", "denied-retry", "denied-en", "denied-sr", "denied-no-settings", "denied-settings-error", "denied-tablet", "denied-resume", "denied-close", "denied-inaccurate"]) {
     const locale = mode === "denied-en" ? "en" : mode === "denied-sr" ? "sr" : "ru";
     const page = await browser.newPage({ viewport: { width: mode === "denied-retry" ? 320 : mode === "denied-tablet" ? 768 : 360, height: 800 } });
     const errors = [];
@@ -35,7 +35,7 @@ try {
       else if (path.endsWith("/telegram-webapp-location")) {
         nativePosts++;
         if (mode === "network") { await route.abort(); return; }
-        if (mode === "inaccurate" || mode === "outside") {
+        if (mode === "inaccurate" || mode === "outside" || mode === "denied-inaccurate") {
           payload = { ...challenge(), status: "REJECTED", rejection_reason: mode === "outside" ? "OUTSIDE_CASH_AREA" : "LOCATION_INACCURATE" };
         } else {
           cityVerifiedAt = new Date().toISOString();
@@ -47,6 +47,7 @@ try {
     await page.addInitScript(({ mode, future, locale }) => {
       window.nativeCalls = 0;
       window.botOpens = 0;
+      window.supportOpens = 0;
       window.settingsOpens = 0;
       const handlers = new Map();
       window.emitTelegram = (event) => [...(handlers.get(event) || [])].forEach((fn) => fn());
@@ -55,7 +56,7 @@ try {
         offEvent(event, fn) { handlers.get(event)?.delete(fn); },
         initData: "ui-test", platform: "android", ready() {}, expand() {},
         initDataUnsafe: { user: { id: 1048084234, language_code: locale } },
-        openTelegramLink() { window.botOpens++; },
+        openTelegramLink(url) { if (url === "https://t.me/eqwertyry") window.supportOpens++; else window.botOpens++; },
         LocationManager: { isInited: true, isAccessRequested: true, isAccessGranted: false, isLocationAvailable: mode !== "unavailable",
           openSettings: mode === "denied-no-settings" ? undefined : function () {
             if (mode === "denied-settings-error") throw new Error("unsupported settings");
@@ -101,8 +102,17 @@ try {
         const dialog = page.getByRole("dialog");
         await dialog.waitFor();
         assert.equal(await fallback.count(), 0);
-        assert.equal(await dialog.locator("img, video, .city-guide-stage").count(), 0);
-        assert.equal(await dialog.locator("button").count(), 2, "one action plus close");
+        assert.equal(await dialog.locator("img").count(), 2);
+        assert.equal(await dialog.locator("video, .city-guide-stage").count(), 0);
+        assert.equal(await dialog.locator("button").count(), 1, "only permission action, no close");
+        await page.keyboard.press("Escape");
+        await page.mouse.click(2, 2);
+        assert.equal(await dialog.isVisible(), true, "escape and backdrop must not dismiss");
+        const panel = await dialog.boundingBox();
+        await dialog.screenshot({ path: `${output}/${mode}-panel.png` });
+        assert.ok(panel.width <= 360 && panel.height < 520, `compact panel: ${JSON.stringify(panel)}`);
+        await dialog.locator('a[href="https://t.me/eqwertyry"]').click();
+        assert.equal(await page.evaluate(() => window.supportOpens), 1);
         assert.equal(await page.evaluate(() => window.settingsOpens), 0, "never open settings on mount");
         assert.equal(await page.evaluate(() => window.nativeCalls), 1);
         const allow = dialog.locator(".city-permission-allow");
@@ -123,7 +133,7 @@ try {
         } else {
           assert.equal(await page.evaluate(() => window.settingsOpens), 1);
           assert.equal(await allow.isDisabled(), true);
-          if (mode === "denied-retry" || mode === "denied-resume") {
+          if (mode === "denied-retry" || mode === "denied-resume" || mode === "denied-inaccurate") {
             await page.evaluate((mode) => {
               window.Telegram.WebApp.LocationManager.isAccessGranted = true;
               if (mode === "denied-resume") window.dispatchEvent(new Event("focus"));
@@ -133,14 +143,25 @@ try {
                 window.emitTelegram("activated");
               }
             }, mode);
-            await page.locator(".cash-location").waitFor({ state: "detached" });
-            assert.equal(await dialog.count(), 0);
+            if (mode === "denied-inaccurate") {
+              await dialog.getByText(/Сигнал недостаточно точный/).waitFor();
+              assert.equal(await dialog.isVisible(), true, "failed city check must keep the dialog open");
+              assert.equal(await dialog.locator("img").count(), 0);
+              assert.equal(await dialog.locator(".city-permission-support").isVisible(), true);
+            } else {
+              await page.locator(".cash-location").waitFor({ state: "detached" });
+              assert.equal(await dialog.count(), 0);
+            }
             assert.equal(nativePosts, 1);
             assert.equal(await page.evaluate(() => window.nativeCalls), 2, "one automatic retry only");
           } else {
-            await dialog.locator(".city-permission-close").click();
-            await dialog.waitFor({ state: "detached" });
-            assert.notEqual(await page.evaluate(() => document.body.style.overflow), "hidden");
+            assert.equal(await dialog.isVisible(), true);
+            if (mode === "denied-close") {
+              // Simulate the app being navigated away by its host, not dismissing the dialog.
+              await page.evaluate(() => { location.hash = "#/menu"; });
+              await dialog.waitFor({ state: "detached" });
+              assert.notEqual(await page.evaluate(() => document.body.style.overflow), "hidden");
+            }
             if (mode === "denied-close") {
               await page.evaluate(() => {
                 window.Telegram.WebApp.LocationManager.isAccessGranted = true;

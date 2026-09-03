@@ -1807,7 +1807,12 @@ function Checkout({
   const deliverySelected = fulfillmentType === "delivery";
   const locationRequired = paymentMethod === "cash" && cashLocationRequired;
   const locationVerified = !locationRequired || cashLocation?.status === "VERIFIED";
-  const showLocationHelp = persistentCityEnabled && locationFallback === "denied" && !locationLoading;
+  const [permissionHelpStarted, setPermissionHelpStarted] = useState(false);
+  useEffect(() => {
+    if (locationVerified) setPermissionHelpStarted(false);
+    else if (locationFallback === "denied") setPermissionHelpStarted(true);
+  }, [locationFallback, locationVerified]);
+  const showLocationHelp = persistentCityEnabled && !locationVerified && (permissionHelpStarted || locationFallback === "denied");
   const contactVerified = Boolean(verifiedContact?.verified);
   const termsHref = termsUrl.trim() || routeToHash({ name: "terms" });
   const termsExternal = /^https?:\/\//i.test(termsHref);
@@ -2055,7 +2060,7 @@ function Checkout({
                   : cashLocationText(cashLocation, cashLocationRadiusMeters, locale, fulfillmentType)}</p>
               </div>
             </div>}
-            {showLocationHelp && <CityLocationHelp locale={locale} onConfirm={onConfirmCashLocation} />}
+            {showLocationHelp && <CityLocationHelp locale={locale} onConfirm={onConfirmCashLocation} busy={locationLoading} failure={locationFallback} />}
             {!showLocationHelp && <button data-location-confirm className="primary full" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
               {!contactVerified ? copy.firstSharePhone : locationLoading ? copy.checkingLocation : cashLocation?.status === "VERIFIED" ? copy.updateLocation : copy.confirmLocation}
             </button>}

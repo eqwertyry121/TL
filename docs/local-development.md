@@ -186,10 +186,12 @@ available.
 
 The one-time Mini App city check and its contextual help are gated by both
 `VITE_DEV_SANDBOX=true` and the server's `city_verification_enabled` flag.
-No help is shown before an attempt. Denied permission opens a full-screen
-application dialog with one permission action and a close button. It contains
-no animation, screenshots or bot-chat link. This is an application screen, not
-an OS permission dialog; Telegram still requires the user's consent.
+No help is shown before an attempt. Denied permission opens a compact centered
+application dialog over a dimmed checkout. It has one permission action, two
+CSS-cropped original Telegram screenshots (off/on) and a support link to
+https://t.me/eqwertyry. No close control, Escape dismissal or backdrop dismissal.
+This is an application dialog, not an OS permission prompt; Telegram still
+requires the user's consent.
 
 The access-settings button calls `LocationManager.openSettings()` directly
 from a tap, only for an initialized manager with location available and
@@ -199,9 +201,10 @@ the native location request. Opening settings never verifies the city by itself.
 After an explicit settings tap, SDK permission updates, app activation and focus
 resume the location/server check once access is granted. A 500 ms timer only reads
 the local SDK flag (no GPS/network polling); waiting expires after 60 seconds.
-Closing or unmounting the dialog cancels listeners/timers and late callbacks.
-Other failures show relevant short instructions. Outside-area rejection does
-not show permission instructions. Successful verification hides the block.
+Unmounting cancels listeners/timers and late callbacks. The dialog stays open
+during retries and server checks, displaying relevant failure text when needed.
+Non-permission failures hide the off/on screenshots. The support link remains
+available while waiting and on failure. Successful verification hides the block.
 
 Run the isolated UI smoke (no restaurant orders or real Telegram calls):
 
@@ -219,6 +222,7 @@ pnpm --filter @tk-delivery/client exec vite preview --host 127.0.0.1 --port 4183
 In another terminal run `node tests/city-location-ui.mjs`. It covers success,
 denial, retry, timeout, unavailable location, inaccurate/outside-area results,
 network failure, settings invocation/fallback, automatic resume and duplicate-event
-protection, dismissal, RU/SR/EN and 320/360/768 px layouts. Screenshots
+protection, blocked dismissal, support navigation, unmount cleanup, RU/SR/EN
+and 320/360/768 px layouts. Screenshots
 are written to `test-results/city-location/`. Stop the preview after testing;
 do not publish this mock-API build.

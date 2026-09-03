@@ -1,18 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { canOpenCityLocationSettings, cityLocationHelpCopy, openCityLocationSettings } from "./city-location";
+import { canOpenCityLocationSettings, cityLocationHelpCopy, openCityLocationSettings, type CityLocationFailure } from "./city-location";
+import locationOff from "./assets/location-permission-off.png";
+import locationOn from "./assets/location-permission-on.png";
 
-export function CityLocationHelp({ locale, onConfirm }: { locale: string; onConfirm: () => Promise<void> }) {
+export function CityLocationHelp({ locale, onConfirm, busy, failure }: { locale: string; onConfirm: () => Promise<void>; busy: boolean; failure: CityLocationFailure | null }) {
   const copy = cityLocationHelpCopy(locale);
   const dialog = useRef<HTMLDialogElement>(null);
   const confirm = useRef(onConfirm);
   confirm.current = onConfirm;
-  const [open, setOpen] = useState(true);
   const [waiting, setWaiting] = useState(false);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
     const node = dialog.current;
     node?.showModal();
     const previousOverflow = document.body.style.overflow;
@@ -21,10 +21,10 @@ export function CityLocationHelp({ locale, onConfirm }: { locale: string; onConf
       node?.close();
       document.body.style.overflow = previousOverflow;
     };
-  }, [open]);
+  }, []);
 
   useEffect(() => {
-    if (!waiting || !open) return;
+    if (!waiting) return;
     const app = window.Telegram?.WebApp;
     const manager = app?.LocationManager;
     let finished = false;
@@ -62,10 +62,10 @@ export function CityLocationHelp({ locale, onConfirm }: { locale: string; onConf
       document.removeEventListener("visibilitychange", resume);
       window.removeEventListener("focus", resume);
     };
-  }, [waiting, open]);
+  }, [waiting]);
 
   const allow = () => {
-    if (waiting) return;
+    if (waiting || busy) return;
     setFailed(false);
     const manager = window.Telegram?.WebApp?.LocationManager;
     if (canOpenCityLocationSettings(manager)) {
@@ -79,20 +79,22 @@ export function CityLocationHelp({ locale, onConfirm }: { locale: string; onConf
       void confirm.current();
     }
   };
-  const close = () => { setWaiting(false); setOpen(false); setFailed(false); };
-
-  return <>
-    <button className="primary full" type="button" onClick={() => setOpen(true)}>{copy.permissionButton}</button>
-    {open && createPortal(<dialog ref={dialog} className="city-permission-dialog" aria-labelledby="city-permission-title"
-      onCancel={(event) => { event.preventDefault(); close(); }}>
-      <button className="city-permission-close" type="button" aria-label={copy.close} onClick={close}>×</button>
+  return createPortal(<dialog ref={dialog} className="city-permission-dialog" aria-labelledby="city-permission-title"
+      onCancel={(event) => event.preventDefault()}>
       <div className="city-permission-content">
         <h2 id="city-permission-title">{copy.permissionTitle}</h2>
-        <p role="status">{failed ? copy.permissionFailed : waiting ? copy.permissionWaiting : copy.permissionDescription}</p>
-        <button className="primary full city-permission-allow" type="button" disabled={waiting} onClick={allow}>
+        <p role="status">{busy ? copy.checking : failed ? copy.permissionFailed : waiting ? copy.permissionWaiting : failure && failure !== "denied" ? copy.messages[failure] : copy.permissionDescription}</p>
+        {(!failure || failure === "denied") && <div className="city-permission-examples">
+          <figure><figcaption>{copy.off}</figcaption><div className="city-permission-crop"><img src={locationOff} width="1079" height="1783" alt={copy.offAlt} /></div></figure>
+          <figure><figcaption>{copy.on}</figcaption><div className="city-permission-crop is-on"><img src={locationOn} width="1073" height="1722" alt={copy.onAlt} /></div></figure>
+        </div>}
+        <button className="primary full city-permission-allow" type="button" disabled={waiting || busy} onClick={allow}>
           {copy.permissionButton}
         </button>
+        <a className="city-permission-support" href="https://t.me/eqwertyry" target="_blank" rel="noopener noreferrer" onClick={(event) => {
+          const app = window.Telegram?.WebApp;
+          if (app?.openTelegramLink) { event.preventDefault(); app.openTelegramLink("https://t.me/eqwertyry"); }
+        }}>{copy.support} <span>@eqwertyry</span></a>
       </div>
-    </dialog>, document.body)}
-  </>;
+    </dialog>, document.body);
 }
