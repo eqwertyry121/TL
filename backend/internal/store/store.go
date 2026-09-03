@@ -2536,13 +2536,20 @@ func (s *Store) verifyCashLocationChallengeTx(ctx context.Context, tx pgx.Tx, se
 		return s.cashLocationChallengeByID(ctx, id, userID)
 	}
 	accuracy := settings.CashLocationMaxAccuracyMeters
+	accuracyLimit := settings.CashLocationMaxAccuracyMeters
+	if s.persistentCityVerification {
+		// City confirmation needs the uncertainty circle to fit inside the area,
+		// not street-level precision. The distance+accuracy check below still applies.
+		accuracyLimit = settings.CashLocationRadiusMeters
+	}
 	if accuracyMeters != nil {
-		if *accuracyMeters < 0 {
+		// Validate before converting to int: nonfinite/huge values can overflow.
+		if math.IsNaN(*accuracyMeters) || math.IsInf(*accuracyMeters, 0) || *accuracyMeters < 0 || *accuracyMeters > float64(accuracyLimit) {
 			return s.rejectCashLocationChallengeTx(ctx, tx, id, userID, "LOCATION_INACCURATE")
 		}
 		accuracy = int(math.Ceil(*accuracyMeters))
 	}
-	if accuracy > settings.CashLocationMaxAccuracyMeters {
+	if accuracy > accuracyLimit {
 		return s.rejectCashLocationChallengeTx(ctx, tx, id, userID, "LOCATION_INACCURATE")
 	}
 	if !cashLocationConfigured(settings) {
