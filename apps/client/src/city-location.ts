@@ -61,6 +61,30 @@ export function requestCityLocation(manager?: LocationManager, timeoutMs = 15000
 
 export type CityLocationFailure = "denied" | "unavailable" | "timeout" | "inaccurate" | "outside" | "retry";
 
+interface LocationSettingsManager {
+  isInited?: boolean;
+  isLocationAvailable?: boolean;
+  isAccessRequested?: boolean;
+  isAccessGranted?: boolean;
+  openSettings?(): void;
+}
+
+export function canOpenCityLocationSettings(manager?: LocationSettingsManager): boolean {
+  return Boolean(manager?.isInited && manager.isLocationAvailable !== false &&
+    manager.isAccessRequested && !manager.isAccessGranted && typeof manager.openSettings === "function");
+}
+
+// Call synchronously from a tap, never on mount or from an animation timer.
+export function openCityLocationSettings(manager?: LocationSettingsManager): boolean {
+  if (!manager?.openSettings || !canOpenCityLocationSettings(manager)) return false;
+  try {
+    manager.openSettings();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function cityLocationFailure(challenge: { status: string; rejection_reason?: string }): CityLocationFailure | null {
   if (challenge.status === "VERIFIED") return null;
   if (challenge.rejection_reason === "OUTSIDE_CASH_AREA") return "outside";
@@ -70,9 +94,13 @@ export function cityLocationFailure(challenge: { status: string; rejection_reaso
 
 export function cityLocationHelpCopy(locale: string) {
   if (locale === "sr") return {
-    title: "Kako da dozvolite lokaciju",
-    steps: ["Sklopite Mini App i dodirnite ime TL_main u četu bota.", "U profilu uključite Geolocation (Lokacija).", "Vratite se na porudžbinu i ponovo potvrdite lokaciju."],
-    replay: "Pogledaj ponovo",
+    title: "Dozvolite lokaciju",
+    subtitle: "Još jedan korak do porudžbine.",
+    titles: ["Otvorite profil", "Uključite lokaciju", "Vratite se na porudžbinu"],
+    steps: ["Sklopite aplikaciju. U četu bota dodirnite TL_main na vrhu.", "Uključite Geolocation u profilu bota.", "Vratite se u ovu aplikaciju i ponovo potvrdite grad."],
+    replay: "Ponovo", play: "Pusti", pause: "Pauza", step: "Korak", settings: "Otvori podešavanja pristupa",
+    manual: "Otvorite profil bota ručno — pratite korake iznad.",
+    location: "Geolokacija", confirm: "Potvrdi grad", allow: "Dozvoli pristup", botLabel: "bot",
     messages: {
       denied: "Dozvolite pristup lokaciji u Telegramu — evo kako.",
       unavailable: "Uključite lokaciju na telefonu i dozvolite Telegramu da je koristi u podešavanjima telefona. Zatim pokušajte ponovo ili potvrdite preko bota.",
@@ -83,9 +111,13 @@ export function cityLocationHelpCopy(locale: string) {
     },
   };
   if (locale === "en") return {
-    title: "How to allow location access",
-    steps: ["Minimize the Mini App and tap TL_main at the top of the bot chat.", "Enable Geolocation in the bot profile.", "Return to your checkout and confirm your location again."],
-    replay: "Replay",
+    title: "Allow location access",
+    subtitle: "One more step before ordering.",
+    titles: ["Open the bot profile", "Enable location", "Return to your order"],
+    steps: ["Minimize the app. In the bot chat, tap TL_main at the top.", "Switch on Geolocation in the bot profile.", "Return to this app and confirm your city again."],
+    replay: "Replay", play: "Play", pause: "Pause", step: "Step", settings: "Open access settings",
+    manual: "Open the bot profile manually — follow the steps above.",
+    location: "Geolocation", confirm: "Confirm city", allow: "Allow access", botLabel: "bot",
     messages: {
       denied: "Allow location access in Telegram — here’s how.",
       unavailable: "Turn on location on your phone and allow Telegram to use it in your phone settings. Then retry or confirm through the bot.",
@@ -96,9 +128,13 @@ export function cityLocationHelpCopy(locale: string) {
     },
   };
   return {
-    title: "Как разрешить геолокацию",
-    steps: ["Сверните Mini App и нажмите на имя TL_main в чате бота.", "В профиле включите Geolocation (Геолокация).", "Вернитесь к заказу и нажмите подтверждение ещё раз."],
-    replay: "Посмотреть ещё раз",
+    title: "Разрешите геолокацию",
+    subtitle: "Ещё один шаг до оформления заказа.",
+    titles: ["Откройте профиль бота", "Включите геолокацию", "Вернитесь к заказу"],
+    steps: ["Сверните приложение. В чате бота нажмите TL_main сверху.", "Включите Geolocation в профиле бота.", "Вернитесь в это приложение и подтвердите город ещё раз."],
+    replay: "Сначала", play: "Смотреть", pause: "Пауза", step: "Шаг", settings: "Открыть настройки доступа",
+    manual: "Откройте профиль бота вручную — шаги показаны выше.",
+    location: "Геолокация", confirm: "Подтвердить город", allow: "Разрешить доступ", botLabel: "бот",
     messages: {
       denied: "Разрешите доступ к геолокации в Telegram — вот как.",
       unavailable: "Включите геолокацию на телефоне и разрешите Telegram использовать её в настройках телефона. Затем повторите проверку или подтвердите через бота.",

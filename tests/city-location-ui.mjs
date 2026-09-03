@@ -8,9 +8,9 @@ const browser = await chromium.launch();
 const output = "test-results/city-location";
 await mkdir(output, { recursive: true });
 try {
-  for (const mode of ["success", "denied", "inaccurate", "outside", "unavailable", "timeout", "network", "denied-retry", "denied-en", "denied-sr"]) {
+  for (const mode of ["success", "denied", "inaccurate", "outside", "unavailable", "timeout", "network", "denied-retry", "denied-en", "denied-sr", "denied-no-settings", "denied-settings-error", "denied-tablet"]) {
     const locale = mode === "denied-en" ? "en" : mode === "denied-sr" ? "sr" : "ru";
-    const page = await browser.newPage({ viewport: { width: mode === "denied-retry" ? 320 : 360, height: 800 } });
+    const page = await browser.newPage({ viewport: { width: mode === "denied-retry" ? 320 : mode === "denied-tablet" ? 768 : 360, height: 800 } });
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     let cityVerifiedAt;
@@ -47,11 +47,16 @@ try {
     await page.addInitScript(({ mode, future, locale }) => {
       window.nativeCalls = 0;
       window.botOpens = 0;
+      window.settingsOpens = 0;
       window.Telegram = { WebApp: {
         initData: "ui-test", platform: "android", ready() {}, expand() {},
         initDataUnsafe: { user: { id: 1048084234, language_code: locale } },
         openTelegramLink() { window.botOpens++; },
-        LocationManager: { isInited: true, isLocationAvailable: mode !== "unavailable", init(cb) { cb(); }, getLocation(cb) {
+        LocationManager: { isInited: true, isAccessRequested: true, isAccessGranted: false, isLocationAvailable: mode !== "unavailable",
+          openSettings: mode === "denied-no-settings" ? undefined : function () {
+            if (mode === "denied-settings-error") throw new Error("unsupported settings");
+            window.settingsOpens++;
+          }, init(cb) { cb(); }, getLocation(cb) {
           window.nativeCalls++;
           if (mode === "timeout") return;
           const denied = mode.startsWith("denied") && (mode !== "denied-retry" || window.nativeCalls === 1);
@@ -61,7 +66,7 @@ try {
       localStorage.setItem("tk-client-cart-v1", JSON.stringify({ version: 1, lines: { "dish-test": { itemId: "dish-test", title: "Хачапури", unitPriceMinor: 100000, quantity: 1, menuVersion: 1, updatedAt: future } } }));
     }, { mode, future, locale });
     await page.goto("http://127.0.0.1:4183/#/checkout");
-    const button = page.locator(".cash-location button.primary");
+    const button = page.locator("[data-location-confirm]");
     await button.waitFor();
     assert.match(await button.innerText(), locale === "ru" ? /Подтвердить.*Нови/ : /Novi|Novom/);
     assert.equal(await page.locator("button.contact-share").count(), 0);
@@ -89,14 +94,55 @@ try {
       const permissionFailure = mode.startsWith("denied");
       assert.equal(await page.locator(".city-location-help").count(), permissionFailure ? 1 : 0);
       if (permissionFailure) {
-        assert.equal(await page.locator(".city-location-help li").count(), 3);
-        assert.match(await page.locator(".city-location-help").innerText(), locale === "en" ? /Return to your checkout/ : locale === "sr" ? /Vratite se na porudžbinu/ : /Вернитесь к заказу/);
+        const help = page.locator(".city-location-help");
+        const steps = help.locator(".city-guide-steps button");
+        assert.equal(await steps.count(), 3);
         await page.locator(".city-location-help").scrollIntoViewIfNeeded();
-        await page.waitForFunction(() => [...document.querySelectorAll(".city-location-demo img")].every((img) => img.complete && img.naturalWidth > 0));
-        await page.screenshot({ path: `${output}/${mode}-help.png` });
+        if (mode === "denied") {
+          await page.evaluate(() => window.scrollTo(0, 0));
+          await page.waitForFunction(() => document.querySelector(".city-location-help")?.classList.contains("is-paused"));
+          await page.waitForTimeout(5200);
+          assert.equal(await help.locator(".city-guide-stage-0").count(), 1, "offscreen guide must not play through unseen");
+          await help.scrollIntoViewIfNeeded();
+          // Playback advances, pause holds the current frame, replay restarts.
+          await help.locator(".city-guide-stage-1").waitFor({ timeout: 8000 });
+          await help.locator(".city-guide-play").click();
+          await page.waitForTimeout(5200);
+          assert.equal(await help.locator(".city-guide-stage-1").count(), 1);
+          await steps.nth(2).click();
+          await help.locator(".city-guide-play").click();
+          await page.getByRole("button", { name: "Сначала", exact: true }).waitFor({ timeout: 8000 });
+          await page.getByRole("button", { name: "Сначала", exact: true }).click();
+          assert.equal(await help.locator(".city-guide-stage-0").count(), 1);
+        }
+        await steps.nth(0).click();
+        await help.screenshot({ path: `${output}/${mode}-step-1.png` });
+        await steps.nth(2).click();
+        assert.match(await help.locator("h4").innerText(), locale === "en" ? /Return to your order/ : locale === "sr" ? /Vratite se na porudžbinu/ : /Вернитесь к заказу/);
+        assert.equal(await help.locator(".city-guide-settings").count(), 0, "return step should prioritize confirmation, not settings");
+        assert.match(await button.getAttribute("class"), /primary/);
+        await steps.nth(0).click();
+        assert.equal(await page.evaluate(() => window.settingsOpens), 0);
+        const settings = help.locator(".city-guide-settings");
+        if (mode === "denied-no-settings") assert.equal(await settings.count(), 0);
+        else {
+          await settings.click();
+          assert.equal(await page.locator(".cash-location").count(), 1, "opening permissions must not verify the city");
+          if (mode === "denied-settings-error") {
+            await help.locator(".city-guide-manual").waitFor();
+            assert.equal(await settings.count(), 0);
+            assert.equal(await page.evaluate(() => window.settingsOpens), 0);
+          } else assert.equal(await page.evaluate(() => window.settingsOpens), 1);
+        }
+        await steps.nth(1).click();
         await page.emulateMedia({ reducedMotion: "reduce" });
-        assert.equal(await page.locator(".city-location-demo-on").evaluate((el) => getComputedStyle(el).animationName), "none");
-        await page.screenshot({ path: `${output}/${mode}-help-static.png` });
+        assert.equal(await help.locator(".city-guide-switch i").evaluate((el) => getComputedStyle(el).animationName), "none");
+        await help.locator(".city-guide-play").waitFor({ state: "detached" });
+        assert.equal(await help.locator(".city-guide-play").count(), 0);
+        await help.screenshot({ path: `${output}/${mode}-step-2.png` });
+        await steps.nth(2).click();
+        await help.screenshot({ path: `${output}/${mode}-step-3.png` });
+        assert.equal(await help.locator("img").count(), 0, "no tiny screenshot assets");
       }
       if (mode === "denied-retry") {
         await button.click();

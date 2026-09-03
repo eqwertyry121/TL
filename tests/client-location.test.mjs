@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { requestCityLocation, cityLocationFailure, cityLocationHelpCopy } from "../apps/client/src/city-location.ts";
+import { requestCityLocation, cityLocationFailure, cityLocationHelpCopy, canOpenCityLocationSettings, openCityLocationSettings } from "../apps/client/src/city-location.ts";
+
+test("settings only open on an explicit call for an initialized, denied permission", () => {
+  let opened = 0;
+  const manager = { isInited: true, isAccessRequested: true, isAccessGranted: false, openSettings() { opened++; } };
+  assert.equal(canOpenCityLocationSettings(manager), true);
+  assert.equal(opened, 0);
+  assert.equal(openCityLocationSettings(manager), true);
+  assert.equal(opened, 1);
+  for (const unsupported of [undefined, {}, { ...manager, isInited: false }, { ...manager, isAccessRequested: false }, { ...manager, isAccessGranted: true }]) {
+    assert.equal(openCityLocationSettings(unsupported), false);
+  }
+  assert.equal(openCityLocationSettings({ ...manager, openSettings() { throw new Error("unsupported"); } }), false);
+  assert.equal(opened, 1);
+});
 
 test("failed city checks get relevant help, never permission instructions for outside area", () => {
   assert.equal(cityLocationFailure({ status: "VERIFIED" }), null);

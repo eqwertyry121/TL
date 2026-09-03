@@ -186,10 +186,19 @@ available.
 
 The one-time Mini App city check and its contextual help are gated by both
 `VITE_DEV_SANDBOX=true` and the server's `city_verification_enabled` flag.
-No guide is shown before an attempt. Denied permission shows three steps and
-an OFF-to-ON animation of the supplied Telegram Android screenshots; other
-failures show relevant short instructions. Outside-area rejection does not
-show permission instructions. Successful verification hides the block.
+No guide is shown before an attempt. Denied permission shows a three-step motion
+illustration: open the bot profile, enable location, return to the order. Only
+one step is shown at a time. It advances while at least half the guide is visible
+in a foreground tab; pause, replay and manual step selection are available.
+Reduced-motion mode uses static illustrations and manual steps. These are
+illustrations, not an OS permission dialog or a screen recording.
+
+The access-settings button calls `LocationManager.openSettings()` directly
+from a tap, only for an initialized manager with location available and
+previously requested but ungranted permission. Unsupported/throwing settings
+fall back to manual steps. Opening settings never verifies the city by itself.
+Other failures show relevant short instructions. Outside-area rejection does
+not show permission instructions. Successful verification hides the block.
 
 Run the isolated UI smoke (no restaurant orders or real Telegram calls):
 
@@ -206,6 +215,7 @@ pnpm --filter @tk-delivery/client exec vite preview --host 127.0.0.1 --port 4183
 
 In another terminal run `node tests/city-location-ui.mjs`. It covers success,
 denial, retry, timeout, unavailable location, inaccurate/outside-area results,
-network failure, RU/SR/EN, 320/360 px layouts and reduced motion. Screenshots
+network failure, settings invocation/fallback, playback, RU/SR/EN,
+320/360/768 px layouts and reduced motion. Screenshots
 are written to `test-results/city-location/`. Stop the preview after testing;
 do not publish this mock-API build.

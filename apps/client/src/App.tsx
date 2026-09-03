@@ -1807,6 +1807,7 @@ function Checkout({
   const deliverySelected = fulfillmentType === "delivery";
   const locationRequired = paymentMethod === "cash" && cashLocationRequired;
   const locationVerified = !locationRequired || cashLocation?.status === "VERIFIED";
+  const showLocationHelp = persistentCityEnabled && locationFallback === "denied" && !locationLoading;
   const contactVerified = Boolean(verifiedContact?.verified);
   const termsHref = termsUrl.trim() || routeToHash({ name: "terms" });
   const termsExternal = /^https?:\/\//i.test(termsHref);
@@ -2044,7 +2045,7 @@ function Checkout({
         </button>}
         {locationRequired && (
           <div className={`cash-location ${!contactVerified ? "blocked" : ""} ${cashLocation?.status === "VERIFIED" ? "verified" : cashLocation?.status === "REJECTED" || cashLocation?.status === "EXPIRED" ? "rejected" : ""}`}>
-            <div>
+            {!showLocationHelp && <div>
               <Icon name="location" size={18} />
               <div>
                 <strong>{persistentCityEnabled && !locationBotRequested && (!cashLocation || cashLocation.status === "PENDING") ? copy.locationDefaultTitle : cashLocationTitle(cashLocation, locale)}</strong>
@@ -2053,12 +2054,12 @@ function Checkout({
                   ? cityLocationCopy(locale).description
                   : cashLocationText(cashLocation, cashLocationRadiusMeters, locale, fulfillmentType)}</p>
               </div>
-            </div>
-            <button className="primary full" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
+            </div>}
+            {showLocationHelp && <CityLocationHelp locale={locale} confirmLabel={copy.confirmLocation} onConfirm={onConfirmCashLocation} />}
+            {!showLocationHelp && <button data-location-confirm className="primary full" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
               {!contactVerified ? copy.firstSharePhone : locationLoading ? copy.checkingLocation : cashLocation?.status === "VERIFIED" ? copy.updateLocation : copy.confirmLocation}
-            </button>
-            {persistentCityEnabled && locationFallback === "denied" && <CityLocationHelp locale={locale} />}
-            {persistentCityEnabled && locationFallback && locationFallback !== "outside" && <button className="secondary full" type="button" disabled={locationLoading} onClick={() => void onOpenLocationBot()}>{cityLocationCopy(locale).bot}</button>}
+            </button>}
+            {persistentCityEnabled && locationFallback && locationFallback !== "outside" && <button className={showLocationHelp ? "city-guide-bot-link" : "secondary full"} type="button" disabled={locationLoading} onClick={() => void onOpenLocationBot()}>{cityLocationCopy(locale).bot}</button>}
           </div>
         )}
         </div>
