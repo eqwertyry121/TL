@@ -2514,7 +2514,6 @@ textarea {
 .city-location-demo img { position: absolute; display: block; width: 100%; max-width: none; height: auto; left: 0; }
 .city-location-demo-off { top: 0; transform: translateY(-71.79%); }
 .city-location-demo-on { top: 0; transform: translateY(-74.33%); animation: city-location-enable 4.5s ease-in-out both; }
-.city-location-help figcaption { margin-top: .35rem; color: var(--muted); font-size: .73rem; }
 .city-location-replay { display: block; margin-top: .25rem; padding: .65rem 0; min-height: 44px; border: 0; background: none; box-shadow: none; color: #6b1f2a; font-size: .82rem; text-decoration: underline; }
 @keyframes city-location-enable { 0%, 35% { opacity: 0; } 60%, 100% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {

@@ -72,7 +72,6 @@ export function cityLocationHelpCopy(locale: string) {
   if (locale === "sr") return {
     title: "Kako da dozvolite lokaciju",
     steps: ["Sklopite Mini App i dodirnite ime TL_main u četu bota.", "U profilu uključite Geolocation (Lokacija).", "Vratite se na porudžbinu i ponovo potvrdite lokaciju."],
-    example: "Primer u Telegramu za Android",
     replay: "Pogledaj ponovo",
     messages: {
       denied: "Dozvolite pristup lokaciji u Telegramu — evo kako.",
@@ -86,7 +85,6 @@ export function cityLocationHelpCopy(locale: string) {
   if (locale === "en") return {
     title: "How to allow location access",
     steps: ["Minimize the Mini App and tap TL_main at the top of the bot chat.", "Enable Geolocation in the bot profile.", "Return to your checkout and confirm your location again."],
-    example: "Example in Telegram for Android",
     replay: "Replay",
     messages: {
       denied: "Allow location access in Telegram — here’s how.",
@@ -100,7 +98,6 @@ export function cityLocationHelpCopy(locale: string) {
   return {
     title: "Как разрешить геолокацию",
     steps: ["Сверните Mini App и нажмите на имя TL_main в чате бота.", "В профиле включите Geolocation (Геолокация).", "Вернитесь к заказу и нажмите подтверждение ещё раз."],
-    example: "Пример в Telegram на Android",
     replay: "Посмотреть ещё раз",
     messages: {
       denied: "Разрешите доступ к геолокации в Telegram — вот как.",

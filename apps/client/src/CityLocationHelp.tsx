@@ -14,7 +14,6 @@ export function CityLocationHelp({ locale }: { locale: string }) {
         <img className="city-location-demo-off" src={locationOff} alt="" width="1079" height="1783" />
         <img className="city-location-demo-on" src={locationOn} alt="" width="1073" height="1722" />
       </div>
-      <figcaption>{copy.example}</figcaption>
     </figure>
     <button className="city-location-replay" type="button" onClick={() => setReplay((value) => value + 1)}>{copy.replay}</button>
   </section>;
