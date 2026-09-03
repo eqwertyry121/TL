@@ -25,7 +25,9 @@ test("failed city checks get relevant help, never permission instructions for ou
   assert.equal(cityLocationFailure({ status: "EXPIRED" }), "retry");
   for (const locale of ["ru", "sr", "en"]) {
     const copy = cityLocationHelpCopy(locale);
-    assert.equal(copy.steps.length, 3);
+    assert.ok(copy.permissionButton);
+    assert.ok(copy.permissionDescription);
+    assert.ok(copy.permissionFailed);
     for (const reason of ["denied", "unavailable", "timeout", "inaccurate", "outside", "retry"]) {
       assert.ok(copy.messages[reason]);
     }

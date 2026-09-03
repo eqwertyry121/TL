@@ -94,15 +94,14 @@ export function cityLocationFailure(challenge: { status: string; rejection_reaso
 
 export function cityLocationHelpCopy(locale: string) {
   if (locale === "sr") return {
-    title: "Dozvolite lokaciju",
-    subtitle: "Još jedan korak do porudžbine.",
-    titles: ["Otvorite profil", "Uključite lokaciju", "Vratite se na porudžbinu"],
-    steps: ["Sklopite aplikaciju. U četu bota dodirnite TL_main na vrhu.", "Uključite Geolocation u profilu bota.", "Vratite se u ovu aplikaciju i ponovo potvrdite grad."],
-    replay: "Ponovo", play: "Pusti", pause: "Pauza", step: "Korak", settings: "Otvori podešavanja pristupa",
-    manual: "Otvorite profil bota ručno — pratite korake iznad.",
-    location: "Geolokacija", confirm: "Potvrdi grad", allow: "Dozvoli pristup", botLabel: "bot",
+    permissionButton: "Dozvoli pristup lokaciji",
+    permissionTitle: "Proverimo grad dostave",
+    permissionDescription: "Dozvolite Telegramu pristup lokaciji.",
+    permissionWaiting: "Dozvolite pristup u Telegramu. Provera će se nastaviti automatski.",
+    permissionFailed: "Telegram nije potvrdio pristup. Pokušajte ponovo.",
+    close: "Zatvori",
     messages: {
-      denied: "Dozvolite pristup lokaciji u Telegramu — evo kako.",
+      denied: "Dozvolite Telegramu pristup lokaciji.",
       unavailable: "Uključite lokaciju na telefonu i dozvolite Telegramu da je koristi u podešavanjima telefona. Zatim pokušajte ponovo ili potvrdite preko bota.",
       timeout: "Telefon nije poslao lokaciju na vreme. Proverite da je lokacija uključena i pokušajte ponovo.",
       inaccurate: "Signal nije dovoljno precizan. U podešavanjima telefona dozvolite Telegramu preciznu lokaciju, priđite prozoru i pokušajte ponovo.",
@@ -111,15 +110,14 @@ export function cityLocationHelpCopy(locale: string) {
     },
   };
   if (locale === "en") return {
-    title: "Allow location access",
-    subtitle: "One more step before ordering.",
-    titles: ["Open the bot profile", "Enable location", "Return to your order"],
-    steps: ["Minimize the app. In the bot chat, tap TL_main at the top.", "Switch on Geolocation in the bot profile.", "Return to this app and confirm your city again."],
-    replay: "Replay", play: "Play", pause: "Pause", step: "Step", settings: "Open access settings",
-    manual: "Open the bot profile manually — follow the steps above.",
-    location: "Geolocation", confirm: "Confirm city", allow: "Allow access", botLabel: "bot",
+    permissionButton: "Allow location access",
+    permissionTitle: "Check your delivery city",
+    permissionDescription: "Allow Telegram to access your location.",
+    permissionWaiting: "Allow access in Telegram. The check will continue automatically.",
+    permissionFailed: "Telegram did not confirm access. Please try again.",
+    close: "Close",
     messages: {
-      denied: "Allow location access in Telegram — here’s how.",
+      denied: "Allow Telegram to access your location.",
       unavailable: "Turn on location on your phone and allow Telegram to use it in your phone settings. Then retry or confirm through the bot.",
       timeout: "Your phone did not send its location in time. Check that location is on and try again.",
       inaccurate: "The signal is not accurate enough. Allow precise location for Telegram in your phone settings, move near a window and retry.",
@@ -128,15 +126,14 @@ export function cityLocationHelpCopy(locale: string) {
     },
   };
   return {
-    title: "Разрешите геолокацию",
-    subtitle: "Ещё один шаг до оформления заказа.",
-    titles: ["Откройте профиль бота", "Включите геолокацию", "Вернитесь к заказу"],
-    steps: ["Сверните приложение. В чате бота нажмите TL_main сверху.", "Включите Geolocation в профиле бота.", "Вернитесь в это приложение и подтвердите город ещё раз."],
-    replay: "Сначала", play: "Смотреть", pause: "Пауза", step: "Шаг", settings: "Открыть настройки доступа",
-    manual: "Откройте профиль бота вручную — шаги показаны выше.",
-    location: "Геолокация", confirm: "Подтвердить город", allow: "Разрешить доступ", botLabel: "бот",
+    permissionButton: "Дать разрешение на геолокацию",
+    permissionTitle: "Проверим город доставки",
+    permissionDescription: "Разрешите Telegram доступ к геолокации.",
+    permissionWaiting: "Разрешите доступ в Telegram. Проверка продолжится автоматически.",
+    permissionFailed: "Telegram не подтвердил доступ. Попробуйте ещё раз.",
+    close: "Закрыть",
     messages: {
-      denied: "Разрешите доступ к геолокации в Telegram — вот как.",
+      denied: "Разрешите Telegram доступ к геолокации.",
       unavailable: "Включите геолокацию на телефоне и разрешите Telegram использовать её в настройках телефона. Затем повторите проверку или подтвердите через бота.",
       timeout: "Телефон не передал местоположение вовремя. Проверьте, что геолокация включена, и повторите попытку.",
       inaccurate: "Сигнал недостаточно точный. В настройках телефона разрешите Telegram точную геолокацию, подойдите к окну и повторите проверку.",

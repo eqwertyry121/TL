@@ -17,6 +17,9 @@ interface TelegramWebApp {
   };
   BackButton?: TelegramBackButton;
   LocationManager?: TelegramLocationManager;
+  isActive?: boolean;
+  onEvent?(event: string, callback: () => void): void;
+  offEvent?(event: string, callback: () => void): void;
   ready(): void;
   expand(): void;
   isVersionAtLeast?(version: string): boolean;

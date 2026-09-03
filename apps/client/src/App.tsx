@@ -2055,11 +2055,11 @@ function Checkout({
                   : cashLocationText(cashLocation, cashLocationRadiusMeters, locale, fulfillmentType)}</p>
               </div>
             </div>}
-            {showLocationHelp && <CityLocationHelp locale={locale} confirmLabel={copy.confirmLocation} onConfirm={onConfirmCashLocation} />}
+            {showLocationHelp && <CityLocationHelp locale={locale} onConfirm={onConfirmCashLocation} />}
             {!showLocationHelp && <button data-location-confirm className="primary full" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
               {!contactVerified ? copy.firstSharePhone : locationLoading ? copy.checkingLocation : cashLocation?.status === "VERIFIED" ? copy.updateLocation : copy.confirmLocation}
             </button>}
-            {persistentCityEnabled && locationFallback && locationFallback !== "outside" && <button className={showLocationHelp ? "city-guide-bot-link" : "secondary full"} type="button" disabled={locationLoading} onClick={() => void onOpenLocationBot()}>{cityLocationCopy(locale).bot}</button>}
+            {persistentCityEnabled && locationFallback && locationFallback !== "outside" && locationFallback !== "denied" && <button className="secondary full" type="button" disabled={locationLoading} onClick={() => void onOpenLocationBot()}>{cityLocationCopy(locale).bot}</button>}
           </div>
         )}
         </div>
