@@ -12,7 +12,7 @@ export const demoRuntime: Runtime = {
   currency: "RSD",
   enabled_payments: ["cash"],
   supported_locales: ["ru", "sr", "en"],
-  support_text: "@Tako_Lako",
+  support_text: "@Tako_Lako_N",
   terms_url: "",
   cash_location_required: true,
   cash_location_radius_meters: 12000,

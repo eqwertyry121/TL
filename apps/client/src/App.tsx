@@ -891,7 +891,7 @@ function ClientMiniApp() {
   if (publicInformationRoute) {
     return (
       <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header={ui.brand} runtime={data.runtime} session={data.session}>
-        <PublicInformation route={route} locale={locale} support={data.runtime?.support_text || "@Tako_Lako"} />
+        <PublicInformation route={route} locale={locale} support={data.runtime?.support_text || "@Tako_Lako_N"} />
       </Shell>
     );
   }
@@ -2636,7 +2636,7 @@ function Orders({
 }
 
 function Support({ support, locale }: { support: string; locale: Locale }) {
-  const handle = support.trim().replace(/^@+/, "") || "Tako_Lako";
+  const handle = support.trim().replace(/^@+/, "") || "Tako_Lako_N";
   const supportCopy: Record<Locale, { title: string; intro: string; telegram: string; stepsTitle: string; steps: string[]; note: string }> = {
     ru: {
       title: "Поддержка",

@@ -59,7 +59,7 @@ export const legalProfile = {
   restaurantAddress: publicValue(import.meta.env.VITE_LEGAL_RESTAURANT_ADDRESS, ownerLegalDefaults.restaurantAddress),
   email: publicValue(import.meta.env.VITE_LEGAL_EMAIL, ownerLegalDefaults.email),
   phone: publicValue(import.meta.env.VITE_LEGAL_PHONE, ownerLegalDefaults.phone),
-  supportTelegram: "@Tako_Lako",
+  supportTelegram: "@Tako_Lako_N",
 };
 
 const legalCopy: Record<Locale, LegalCopy> = {

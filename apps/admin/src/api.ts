@@ -1317,7 +1317,7 @@ function seedSettings(): Settings {
     manual_day_off: false,
     day_off_banner: "ВЫХОДНОЙ",
     flat_delivery_fee_minor: 0,
-    support_text: "@Tako_Lako",
+    support_text: "@Tako_Lako_N",
     support_phone: "",
     terms_url: "",
     max_item_quantity: 10,
@@ -1671,7 +1671,7 @@ function loadSettings(): Settings {
   const normalized = {
     ...settings,
     flat_delivery_fee_minor: 0,
-    support_text: "@Tako_Lako",
+    support_text: "@Tako_Lako_N",
     max_item_quantity: Math.max(settings.max_item_quantity || 0, 99),
     crypto_enabled: shouldEnableCryptoTest ? true : settings.crypto_enabled,
     cash_location_required: settings.cash_location_required ?? true,

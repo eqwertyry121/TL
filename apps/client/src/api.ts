@@ -526,7 +526,7 @@ function loadDemoRuntime(): Runtime {
     order_cutoff_time: today?.order_cutoff_time ?? "",
     day_off_banner: settings.day_off_banner,
     flat_delivery_fee_minor: 0,
-    support_text: "@Tako_Lako",
+    support_text: "@Tako_Lako_N",
     enabled_payments: [
       ...(settings.cash_enabled ? ["cash" as const] : []),
       ...(settings.crypto_enabled ? ["crypto" as const] : []),
@@ -651,7 +651,7 @@ function seedDemoSettings(): Settings {
     manual_day_off: false,
     day_off_banner: "ВЫХОДНОЙ",
     flat_delivery_fee_minor: 0,
-    support_text: "@Tako_Lako",
+    support_text: "@Tako_Lako_N",
     support_phone: "",
     terms_url: "",
     max_item_quantity: 99,

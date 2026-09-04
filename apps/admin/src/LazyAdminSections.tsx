@@ -120,7 +120,7 @@ export function SettingsSection({ settings, demoMode, onSave }: { settings: Sett
         <div className="support-settings">
           <label>
             <span>Telegram поддержки</span>
-            <input value={form.support_text} placeholder="@Tako_Lako" onChange={(event) => setForm({ ...form, support_text: event.target.value })} />
+            <input value={form.support_text} placeholder="@Tako_Lako_N" onChange={(event) => setForm({ ...form, support_text: event.target.value })} />
             <small>Основной канал: клиент нажимает кнопку и сразу пишет сюда.</small>
           </label>
           <label>
@@ -136,7 +136,7 @@ export function SettingsSection({ settings, demoMode, onSave }: { settings: Sett
         </div>
         <div className="support-preview">
           <span>Как это выглядит клиенту</span>
-          <strong>{form.support_text.trim() || "@Tako_Lako"}</strong>
+          <strong>{form.support_text.trim() || "@Tako_Lako_N"}</strong>
           {form.support_phone.trim() && <small>{form.support_phone.trim()}</small>}
         </div>
       </div>
