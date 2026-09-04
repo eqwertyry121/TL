@@ -21,6 +21,28 @@ import (
 
 const integrationDBLockKey = int64(812379421)
 
+func TestOwnerDeliveryBriefUsesRequestedTime(t *testing.T) {
+	ctx := context.Background()
+	pool := newNotificationsIntegrationPool(t, ctx)
+	defer pool.Close()
+	userID := insertNotificationTestUserWithTelegram(t, ctx, pool, 123456789)
+	orderID := insertNotificationTestOrderForUser(t, ctx, pool, userID)
+	w := &Worker{pool: pool}
+	for _, tc := range []struct{ mode, requested, want string }{
+		{"ASAP", "", "Как можно скорее"},
+		{"SCHEDULED", "2026-09-04T13:30:00Z", "15:30"},
+	} {
+		if _, err := pool.Exec(ctx, `UPDATE orders SET delivery_time_mode=$2, delivery_requested_at=NULLIF($3, '')::timestamptz WHERE id=$1`, orderID, tc.mode, tc.requested); err != nil {
+			t.Fatal(err)
+		}
+		got, err := w.ownerDeliveryAlertText(ctx, orderID, "owner_delivery_alert_brief")
+		want := "НОВЫЙ ЗАКАЗ НА ДОСТАВКУ\n@notification_test\n" + tc.want
+		if err != nil || got != want {
+			t.Fatalf("message = %q, error = %v; want %q", got, err, want)
+		}
+	}
+}
+
 func TestNewTelegramHTTPClientHasBoundedTransport(t *testing.T) {
 	client := newTelegramHTTPClient()
 	if client.Timeout != 8*time.Second {

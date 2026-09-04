@@ -1107,6 +1107,13 @@ func TestMarkReadyPersistsStatusBeforeNotificationDelivery(t *testing.T) {
 	kitchenSession := adminSession
 	kitchenSession.ActiveRole = core.RoleKitchen
 	order := createVerifiedCashOrder(t, ctx, st, clientTelegramID, "+38160111421", "Novi Sad notification queue", "idem-ready-before-telegram-order", time.Now().UTC())
+	var briefCount, excludedCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE event_key LIKE '%:owner:8609105840') FROM notification_jobs WHERE order_id=$1 AND template='owner_delivery_alert_brief'`, order.ID).Scan(&briefCount, &excludedCount); err != nil {
+		t.Fatal(err)
+	}
+	if briefCount != 3 || excludedCount != 0 {
+		t.Fatalf("brief alerts = %d, excluded recipient alerts = %d", briefCount, excludedCount)
+	}
 
 	readyOrder, err := st.MarkReady(ctx, kitchenSession, order.ID, "idem-ready-before-telegram", "ready-before-telegram-hash")
 	if err != nil {
@@ -1119,7 +1126,7 @@ func TestMarkReadyPersistsStatusBeforeNotificationDelivery(t *testing.T) {
 		"kitchen": 1,
 		"client":  1,
 		"courier": 1,
-		"admin":   1,
+		"admin":   4,
 	})
 
 	replayedOrder, err := st.MarkReady(ctx, kitchenSession, order.ID, "idem-ready-before-telegram", "ready-before-telegram-hash")
@@ -1133,7 +1140,7 @@ func TestMarkReadyPersistsStatusBeforeNotificationDelivery(t *testing.T) {
 		"kitchen": 1,
 		"client":  1,
 		"courier": 1,
-		"admin":   1,
+		"admin":   4,
 	})
 }
 

@@ -2814,6 +2814,18 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		if err != nil {
 			return core.Order{}, err
 		}
+		for telegramID := range ownerTesterTelegramIDs {
+			if telegramID == deliveryAlertTelegramID {
+				continue
+			}
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
+				VALUES ($1, 'admin', 'owner_delivery_alert_brief', $2)
+				ON CONFLICT (event_key, recipient_kind) DO NOTHING
+			`, orderID, fmt.Sprintf("order:%s:delivery-alert:new:owner:%d", orderID, telegramID)); err != nil {
+				return core.Order{}, err
+			}
+		}
 	}
 	if err := s.finishIdempotency(ctx, tx, sess.UserID, "orders.create_cash", idempotencyKey, orderID); err != nil {
 		return core.Order{}, err

@@ -683,6 +683,24 @@ func (w *Worker) kitchenText(ctx context.Context, orderID uuid.UUID, template st
 }
 
 func (w *Worker) ownerDeliveryAlertText(ctx context.Context, orderID uuid.UUID, template string) (string, error) {
+	if template == "owner_delivery_alert_brief" {
+		var username, requestedTime string
+		if err := w.pool.QueryRow(ctx, `
+			SELECT COALESCE(u.username, ''),
+				CASE WHEN o.delivery_time_mode='SCHEDULED' AND o.delivery_requested_at IS NOT NULL
+					THEN to_char(o.delivery_requested_at AT TIME ZONE 'Europe/Belgrade', 'HH24:MI')
+					ELSE 'Как можно скорее' END
+			FROM orders o JOIN users u ON u.id=o.client_user_id
+			WHERE o.id=$1 AND o.fulfillment_type='delivery'
+		`, orderID).Scan(&username, &requestedTime); err != nil {
+			return "", err
+		}
+		label := telegramUsernameLabel(username)
+		if label == "" {
+			label = "—"
+		}
+		return "НОВЫЙ ЗАКАЗ НА ДОСТАВКУ\n" + label + "\n" + requestedTime, nil
+	}
 	var publicNumber, total int
 	var paymentMethod, fulfillmentType, username string
 	err := w.pool.QueryRow(ctx, `
