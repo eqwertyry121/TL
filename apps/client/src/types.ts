@@ -89,7 +89,6 @@ export interface VerifiedContact {
 }
 
 export interface CheckoutDraft {
-  phone: string;
   street: string;
   houseNumber: string;
   entrance: string;
@@ -149,7 +148,6 @@ export interface ClientBootstrapData {
 export interface CreateOrderInput {
   calculation_token: string;
   cash_location_challenge_id?: string;
-  phone: string;
   address: string;
   comment: string;
   fulfillment_type: FulfillmentType;

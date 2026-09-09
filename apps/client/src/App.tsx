@@ -13,7 +13,7 @@ import { orderStatusText } from "./fixtures";
 import { t } from "./i18n";
 import { Icon } from "./Icon";
 import { termsVersion } from "./legal-version";
-import { maskPhone, money } from "./money";
+import { money } from "./money";
 import { currentRoute, navigate, replaceRoute, routeFromStartParam, routeToHash } from "./route";
 import { installProductAnalytics } from "./product-analytics";
 import {
@@ -42,7 +42,6 @@ import {
   miniAppStartParam,
   openTelegramLink,
   rawInitData,
-  requestTelegramContact,
   telegram,
   syncBackButton,
 } from "./telegram";
@@ -107,7 +106,6 @@ function ClientMiniApp() {
   const [pickupSlots, setPickupSlots] = useState<PickupSlots | null>(null);
   const [deliverySlots, setDeliverySlots] = useState<DeliverySlots | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<Extract<PaymentMethod, "cash" | "crypto">>("cash");
-  const [contactLoading, setContactLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationFallback, setLocationFallback] = useState<CityLocationFailure | null>(null);
   const [locationBotRequested, setLocationBotRequested] = useState(false);
@@ -341,7 +339,7 @@ function ClientMiniApp() {
   useEffect(() => {
     if (
       !token || route.name !== "checkout" || paymentMethod !== "cash" || !cashLocationRequired ||
-      !verifiedContact?.verified || !calculation || cashLocation || persistentCityEnabled
+      !calculation || cashLocation || persistentCityEnabled
     ) return;
     let stopped = false;
     withAuth((authToken) => api.createCashLocationChallenge(authToken, {
@@ -355,7 +353,7 @@ function ClientMiniApp() {
     return () => {
       stopped = true;
     };
-  }, [token, route.name, paymentMethod, cashLocationRequired, verifiedContact?.verified, calculation?.calculation_token, cashLocation, withAuth, persistentCityEnabled]);
+  }, [token, route.name, paymentMethod, cashLocationRequired, calculation?.calculation_token, cashLocation, withAuth, persistentCityEnabled]);
 
   useEffect(() => {
     if (!token || route.name !== "checkout" || verifiedContact?.verified) return;
@@ -553,12 +551,6 @@ function ClientMiniApp() {
     clearCheckoutProgress();
   }
 
-  useEffect(() => {
-    if (verifiedContact?.verified && verifiedContact.phone && draft.phone !== verifiedContact.phone) {
-      updateDraft({ phone: verifiedContact.phone });
-    }
-  }, [verifiedContact?.phone, verifiedContact?.verified]);
-
   async function calculate() {
     if (!token || availableCartLines.length === 0) return null;
     const result = await withAuth(
@@ -590,33 +582,6 @@ function ClientMiniApp() {
     );
     setAdditionCalculation(result);
     return result;
-  }
-
-  async function confirmContact() {
-    if (!token || contactLoading) return;
-    setContactLoading(true);
-    setError("");
-    try {
-      const allowed = await requestTelegramContact();
-      if (!allowed) {
-        setError(checkoutCopy(locale).contactDenied);
-        return;
-      }
-      for (let attempt = 0; attempt < 10; attempt += 1) {
-        const contact = await withAuth((authToken) => api.contact(authToken), token);
-        if (contact.verified && contact.phone) {
-          setVerifiedContact(contact);
-          updateDraft({ phone: contact.phone });
-          return;
-        }
-        await delay(1200);
-      }
-      setError(checkoutCopy(locale).contactPending);
-    } catch (err) {
-      setError(errorText(err, locale));
-    } finally {
-      setContactLoading(false);
-    }
   }
 
   async function confirmCashLocation(throughBot = false) {
@@ -688,8 +653,8 @@ function ClientMiniApp() {
       return;
     }
     const deliverySelected = fulfillmentType === "delivery";
-    if (!verifiedContact?.verified || !draft.phone.trim() || (deliverySelected && (!draft.street.trim() || !draft.houseNumber.trim()))) {
-      setError(deliverySelected ? checkoutCopy(locale).phoneAndAddressRequired : checkoutCopy(locale).phoneRequired);
+    if (deliverySelected && (!draft.street.trim() || !draft.houseNumber.trim())) {
+      setError(checkoutCopy(locale).nextAddress);
       return;
     }
     if (!deliverySelected && !draft.pickupAt) {
@@ -726,7 +691,6 @@ function ClientMiniApp() {
         authToken,
         {
           calculation_token: calc.calculation_token,
-          phone: draft.phone.trim(),
           address: deliverySelected ? buildCheckoutAddress(draft, locale) : "",
           comment: draft.comment.trim(),
           fulfillment_type: fulfillmentType,
@@ -946,8 +910,6 @@ function ClientMiniApp() {
         pickupEnabled={data.runtime?.pickup_enabled !== false}
         paymentMethod={paymentMethod}
         paymentMethods={paymentMethods}
-        verifiedContact={verifiedContact}
-        contactLoading={contactLoading}
         cashLocation={cashLocation}
         cashLocationRequired={cashLocationRequired && !savedCityVerified}
         persistentCityEnabled={persistentCityEnabled}
@@ -963,7 +925,6 @@ function ClientMiniApp() {
         onFulfillmentType={updateFulfillmentType}
         onPaymentMethod={setPaymentMethod}
         onTermsAccepted={setTermsAccepted}
-        onConfirmContact={confirmContact}
         onConfirmCashLocation={confirmCashLocation}
         onCalculate={calculate}
         onSubmit={submitOrder}
@@ -1006,8 +967,12 @@ function ClientMiniApp() {
       {cartQuantity > 0 && route.name !== "checkout" && route.name !== "cart" && route.name !== "add" && (
         <button className="cart-float" onClick={() => navigate({ name: "cart" })}>
           <Icon name="cart" size={18} />
-          <span>{cartQuantity}</span>
-          <strong>{money(total)}</strong>
+          <span className="cart-float-count" aria-label={`${cartQuantity} ${ui.unitShort}`}>
+            <span>{cartQuantity}</span>
+            <small>{ui.unitShort}</small>
+          </span>
+          <span className="cart-float-divider" aria-hidden="true" />
+          <strong className="cart-float-total">{money(total)}</strong>
         </button>
       )}
       {confirmDialog && <ConfirmDialog dialog={confirmDialog} locale={locale} onClose={closeConfirm} />}
@@ -1738,8 +1703,6 @@ function Checkout({
   pickupEnabled,
   paymentMethod,
   paymentMethods,
-  verifiedContact,
-  contactLoading,
   cashLocation,
   cashLocationRequired,
   persistentCityEnabled,
@@ -1755,7 +1718,6 @@ function Checkout({
   onFulfillmentType,
   onPaymentMethod,
   onTermsAccepted,
-  onConfirmContact,
   onConfirmCashLocation,
   onCalculate,
   onSubmit,
@@ -1777,8 +1739,6 @@ function Checkout({
   pickupEnabled: boolean;
   paymentMethod: Extract<PaymentMethod, "cash" | "crypto">;
   paymentMethods: Array<Extract<PaymentMethod, "cash" | "crypto">>;
-  verifiedContact: VerifiedContact | null;
-  contactLoading: boolean;
   cashLocation: CashLocationChallenge | null;
   cashLocationRequired: boolean;
   persistentCityEnabled: boolean;
@@ -1794,7 +1754,6 @@ function Checkout({
   onFulfillmentType: (type: FulfillmentType) => void;
   onPaymentMethod: (method: Extract<PaymentMethod, "cash" | "crypto">) => void;
   onTermsAccepted: (accepted: boolean) => void;
-  onConfirmContact: () => Promise<void>;
   onConfirmCashLocation: () => Promise<void>;
   onCalculate: () => Promise<Calculation | null>;
   onSubmit: () => Promise<void>;
@@ -1813,7 +1772,6 @@ function Checkout({
     else if (locationFallback === "denied") setPermissionHelpStarted(true);
   }, [locationFallback, locationVerified]);
   const showLocationHelp = persistentCityEnabled && !locationVerified && (permissionHelpStarted || locationFallback === "denied");
-  const contactVerified = Boolean(verifiedContact?.verified);
   const termsHref = termsUrl.trim() || routeToHash({ name: "terms" });
   const termsExternal = /^https?:\/\//i.test(termsHref);
   const copy = checkoutCopy(locale);
@@ -1834,10 +1792,9 @@ function Checkout({
   const itemCount = summaryLines.reduce((sum, line) => sum + line.quantity, 0);
   const checkoutTotal = calculation?.total_minor ?? total;
   const addressReady = !deliverySelected || Boolean(draft.street.trim() && draft.houseNumber.trim());
-  const phoneReady = contactVerified && Boolean(draft.phone.trim());
   const pickupTimeReady = deliverySelected || (pickupEnabled && Boolean(draft.pickupAt));
   const deliveryTimeReady = !deliverySelected || !deliveryTimingEnabled || draft.deliveryTimeMode === "ASAP" || Boolean(draft.deliveryRequestedAt);
-  const canSubmit = checkoutOpen && !submitting && addressReady && phoneReady && locationVerified && pickupTimeReady && deliveryTimeReady && termsAccepted;
+  const canSubmit = checkoutOpen && !submitting && addressReady && locationVerified && pickupTimeReady && deliveryTimeReady && termsAccepted;
   const checkoutHint = !checkoutOpen
     ? checkoutClosedLabel
     : !addressReady
@@ -1846,13 +1803,11 @@ function Checkout({
         ? copy.nextPickupTime
         : !deliveryTimeReady
           ? copy.nextDeliveryTime
-          : !phoneReady
-            ? copy.nextPhone
-            : !locationVerified
-              ? copy.nextLocation
-              : !termsAccepted
-                ? copy.nextTerms
-                : copy.readyToOrder;
+          : !locationVerified
+            ? copy.nextLocation
+            : !termsAccepted
+              ? copy.nextTerms
+              : copy.readyToOrder;
   if (!lines.length) return <div className="state">{t(locale, "emptyCart")}</div>;
   return (
     <div className="page narrow checkout-page">
@@ -2022,52 +1977,31 @@ function Checkout({
       </section>
       <section className="checkout-section checkout-confirm-section checkout-stage">
         <div className="checkout-stage-title"><span>3</span><div><strong>{copy.confirmStep}</strong><small>{copy.confirmStepHint}</small></div></div>
-        <div className={contactVerified && locationVerified ? "required-checks verified" : "required-checks"}>
-        <div className="required-checks-head">
-          <strong>{copy.requiredSteps}</strong>
-          <span>{contactVerified && locationVerified ? copy.ready : copy.required}</span>
-        </div>
-        {contactVerified ? (
-          <div className="checkout-phone-confirmed">
-            <Icon name="check" size={18} />
-            <span>{copy.phoneConfirmed} · {verifiedContact?.masked || maskPhone(draft.phone)}</span>
-          </div>
-        ) : <button
-          className={contactVerified ? "contact-share active-contact required-contact" : "contact-share required-contact"}
-          type="button"
-          onClick={() => void onConfirmContact()}
-          disabled={contactLoading}
-          aria-label={contactVerified ? copy.phoneConfirmed : copy.phoneRequiredAria}
-        >
-          <span className="contact-share-icon" aria-hidden="true">
-            {contactVerified ? <Icon name="check" size={22} /> : <Icon name="phone" size={22} />}
-          </span>
-          <span className="contact-share-copy">
-            <strong>{contactLoading ? copy.contactWait : contactVerified ? copy.phoneConfirmed : copy.sharePhoneRequired}</strong>
-            <small>{contactVerified ? (verifiedContact?.masked || maskPhone(draft.phone)) : locationRequired ? copy.contactThenLocation : copy.phoneNeeded}</small>
-          </span>
-          {!contactVerified && <Icon name="chevron-right" className="contact-share-arrow" size={22} />}
-        </button>}
         {locationRequired && (
-          <div className={`cash-location ${!contactVerified ? "blocked" : ""} ${cashLocation?.status === "VERIFIED" ? "verified" : cashLocation?.status === "REJECTED" || cashLocation?.status === "EXPIRED" ? "rejected" : ""}`}>
-            {!showLocationHelp && <div>
-              <Icon name="location" size={18} />
-              <div>
-                <strong>{persistentCityEnabled && !locationBotRequested && (!cashLocation || cashLocation.status === "PENDING") ? copy.locationDefaultTitle : cashLocationTitle(cashLocation, locale)}</strong>
-                <p aria-live="polite">{persistentCityEnabled && locationFallback ? cityLocationHelpCopy(locale).messages[locationFallback]
-                  : persistentCityEnabled && !locationBotRequested && (!cashLocation || cashLocation.status === "PENDING")
-                  ? cityLocationCopy(locale).description
-                  : cashLocationText(cashLocation, cashLocationRadiusMeters, locale, fulfillmentType)}</p>
-              </div>
-            </div>}
-            {showLocationHelp && <CityLocationHelp locale={locale} onConfirm={onConfirmCashLocation} busy={locationLoading} failure={locationFallback} />}
-            {!showLocationHelp && <button data-location-confirm className="primary full" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading || !contactVerified}>
-              {!contactVerified ? copy.firstSharePhone : locationLoading ? copy.checkingLocation : cashLocation?.status === "VERIFIED" ? copy.updateLocation : copy.confirmLocation}
-            </button>}
-            {persistentCityEnabled && locationFallback && locationFallback !== "outside" && locationFallback !== "denied" && <button className="secondary full" type="button" disabled={locationLoading} onClick={() => void onOpenLocationBot()}>{cityLocationCopy(locale).bot}</button>}
+          <div className={locationVerified ? "required-checks verified" : "required-checks"}>
+            <div className="required-checks-head">
+              <strong>{copy.requiredSteps}</strong>
+              <span>{locationVerified ? copy.ready : copy.required}</span>
+            </div>
+            <div className={`cash-location ${cashLocation?.status === "VERIFIED" ? "verified" : cashLocation?.status === "REJECTED" || cashLocation?.status === "EXPIRED" ? "rejected" : ""}`}>
+              {!showLocationHelp && <div>
+                <Icon name="location" size={18} />
+                <div>
+                  <strong>{persistentCityEnabled && !locationBotRequested && (!cashLocation || cashLocation.status === "PENDING") ? copy.locationDefaultTitle : cashLocationTitle(cashLocation, locale)}</strong>
+                  <p aria-live="polite">{persistentCityEnabled && locationFallback ? cityLocationHelpCopy(locale).messages[locationFallback]
+                    : persistentCityEnabled && !locationBotRequested && (!cashLocation || cashLocation.status === "PENDING")
+                    ? cityLocationCopy(locale).description
+                    : cashLocationText(cashLocation, cashLocationRadiusMeters, locale, fulfillmentType)}</p>
+                </div>
+              </div>}
+              {showLocationHelp && <CityLocationHelp locale={locale} onConfirm={onConfirmCashLocation} busy={locationLoading} failure={locationFallback} />}
+              {!showLocationHelp && <button data-location-confirm className="primary full" type="button" onClick={() => void onConfirmCashLocation()} disabled={locationLoading}>
+                {locationLoading ? copy.checkingLocation : cashLocation?.status === "VERIFIED" ? copy.updateLocation : copy.confirmLocation}
+              </button>}
+              {persistentCityEnabled && locationFallback && locationFallback !== "outside" && locationFallback !== "denied" && <button className="secondary full" type="button" disabled={locationLoading} onClick={() => void onOpenLocationBot()}>{cityLocationCopy(locale).bot}</button>}
+            </div>
           </div>
         )}
-        </div>
         {deliverySelected && deliveryTimingEnabled && deliverySlots?.asap?.queue_position && (
           <div className="delivery-timing-final">
             <span>{draft.deliveryTimeMode === "SCHEDULED" ? timingCopy.scheduled : timingCopy.queue}</span>
@@ -2145,10 +2079,9 @@ function checkoutCopy(locale: Locale) {
       receivingStepHint: "способ, адрес и время",
       paymentStepHint: "выберите один вариант",
       confirmStep: "Подтверждение",
-      confirmStepHint: "телефон, геолокация и итог",
+      confirmStepHint: "геолокация и итог",
       commentPlaceholder: "Например: позвоните за 5 минут",
       nextAddress: "Заполните улицу и номер",
-      nextPhone: "Следующий шаг: телефон",
       nextLocation: "Следующий шаг: геолокация",
       nextPickupTime: "Выберите время самовывоза",
       nextDeliveryTime: "Выберите желаемое время",
@@ -2179,13 +2112,6 @@ function checkoutCopy(locale: Locale) {
       requiredSteps: "Обязательные шаги",
       ready: "готово",
       required: "обязательно",
-      phoneConfirmed: "Телефон подтверждён",
-      phoneRequiredAria: "Поделиться телефоном через Telegram",
-      contactWait: "Ожидаем Telegram",
-      sharePhoneRequired: "Поделиться телефоном",
-      contactThenLocation: "Для связи по заказу",
-      phoneNeeded: "Для связи по заказу",
-      firstSharePhone: "Сначала поделитесь телефоном",
       checkingLocation: "Проверяем геолокацию…",
       updateLocation: "Обновить геолокацию",
       confirmLocation: "Подтвердить, что я в Нови-Саде",
@@ -2195,10 +2121,6 @@ function checkoutCopy(locale: Locale) {
       cryptoDescription: "sandbox · без реальных денег",
       cashPickupDescription: "при получении в ресторане",
       cashDeliveryDescription: "курьеру при получении",
-      contactDenied: "Telegram не передал телефон. Нажмите кнопку и разрешите отправку номера.",
-      contactPending: "Телефон ещё не дошёл до бота. Откройте чат с ботом и попробуйте ещё раз.",
-      phoneRequired: "Поделитесь телефоном через Telegram",
-      phoneAndAddressRequired: "Поделитесь телефоном через Telegram и заполните адрес",
       cashLocationRequired: "Для оплаты наличными подтвердите местоположение",
       locationVerifiedTitle: "Местоположение подтверждено",
       locationPendingTitle: "Ожидаем геолокацию",
@@ -2221,10 +2143,9 @@ function checkoutCopy(locale: Locale) {
       receivingStepHint: "način, adresa i vreme",
       paymentStepHint: "izaberite jednu opciju",
       confirmStep: "Potvrda",
-      confirmStepHint: "telefon, lokacija i iznos",
+      confirmStepHint: "lokacija i iznos",
       commentPlaceholder: "Na primer: pozovite 5 minuta ranije",
       nextAddress: "Unesite ulicu i broj",
-      nextPhone: "Sledeće: potvrdite telefon",
       nextLocation: "Sledeće: potvrdite lokaciju",
       nextPickupTime: "Izaberite vreme preuzimanja",
       nextDeliveryTime: "Izaberite željeno vreme",
@@ -2255,13 +2176,6 @@ function checkoutCopy(locale: Locale) {
       requiredSteps: "Obavezni koraci",
       ready: "spremno",
       required: "obavezno",
-      phoneConfirmed: "Telefon potvrđen",
-      phoneRequiredAria: "Podelite telefon preko Telegrama",
-      contactWait: "Čekamo Telegram",
-      sharePhoneRequired: "Podelite telefon",
-      contactThenLocation: "Za kontakt u vezi porudžbine",
-      phoneNeeded: "Za kontakt u vezi porudžbine",
-      firstSharePhone: "Prvo podelite telefon",
       checkingLocation: "Proveravamo geolokaciju…",
       updateLocation: "Ažuriraj geolokaciju",
       confirmLocation: "Potvrdi da sam u Novom Sadu",
@@ -2271,10 +2185,6 @@ function checkoutCopy(locale: Locale) {
       cryptoDescription: "sandbox · bez pravog plaćanja",
       cashPickupDescription: "pri preuzimanju u restoranu",
       cashDeliveryDescription: "kuriru pri dostavi",
-      contactDenied: "Telegram nije poslao telefon. Pritisnite dugme i dozvolite slanje broja.",
-      contactPending: "Telefon još nije stigao do bota. Otvorite chat sa botom i pokušajte ponovo.",
-      phoneRequired: "Podelite telefon preko Telegrama",
-      phoneAndAddressRequired: "Podelite telefon preko Telegrama i unesite adresu",
       cashLocationRequired: "Za plaćanje gotovinom potvrdite lokaciju",
       locationVerifiedTitle: "Lokacija je potvrđena",
       locationPendingTitle: "Čekamo geolokaciju",
@@ -2297,10 +2207,9 @@ function checkoutCopy(locale: Locale) {
       receivingStepHint: "method, address and time",
       paymentStepHint: "choose one option",
       confirmStep: "Confirmation",
-      confirmStepHint: "phone, location and total",
+      confirmStepHint: "location and total",
       commentPlaceholder: "For example: call 5 minutes before",
       nextAddress: "Enter the street and house number",
-      nextPhone: "Next: confirm phone",
       nextLocation: "Next: confirm location",
       nextPickupTime: "Choose a pickup time",
       nextDeliveryTime: "Choose a preferred time",
@@ -2331,13 +2240,6 @@ function checkoutCopy(locale: Locale) {
       requiredSteps: "Required steps",
       ready: "ready",
       required: "required",
-      phoneConfirmed: "Phone confirmed",
-      phoneRequiredAria: "Share your phone through Telegram",
-      contactWait: "Waiting for Telegram",
-      sharePhoneRequired: "Share phone",
-      contactThenLocation: "For order updates",
-      phoneNeeded: "For order updates",
-      firstSharePhone: "Share your phone first",
       checkingLocation: "Checking geolocation…",
       updateLocation: "Update geolocation",
       confirmLocation: "Confirm I’m in Novi Sad",
@@ -2347,10 +2249,6 @@ function checkoutCopy(locale: Locale) {
       cryptoDescription: "sandbox · no real payment",
       cashPickupDescription: "at pickup in the restaurant",
       cashDeliveryDescription: "to the courier on delivery",
-      contactDenied: "Telegram did not send the phone. Press the button and allow sharing your number.",
-      contactPending: "The phone has not reached the bot yet. Open the bot chat and try again.",
-      phoneRequired: "Share your phone through Telegram",
-      phoneAndAddressRequired: "Share your phone through Telegram and enter the address",
       cashLocationRequired: "Confirm your location for cash payment",
       locationVerifiedTitle: "Location confirmed",
       locationPendingTitle: "Waiting for geolocation",
@@ -2589,7 +2487,6 @@ function OrderScreen({ order, locale, onAdd }: { order?: Order; locale: Locale; 
         <div className="split"><span>{copy.receiving}</span><strong>{fulfillmentText(order, locale)}</strong></div>
         {order.fulfillment_type === "pickup" && <div className="split"><span>{copy.pickupAt}</span><strong>{formatPickupTime(order.pickup_at)}</strong></div>}
         {order.fulfillment_type === "pickup" && order.pickup_address && <div className="split"><span>{copy.address}</span><strong>{order.pickup_address}</strong></div>}
-        <div className="split"><span>{t(locale, "phone")}</span><strong>{maskPhone(order.phone)}</strong></div>
         <div className="split"><span>{copy.payment}</span><strong>{paymentStatusLabel(order, locale)}</strong></div>
       </div>
       <button className="secondary full" onClick={() => navigate({ name: "support" })}>{t(locale, "support")}</button>
@@ -3172,7 +3069,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       ORDER_STATUS_CONFLICT: "Заказ уже изменился. Обновите экран и проверьте статус.",
       CALCULATION_EXPIRED: "Цены или заказ изменились. Пересчитайте сумму.",
       AUTH_INVALID: "Telegram авторизация не прошла",
-      CONTACT_NOT_VERIFIED: "Для cash нужен телефон, подтверждённый через Telegram",
+      CONTACT_NOT_VERIFIED: "Контакт Telegram не подтверждён",
       CASH_LOCATION_REQUIRED: "Для оплаты наличными подтвердите местоположение",
       CASH_LOCATION_OUTSIDE: "Вы слишком далеко от Нови Сада для оплаты наличными",
       CASH_LOCATION_INACCURATE: "Геолокация неточная. Повторите проверку у окна или на улице.",
@@ -3183,7 +3080,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
 		DELIVERY_TIME_INVALID: "Выберите доступное время из списка.",
 			RESERVATION_UNAVAILABLE: "Это время только что заняли. Выберите другое.",
 			ACTIVE_RESERVATION_EXISTS: "У вас уже есть активная бронь.",
-      INVALID_INPUT: "Поделитесь телефоном через Telegram и заполните адрес",
+      INVALID_INPUT: "Проверьте адрес и данные заказа",
       RATE_LIMITED: "Слишком много запросов. Подождите минуту и попробуйте ещё раз.",
       INTERNAL: "Сервер недоступен. Попробуйте ещё раз",
       SERVER_UNAVAILABLE: "Сервер недоступен. Попробуйте ещё раз",
@@ -3199,7 +3096,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       ORDER_STATUS_CONFLICT: "Porudžbina se promenila. Osvežite ekran i proverite status.",
       CALCULATION_EXPIRED: "Cene ili porudžbina su se promenile. Ponovo izračunajte iznos.",
       AUTH_INVALID: "Telegram autorizacija nije prošla",
-      CONTACT_NOT_VERIFIED: "Za gotovinu je potreban telefon potvrđen preko Telegrama",
+      CONTACT_NOT_VERIFIED: "Telegram kontakt nije potvrđen",
       CASH_LOCATION_REQUIRED: "Za plaćanje gotovinom potvrdite lokaciju",
       CASH_LOCATION_OUTSIDE: "Predaleko ste od Novog Sada za plaćanje gotovinom",
       CASH_LOCATION_INACCURATE: "Geolokacija nije dovoljno precizna. Ponovite proveru pored prozora ili napolju.",
@@ -3210,7 +3107,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
 		DELIVERY_TIME_INVALID: "Izaberite dostupno vreme sa liste.",
 			RESERVATION_UNAVAILABLE: "Ovaj termin je upravo rezervisan. Izaberite drugi.",
 			ACTIVE_RESERVATION_EXISTS: "Već imate aktivnu rezervaciju.",
-      INVALID_INPUT: "Podelite telefon preko Telegrama i unesite adresu",
+      INVALID_INPUT: "Proverite adresu i podatke porudžbine",
       RATE_LIMITED: "Previše zahteva. Sačekajte minut i pokušajte ponovo.",
       INTERNAL: "Server nije dostupan. Pokušajte ponovo.",
       SERVER_UNAVAILABLE: "Server nije dostupan. Pokušajte ponovo.",
@@ -3226,7 +3123,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       ORDER_STATUS_CONFLICT: "The order has changed. Refresh the screen and check the status.",
       CALCULATION_EXPIRED: "Prices or the order changed. Recalculate the total.",
       AUTH_INVALID: "Telegram authorization failed",
-      CONTACT_NOT_VERIFIED: "Cash payment requires a phone confirmed through Telegram",
+      CONTACT_NOT_VERIFIED: "Telegram contact is not confirmed",
       CASH_LOCATION_REQUIRED: "Confirm your location for cash payment",
       CASH_LOCATION_OUTSIDE: "You are too far from Novi Sad for cash payment",
       CASH_LOCATION_INACCURATE: "Geolocation is not accurate enough. Repeat the check near a window or outside.",
@@ -3237,7 +3134,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
 		DELIVERY_TIME_INVALID: "Choose an available time from the list.",
 			RESERVATION_UNAVAILABLE: "This time was just booked. Choose another one.",
 			ACTIVE_RESERVATION_EXISTS: "You already have an active reservation.",
-      INVALID_INPUT: "Share your phone through Telegram and enter the address",
+      INVALID_INPUT: "Check the address and order details",
       RATE_LIMITED: "Too many requests. Wait a minute and try again.",
       INTERNAL: "Server is unavailable. Try again.",
       SERVER_UNAVAILABLE: "Server is unavailable. Try again.",
@@ -3245,8 +3142,4 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
   } satisfies Record<Locale, Record<string, string>>;
   const localeMessages: Record<string, string> = messages[locale];
   return localeMessages[code] || localeMessages.SERVER_UNAVAILABLE;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }

@@ -16,7 +16,7 @@ try {
     let cityVerifiedAt;
     let nativePosts = 0;
     const future = new Date(Date.now() + 3600000).toISOString();
-    const contact = () => ({ verified: true, masked: "*******1222", phone: "+38160111222", city_verification_enabled: true, city_verified_at: cityVerifiedAt });
+    const contact = () => ({ verified: false, city_verification_enabled: true, city_verified_at: cityVerifiedAt });
     const item = { id: "dish-test", category_id: "category-test", title: "Хачапури", description: "Сыр", price_minor: 100000, version: 1, min_quantity: 1, max_quantity: 20 };
     const categories = [{ id: "category-test", title: "Хачапури", items: [item] }];
     const runtime = { accepting_orders: true, reason: "open", timezone: "Europe/Belgrade", enabled_payments: ["cash"], currency: "RSD", cash_location_required: true, cash_location_radius_meters: 12000, pickup_enabled: true, supported_locales: ["ru", "sr", "en"], terms_url: "", delivery_timing_enabled: false };
@@ -74,8 +74,8 @@ try {
     const button = page.locator("[data-location-confirm]");
     await button.waitFor();
     assert.match(await button.innerText(), locale === "ru" ? /Подтвердить.*Нови/ : /Novi|Novom/);
-    assert.equal(await page.locator("button.contact-share").count(), 0);
-    assert.equal(await page.locator(".checkout-phone-confirmed").count(), 1);
+    assert.equal(await page.locator('input[autocomplete="tel"]').count(), 0);
+    assert.equal(await page.locator(".checkout-phone-row").count(), 0);
     assert.equal(await page.locator(".city-location-help").count(), 0);
     await page.screenshot({ path: `${output}/${mode}-before.png`, fullPage: true });
     await button.click();
@@ -85,7 +85,7 @@ try {
       assert.equal(await page.evaluate(() => window.nativeCalls), 1);
       assert.equal(await page.evaluate(() => window.botOpens), 0);
       await page.reload();
-      await page.locator(".checkout-phone-confirmed").waitFor();
+      await page.locator("[data-location-confirm]").waitFor({ state: "detached" });
       assert.equal(await page.locator(".cash-location").count(), 0);
       assert.equal(await page.evaluate(() => window.nativeCalls), 0);
     } else if (mode === "outside") {

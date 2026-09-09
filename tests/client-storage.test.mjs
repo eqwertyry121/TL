@@ -70,7 +70,6 @@ test("client storage helpers survive unavailable browser storage", () => {
     assert.doesNotThrow(() => saveCart({ version: 1, lines: {} }));
     assert.doesNotThrow(() => clearCart());
     assert.deepEqual(loadCheckoutDraft(), {
-      phone: "",
       street: "",
       houseNumber: "",
       entrance: "",
@@ -81,7 +80,6 @@ test("client storage helpers survive unavailable browser storage", () => {
       deliveryRequestedAt: "",
     });
     assert.doesNotThrow(() => saveCheckoutDraft({
-      phone: "",
       street: "",
       houseNumber: "",
       entrance: "",

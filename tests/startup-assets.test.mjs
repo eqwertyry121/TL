@@ -75,6 +75,19 @@ test("client Main Mini App deep link can open table booking directly", () => {
   assertIncludes(routeSource, 'return { name: "booking" }');
 });
 
+test("client floating cart separates quantity from total", () => {
+  const appSource = readSource("apps/client/src/App.tsx");
+  const styles = readSource("apps/client/src/styles.css");
+  const floatingCart = sliceBetween(appSource, 'className="cart-float"', "</button>");
+
+  assertIncludes(floatingCart, 'className="cart-float-count"');
+  assertIncludes(floatingCart, 'className="cart-float-divider"');
+  assertIncludes(floatingCart, 'className="cart-float-total"');
+  assertIncludes(styles, ".cart-float-count");
+  assertIncludes(styles, ".cart-float-divider");
+  assertIncludes(styles, ".cart-float-total");
+});
+
 test("client shows combos inline without a separate transition control", () => {
   const source = readSource("apps/client/src/App.tsx");
   const styles = readSource("apps/client/src/styles.css");

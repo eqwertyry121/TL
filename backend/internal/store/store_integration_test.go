@@ -110,6 +110,52 @@ func TestCreateCashOrderRejectsStaleHiddenItemCalculation(t *testing.T) {
 	}
 }
 
+func TestCreateCashOrderAcceptsNoPhone(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	oldTelegramPhone := "+995555000111"
+	clientSession := clientSession(t, ctx, st, clientTelegramID)
+	if err := st.VerifyTelegramContact(ctx, clientTelegramID, clientTelegramID, oldTelegramPhone); err != nil {
+		t.Fatalf("verify old Telegram contact: %v", err)
+	}
+
+	now := time.Now().UTC()
+	calc, err := st.Calculate(ctx, clientSession, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, now)
+	if err != nil {
+		t.Fatalf("calculate: %v", err)
+	}
+	challenge, err := st.CreateCashLocationChallenge(ctx, clientSession, store.CreateCashLocationChallengeInput{
+		CalculationToken: calc.Token,
+	}, now, true)
+	if err != nil {
+		t.Fatalf("create location challenge: %v", err)
+	}
+
+	order, err := st.CreateCashOrder(ctx, clientSession, store.CreateOrderInput{
+		CalculationToken:        calc.Token,
+		CashLocationChallengeID: challenge.ID.String(),
+		Address:                 "Novi Sad no phone",
+		PaymentMethod:           core.PaymentCash,
+		TermsAccepted:           true,
+		Locale:                  "ru",
+	}, "idem-no-phone-order", "request-hash-no-phone-order", now)
+	if err != nil {
+		t.Fatalf("create cash order without phone: %v", err)
+	}
+	if order.Phone != "" || order.FulfillmentStatus != core.StatusNew {
+		t.Fatalf("no-phone order mismatch: %+v", order)
+	}
+	contact, err := st.VerifiedContact(ctx, clientSession)
+	if err != nil {
+		t.Fatalf("read verified contact: %v", err)
+	}
+	if !contact.Verified || contact.Phone != oldTelegramPhone {
+		t.Fatalf("order without phone must not overwrite Telegram contact: %+v", contact)
+	}
+}
+
 func TestCreateCashLocationChallengeReusesVerifiedChallengeForCalculation(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)

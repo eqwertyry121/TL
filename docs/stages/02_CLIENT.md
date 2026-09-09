@@ -113,18 +113,17 @@ backend отклоняет order.
 
 Одна страница/короткий flow:
 
-1. Telegram contact или уже сохранённый verified contact.
-2. Text address:
+1. Text address для доставки:
    - street/number;
    - apartment/access;
    - note.
-3. Общий комментарий к заказу.
-4. Server calculation.
-5. Cash-location confirmation через Telegram, если cash location включён.
-6. Состав, delivery fee, total.
-7. Cash payment.
-8. Условия доставки.
-9. `ОФОРМИТЬ • X RSD`.
+2. Общий комментарий к заказу.
+3. Server calculation.
+4. Cash-location confirmation через Telegram, если cash location включён.
+5. Состав, delivery fee, total.
+6. Cash payment.
+7. Условия доставки.
+8. `ОФОРМИТЬ • X RSD`.
 
 До подключения эквайринга frontend может показывать отдельную карточку
 `Банковской картой` с пометкой `Скоро`. Карточка не выбирает способ оплаты, не
@@ -136,12 +135,10 @@ cash-flow.
 
 ### Телефон
 
-- `requestContact` вызывается только по user click;
-- bot/backend принимает контакт только текущего user;
-- для cash-заказа manual fallback не является verified contact и не позволяет
-  создать заказ;
-- в UI показывать masked saved value;
-- timeout/deny не оставляет endless spinner.
+Телефон не нужен для checkout. Frontend не показывает phone input, не вызывает
+Telegram `requestContact` в order flow и не блокирует submit из-за отсутствия
+phone/contact. Backend может принимать legacy `phone` field от старых клиентов,
+но пустой phone является нормальным значением.
 
 ### Cash-location
 
@@ -158,8 +155,8 @@ cash-flow.
 - submit cash-заказа disabled, пока challenge не `VERIFIED`;
 - при смене корзины/calculation старый challenge не используется.
 - при случайном закрытии Mini App frontend восстанавливает неистёкшие
-  calculation/challenge для той же корзины без хранения session token,
-  телефона, адреса, raw `initData` или точных координат.
+  calculation/challenge для той же корзины без хранения session token, адреса,
+  raw `initData` или точных координат.
 
 ### Адрес
 
@@ -202,7 +199,7 @@ cash-flow.
 - номер;
 - created time;
 - composition/total/payment;
-- address/phone masked;
+- address;
 - один текущий статус;
 - support link.
 
@@ -255,7 +252,6 @@ CLIENT получает только свои orders. Проверить под�
 - empty cart;
 - item hidden/price changed;
 - invalid quantity;
-- contact denied/invalid;
 - address missing;
 - duplicate/lost response;
 - server unavailable/offline;
@@ -272,7 +268,6 @@ Component:
 - quantity/cart totals;
 - persistence/reconciliation;
 - checkout validation;
-- phone grant/deny/manual;
 - submit single click/timeout;
 - status mapping;
 - three locales/themes.
@@ -292,7 +287,6 @@ Real Telegram Android/iOS/Desktop smoke:
 
 - auth;
 - safe area/Back/MainButton;
-- contact grant/deny;
 - close/reopen cart;
 - notification permission;
 - status refresh.
@@ -301,7 +295,7 @@ Real Telegram Android/iOS/Desktop smoke:
 
 - Client Mini App;
 - cart persistence;
-- text phone/address checkout;
+- text address checkout;
 - cash order submit;
 - status/history/support;
 - localization;

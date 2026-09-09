@@ -221,10 +221,7 @@ function demoApi(): Api {
     },
     async contact() {
       return {
-        verified: true,
-        phone: "+381600000000",
-        masked: "*******0000",
-        verified_at: new Date().toISOString(),
+        verified: false,
       };
     },
     async createCashLocationChallenge(_token, input) {
@@ -245,7 +242,7 @@ function demoApi(): Api {
       if (!input.terms_accepted || !input.terms_version.trim()) {
         throw apiError("TERMS_REQUIRED");
       }
-      if (!input.phone.trim() || (input.fulfillment_type !== "pickup" && !input.address.trim())) {
+      if (input.fulfillment_type !== "pickup" && !input.address.trim()) {
         throw apiError("INVALID_INPUT");
       }
       if (input.payment_method === "cash" && !input.cash_location_challenge_id) {
@@ -274,7 +271,6 @@ function demoApi(): Api {
         delivery_fee_minor: decoded.delivery_fee_minor,
         total_minor: decoded.total_minor,
         currency: "RSD",
-        phone: input.phone,
         address: input.fulfillment_type === "pickup" ? "Самовывоз" : input.address,
         customer_comment: input.comment,
         locale: input.locale,

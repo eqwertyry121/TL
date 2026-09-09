@@ -33,6 +33,39 @@ test("only the primary DEV owner can bypass the active-order checkout lock", () 
   assertIncludes(appSource, "activeOrder && !allowConcurrentDevOrders ? <ActiveOrderLock");
 });
 
+test("client checkout does not collect or require a phone", () => {
+  const appSource = readSource("apps/client/src/App.tsx");
+  const checkoutBody = sliceBetween(appSource, "function Checkout(", "function deliveryTimingCopy");
+  const submitBody = sliceBetween(appSource, "async function submitOrder()", "  async function submitAddition");
+
+  assertIncludes(checkoutBody, "const canSubmit = checkoutOpen && !submitting && addressReady && locationVerified");
+  assertIncludes(checkoutBody, "disabled={locationLoading}");
+  assertNotIncludes(checkoutBody, 'autoComplete="tel"');
+  assertNotIncludes(checkoutBody, "phoneReady");
+  assertNotIncludes(checkoutBody, "draft.phone");
+  assertNotIncludes(checkoutBody, "contact-fill");
+  assertNotIncludes(checkoutBody, "onConfirmContact");
+  assertNotIncludes(checkoutBody, "disabled={locationLoading || !contactVerified}");
+  assertNotIncludes(submitBody, "draft.phone");
+  assertNotIncludes(submitBody, "phone:");
+});
+
+test("backend cash order accepts no phone", () => {
+  const storeSource = readSource("backend/internal/store/store.go");
+  const createCashOrder = sliceBetween(storeSource, "func (s *Store) CreateCashOrder", "func normalizeDeliveryTiming");
+
+  assertIncludes(createCashOrder, "phone := safe(input.Phone)");
+  assertIncludes(createCashOrder, "if !optionalText(phone, maxPhoneLength)");
+  assertIncludes(createCashOrder, 'phoneCipher := ""');
+  assertIncludes(createCashOrder, 'phoneHash := ""');
+  assertIncludes(createCashOrder, 'if phone != ""');
+  assertNotIncludes(createCashOrder, "requiredText(inputPhone");
+  assertNotIncludes(createCashOrder, "phone_verified_at=CASE");
+  assertNotIncludes(createCashOrder, "UPDATE users");
+  assertNotIncludes(createCashOrder, "cashOrderPhone");
+  assertNotIncludes(createCashOrder, "verifiedPhoneForCashOrder");
+});
+
 test("kitchen and courier startup use one role bootstrap request", () => {
   const kitchenSource = readSource("apps/kitchen/src/App.tsx");
   const courierSource = readSource("apps/courier/src/App.tsx");

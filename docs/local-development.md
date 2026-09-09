@@ -127,7 +127,7 @@ Client:
 $client = Invoke-RestMethod http://127.0.0.1:8080/api/v1/dev/session `
   -Method Post `
   -ContentType 'application/json' `
-  -Body '{"telegram_user_id":1048084234,"role":"CLIENT","phone":"+381600000000"}'
+  -Body '{"telegram_user_id":1048084234,"role":"CLIENT"}'
 ```
 
 Kitchen/Courier/Admin use the same endpoint with `KITCHEN`, `COURIER` or
@@ -138,17 +138,17 @@ For the bootstrap owner in `development`, cash-location challenge is verified
 without real GPS so the full cash flow can be tested locally. In production this
 bypass is disabled.
 
-## Telegram contact and location webhook
+## Telegram location webhook
 
-Real Telegram contact/location confirmation requires the backend to be reachable
-from Telegram by public HTTPS. Local `127.0.0.1` is not enough; use the VPS or a
+Real Telegram location confirmation requires the backend to be reachable from
+Telegram by public HTTPS. Local `127.0.0.1` is not enough; use the VPS or a
 temporary HTTPS tunnel during integration testing.
 
 Production and DEV accept native Mini App city verification for the authenticated
 client's own pending challenge. Bot location remains an explicit fallback.
 This is a once-per-account convenience check, not signed GPS/anti-spoofing proof.
 Migration 057 carries forward successful historical checks without altering
-sessions, phone verification or orders. Deployment must never reset these records.
+sessions or orders. Deployment must never reset these records.
 
 Set a secret in `.env.local` or deployment secrets:
 
@@ -169,14 +169,12 @@ logs.
 
 1. `GET /api/v1/menu`
 2. `POST /api/v1/orders/calculate` with a client bearer token
-3. `GET /api/v1/contact`; for real Telegram it must be verified by
-   `request_contact`, for local bootstrap owner `/dev/session` can seed it
-4. `POST /api/v1/cash-location/challenges` with the calculation token
-5. wait until challenge status is `VERIFIED`
-6. `POST /api/v1/orders` with `Idempotency-Key` and
+3. `POST /api/v1/cash-location/challenges` with the calculation token
+4. wait until challenge status is `VERIFIED`
+5. `POST /api/v1/orders` with `Idempotency-Key` and
    `cash_location_challenge_id`
-7. `GET /api/v1/kitchen/orders` with a kitchen token
-8. `POST /api/v1/kitchen/orders/{id}/ready`
+6. `GET /api/v1/kitchen/orders` with a kitchen token
+7. `POST /api/v1/kitchen/orders/{id}/ready`
 9. `GET /api/v1/courier/orders` with a courier token
 10. `POST /api/v1/courier/orders/{id}/delivered`
 

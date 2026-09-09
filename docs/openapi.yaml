@@ -306,7 +306,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [calculation_token, phone, fulfillment_type, payment_method, terms_accepted, terms_version, locale]
+              required: [calculation_token, fulfillment_type, payment_method, terms_accepted, terms_version, locale]
               properties:
                 pickup_at:
                   type: string
@@ -328,7 +328,7 @@ paths:
                   maxLength: 40
       responses:
         "201":
-          description: Created cash order. Request must include fulfillment_type=delivery|pickup. Pickup additionally requires pickup_at. All cash orders require a verified unused cash_location_challenge_id when cash location is enabled; pickup orders do not notify courier.
+          description: Created cash order. Request must include fulfillment_type=delivery|pickup; phone is not required. Pickup additionally requires pickup_at. All cash orders require a verified unused cash_location_challenge_id when cash location is enabled; pickup orders do not notify courier.
   /orders/{id}:
     get:
       parameters:
@@ -629,7 +629,7 @@ paths:
             default: 0
       responses:
         "200":
-          description: Admin order page with phone, address and item snapshots, private ETag, status/date/search filters and has_more pagination metadata; events are returned only by /admin/orders/{id}
+          description: Admin order page with optional phone, address and item snapshots, private ETag, status/date/search filters and has_more pagination metadata; events are returned only by /admin/orders/{id}
           headers:
             ETag:
               schema:
@@ -681,7 +681,7 @@ paths:
                   default: 0
       responses:
         "200":
-          description: Admin order page with phone, address, item snapshots and counts; body-based search keeps phone numbers out of URLs.
+          description: Admin order page with optional phone, address, item snapshots and counts; body-based search keeps phone numbers out of URLs.
   /admin/orders/{id}:
     get:
       parameters:
@@ -709,7 +709,7 @@ paths:
         - $ref: "#/components/parameters/orderId"
       responses:
         "200":
-          description: Admin edits phone/address with audit redaction
+          description: Admin edits address and optional phone with audit redaction
   /admin/orders/{id}/resend:
     post:
       parameters:

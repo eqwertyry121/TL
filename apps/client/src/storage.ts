@@ -30,7 +30,7 @@ export interface CachedPublicData {
 
 interface StoredCheckoutDraft {
   version: 1;
-  draft: Partial<CheckoutDraft> & { details?: string; floor?: string; apartment?: string };
+  draft: Partial<CheckoutDraft> & { details?: string; floor?: string; apartment?: string; phone?: string };
   savedAt: string;
 }
 
@@ -61,7 +61,6 @@ function removeSessionStorageItem(key: string): void {
 }
 
 const emptyCheckoutDraft = (): CheckoutDraft => ({
-  phone: "",
   street: "",
   houseNumber: "",
   entrance: "",
@@ -132,8 +131,10 @@ export function saveCheckoutDraft(draft: CheckoutDraft): void {
   }
 }
 
-function normalizeCheckoutDraft(draft: Partial<CheckoutDraft> & { details?: string; floor?: string; apartment?: string }): CheckoutDraft {
-  const next = { ...emptyCheckoutDraft(), ...draft };
+function normalizeCheckoutDraft(draft: Partial<CheckoutDraft> & { details?: string; floor?: string; apartment?: string; phone?: string }): CheckoutDraft {
+  const draftWithoutPhone = { ...draft };
+  delete draftWithoutPhone.phone;
+  const next = { ...emptyCheckoutDraft(), ...draftWithoutPhone };
   if (!next.houseNumber && next.street) {
     const match = next.street.trim().match(/^(.+?)\s+([0-9][0-9A-Za-zА-Яа-я./-]*)$/u);
     if (match) {

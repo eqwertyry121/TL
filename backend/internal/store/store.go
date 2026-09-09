@@ -2629,6 +2629,10 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	}
 	address := safe(input.Address)
 	comment := safe(input.Comment)
+	phone := safe(input.Phone)
+	if !optionalText(phone, maxPhoneLength) {
+		return core.Order{}, core.ErrInvalidInput
+	}
 	if fulfillmentType == core.FulfillmentPickup {
 		if !settings.PickupEnabled || input.PickupAt == nil || input.DeliveryRequestedAt != nil || strings.TrimSpace(input.DeliveryTimeMode) != "" {
 			return core.Order{}, core.ErrPickupSlotUnavailable
@@ -2725,10 +2729,6 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		}
 		deliveryTimeMode = "ASAP"
 	}
-	phone, err := s.verifiedPhoneForCashOrder(ctx, tx, sess.UserID, input.Phone)
-	if err != nil {
-		return core.Order{}, err
-	}
 	var cashLocationChallengeID *uuid.UUID
 	var cashLocationVerifiedAt *time.Time
 	var cashLocationDistance *int
@@ -2736,15 +2736,19 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if err != nil {
 		return core.Order{}, err
 	}
-	phoneCipher, err := s.box.Encrypt(phone)
-	if err != nil {
-		return core.Order{}, err
+	phoneCipher := ""
+	phoneHash := ""
+	if phone != "" {
+		phoneCipher, err = s.box.Encrypt(phone)
+		if err != nil {
+			return core.Order{}, err
+		}
+		phoneHash = s.phoneHash(phone)
 	}
 	addressCipher, err := s.box.Encrypt(address)
 	if err != nil {
 		return core.Order{}, err
 	}
-	phoneHash := s.phoneHash(phone)
 	var orderID uuid.UUID
 	var publicNumber int
 	var createdAt time.Time
@@ -2787,9 +2791,6 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	if err != nil {
 		return core.Order{}, err
 	}
-	_, _ = tx.Exec(ctx, `
-		UPDATE users SET phone_ciphertext=$1, phone_hash=$2, updated_at=now() WHERE id=$3
-	`, phoneCipher, phoneHash, sess.UserID)
 	_, err = tx.Exec(ctx, `
 		INSERT INTO order_events (order_id, from_status, to_status, action, actor_user_id, actor_role)
 		VALUES ($1, '', 'NEW', 'create_cash_order', $2, 'CLIENT')
@@ -3560,12 +3561,18 @@ func (s *Store) UpdateOrderContact(ctx context.Context, sess core.Session, order
 	phone = safe(phone)
 	address = safe(address)
 	reason = safe(reason)
-	if !requiredText(phone, maxPhoneLength) || !requiredText(address, maxAddressLength) || !requiredText(reason, maxReasonLength) {
+	if !optionalText(phone, maxPhoneLength) || !requiredText(address, maxAddressLength) || !requiredText(reason, maxReasonLength) {
 		return core.Order{}, core.ErrInvalidInput
 	}
-	phoneCipher, err := s.box.Encrypt(phone)
-	if err != nil {
-		return core.Order{}, err
+	phoneCipher := ""
+	phoneHash := ""
+	if phone != "" {
+		var err error
+		phoneCipher, err = s.box.Encrypt(phone)
+		if err != nil {
+			return core.Order{}, err
+		}
+		phoneHash = s.phoneHash(phone)
 	}
 	addressCipher, err := s.box.Encrypt(address)
 	if err != nil {
@@ -3579,7 +3586,7 @@ func (s *Store) UpdateOrderContact(ctx context.Context, sess core.Session, order
 	tag, err := tx.Exec(ctx, `
 		UPDATE orders SET phone_ciphertext=$1, phone_hash=$2, address_ciphertext=$3, updated_at=now(), version=version+1
 		WHERE id=$4 AND fulfillment_status IN ('NEW', 'OUT_FOR_DELIVERY', 'READY_FOR_PICKUP')
-	`, phoneCipher, s.phoneHash(phone), addressCipher, orderID)
+	`, phoneCipher, phoneHash, addressCipher, orderID)
 	if err != nil {
 		return core.Order{}, err
 	}
@@ -5819,31 +5826,6 @@ func safeSettingsAudit(settings core.Settings) map[string]any {
 		"delivery_last_target_time":         settings.DeliveryLastTargetTime,
 		"version":                           settings.Version,
 	}
-}
-
-func (s *Store) verifiedPhoneForCashOrder(ctx context.Context, tx pgx.Tx, userID uuid.UUID, inputPhone string) (string, error) {
-	var phoneCipher, phoneHash string
-	var verifiedAt sql.NullTime
-	err := tx.QueryRow(ctx, `
-		SELECT phone_ciphertext, phone_hash, phone_verified_at
-		FROM users
-		WHERE id=$1
-		FOR UPDATE
-	`, userID).Scan(&phoneCipher, &phoneHash, &verifiedAt)
-	if err != nil {
-		return "", err
-	}
-	if !verifiedAt.Valid || strings.TrimSpace(phoneCipher) == "" || strings.TrimSpace(phoneHash) == "" {
-		return "", core.ErrContactNotVerified
-	}
-	phone, err := s.box.Decrypt(phoneCipher)
-	if err != nil {
-		return "", err
-	}
-	if trimmed := safe(inputPhone); trimmed != "" && !s.phoneHashMatches(trimmed, phoneHash) {
-		return "", core.ErrContactNotVerified
-	}
-	return phone, nil
 }
 
 func (s *Store) useCashLocationChallengeTx(ctx context.Context, tx pgx.Tx, sess core.Session, challengeIDText, calculationTokenHash string, settings core.Settings, now time.Time) (*uuid.UUID, *time.Time, *int, error) {

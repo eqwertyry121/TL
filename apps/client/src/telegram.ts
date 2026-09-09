@@ -23,7 +23,6 @@ interface TelegramWebApp {
   ready(): void;
   expand(): void;
   isVersionAtLeast?(version: string): boolean;
-  requestContact?(callback: (ok: boolean, contact?: { phone_number?: string; user_id?: number }) => void): void;
   openTelegramLink?(url: string): void;
   HapticFeedback?: {
     impactOccurred(style: "light" | "medium" | "heavy"): void;
@@ -91,18 +90,6 @@ export function syncBackButton(route: Route, onBack: () => void): () => void {
   back.show();
   back.onClick(onBack);
   return () => back.offClick(onBack);
-}
-
-export function requestTelegramContact(): Promise<boolean> {
-  const app = telegram();
-  if (!app?.requestContact) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    const timer = window.setTimeout(() => resolve(false), 12000);
-    app.requestContact?.((ok) => {
-      window.clearTimeout(timer);
-      resolve(Boolean(ok));
-    });
-  });
 }
 
 export function canRequestTelegramLocation(): boolean {

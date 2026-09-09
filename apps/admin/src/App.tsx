@@ -1877,7 +1877,7 @@ function OrderContactDialog({ dialog, onClose }: { dialog: Extract<OrderDialogSt
   async function submit(event: FormEvent) {
     event.preventDefault();
     const input = { phone: phone.trim(), address: address.trim(), reason: reason.trim() };
-    if (!input.phone || !input.address || !input.reason) return;
+    if (!input.address || !input.reason) return;
     setSaving(true);
     try {
       await dialog.onSubmit(input);
@@ -1896,7 +1896,7 @@ function OrderContactDialog({ dialog, onClose }: { dialog: Extract<OrderDialogSt
         <Text label="Причина" value={reason} onChange={setReason} />
         <div className="dialog-actions">
           <button type="button" onClick={onClose}>Отмена</button>
-          <button className="primary" type="submit" disabled={saving || !phone.trim() || !address.trim() || !reason.trim()}>
+          <button className="primary" type="submit" disabled={saving || !address.trim() || !reason.trim()}>
             {saving ? "Сохраняем…" : "Сохранить"}
           </button>
         </div>

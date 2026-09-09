@@ -665,7 +665,6 @@ h2 {
 .locale button:active,
 .primary:active,
 .secondary:active,
-.contact-share:active,
 .dish-card:active {
   transform: scale(0.97);
 }
@@ -1421,8 +1420,7 @@ body.has-day-off-overlay {
 
 .primary:hover,
 .secondary:hover,
-.icon-button:hover,
-.contact-share:hover {
+.icon-button:hover {
   transform: translateY(-0.1rem);
 }
 
@@ -1484,6 +1482,48 @@ body.has-day-off-overlay {
   box-shadow: none;
   backdrop-filter: none;
   transform: translateX(-50%);
+}
+
+.cart-float-count {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.2rem;
+  min-width: 3.1rem;
+  border-radius: 999px;
+  padding: 0.28rem 0.55rem;
+  background: rgba(255, 253, 248, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 253, 248, 0.22);
+}
+
+.cart-float-count > span {
+  font-size: clamp(1rem, 2.8vw, 1.14rem);
+  font-weight: 950;
+  line-height: 1;
+}
+
+.cart-float-count > small {
+  color: rgba(255, 253, 248, 0.78);
+  font-size: 0.68rem;
+  font-weight: 850;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.cart-float-divider {
+  flex: 0 0 1px;
+  align-self: stretch;
+  width: 1px;
+  min-height: 1.8rem;
+  background: rgba(255, 253, 248, 0.28);
+}
+
+.cart-float-total {
+  min-width: 0;
+  font-size: clamp(1.02rem, 3vw, 1.22rem);
+  font-weight: 950;
+  overflow-wrap: anywhere;
 }
 
 .list,
@@ -1675,87 +1715,6 @@ textarea {
   resize: vertical;
 }
 
-.contact-share {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  justify-content: stretch;
-  gap: clamp(0.6rem, 2vw, 0.8rem);
-  width: 100%;
-  min-height: clamp(3.75rem, 8dvh, 4.25rem);
-  border: 1px solid rgba(107, 31, 42, 0.35);
-  border-radius: var(--radius-md);
-  background:
-    radial-gradient(circle at 12% 0%, rgba(200, 155, 60, 0.28), transparent 34%),
-    linear-gradient(135deg, #b95532 0%, #6b1f2a 58%, #43141b 100%);
-  color: #fff;
-  text-align: left;
-  letter-spacing: 0;
-  box-shadow: 0 0.55rem 1.25rem rgba(107, 31, 42, 0.16);
-  transition: transform 170ms ease, border 170ms ease, box-shadow 170ms ease;
-}
-
-.contact-share:disabled {
-  opacity: 0.76;
-}
-
-.contact-share-icon {
-  display: grid;
-  width: clamp(2.3rem, 7vw, 2.65rem);
-  height: clamp(2.3rem, 7vw, 2.65rem);
-  place-items: center;
-  border-radius: 999px;
-  background: rgba(255, 253, 248, 0.16);
-  box-shadow: inset 0 0 0 1px rgba(255, 253, 248, 0.24);
-}
-
-.contact-share-copy {
-  display: grid;
-  min-width: 0;
-  gap: 0.16rem;
-}
-
-.contact-share-copy strong {
-  overflow: hidden;
-  font-size: clamp(1rem, 3.1vw, 1.16rem);
-  font-weight: 950;
-  line-height: 1.05;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.contact-share-copy small {
-  overflow: hidden;
-  color: rgba(255, 253, 248, 0.78);
-  font-size: clamp(0.78rem, 2.4vw, 0.92rem);
-  font-weight: 750;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.contact-share-arrow {
-  opacity: 0.9;
-}
-
-.active-contact {
-  border-color: rgba(94, 107, 58, 0.34);
-  background:
-    radial-gradient(circle at 12% 0%, rgba(200, 155, 60, 0.16), transparent 34%),
-    linear-gradient(135deg, rgba(94, 107, 58, 0.12), rgba(255, 253, 248, 0.95));
-  color: var(--text);
-  box-shadow: none;
-}
-
-.active-contact .contact-share-icon {
-  background: var(--color-secondary);
-  color: #fff;
-}
-
-.active-contact .contact-share-copy small {
-  color: var(--muted);
-}
-
 .required-checks {
   display: grid;
   gap: 0.72rem;
@@ -1799,24 +1758,6 @@ textarea {
 
 .required-checks.verified .required-checks-head span {
   background: var(--color-secondary);
-}
-
-.required-contact {
-  border-color: rgba(200, 155, 60, 0.64);
-  box-shadow:
-    0 0.6rem 1.35rem rgba(107, 31, 42, 0.18),
-    0 0 0 0.1rem rgba(200, 155, 60, 0.14);
-}
-
-.required-contact:not(.active-contact) {
-  background:
-    radial-gradient(circle at 12% 0%, rgba(255, 232, 163, 0.34), transparent 34%),
-    linear-gradient(135deg, #c89b3c 0%, #b95532 42%, #6b1f2a 100%);
-}
-
-.required-contact .contact-share-copy strong,
-.required-contact .contact-share-copy small {
-  white-space: normal;
 }
 
 .notice {
@@ -2277,12 +2218,6 @@ textarea {
 
 .checkout-confirm-section .required-checks-head {
   display: none;
-}
-
-.checkout-confirm-section .contact-share {
-  min-height: 3.45rem;
-  border-radius: 0.92rem;
-  box-shadow: none;
 }
 
 .checkout-confirm-section .cash-location {
@@ -3182,8 +3117,7 @@ textarea {
 
   .primary:hover,
   .secondary:hover,
-  .icon-button:hover,
-  .contact-share:hover {
+  .icon-button:hover {
     transform: none;
   }
 }
@@ -3423,8 +3357,7 @@ body {
 
 .primary:hover,
 .secondary:hover,
-.icon-button:hover,
-.contact-share:hover {
+.icon-button:hover {
   filter: none;
   transform: none;
 }
@@ -3533,14 +3466,3 @@ body {
   letter-spacing: .06em;
   vertical-align: middle;
 }
-.checkout-phone-confirmed {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-  color: #59683d;
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-.checkout-phone-confirmed svg { flex-shrink: 0; }
