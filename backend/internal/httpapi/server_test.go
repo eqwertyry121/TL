@@ -476,7 +476,7 @@ func TestSendClientBotMessageUsesSharedTelegramHTTPClient(t *testing.T) {
 	}
 }
 
-func TestStartLocationWelcomeIsRestrictedToTester(t *testing.T) {
+func TestStartLocationWelcomeIsSentToAllUsers(t *testing.T) {
 	var requests []string
 	server := New(config.Config{
 		Env:            "test",
@@ -498,8 +498,8 @@ func TestStartLocationWelcomeIsRestrictedToTester(t *testing.T) {
 		}, nil
 	})}
 
-	if err := server.sendStartMessage(context.Background(), 123, locationGuideTesterTelegramID); err != nil {
-		t.Fatalf("tester start message: %v", err)
+	if err := server.sendStartMessage(context.Background(), 123); err != nil {
+		t.Fatalf("first start message: %v", err)
 	}
 	if len(requests) != 2 {
 		t.Fatalf("tester request count = %d, want 2 entries for 1 request", len(requests))
@@ -517,11 +517,11 @@ func TestStartLocationWelcomeIsRestrictedToTester(t *testing.T) {
 		t.Fatalf("welcome text still contains removed wording: %s", requests[1])
 	}
 
-	if err := server.sendStartMessage(context.Background(), 456, 999); err != nil {
-		t.Fatalf("regular start message: %v", err)
+	if err := server.sendStartMessage(context.Background(), 456); err != nil {
+		t.Fatalf("second start message: %v", err)
 	}
-	if len(requests) != 4 || requests[2] != "https://api.telegram.org/bottest-token/sendMessage" || strings.Contains(requests[3], "геолокации") {
-		t.Fatalf("regular user received tester guide: %v", requests[2:])
+	if len(requests) != 4 || requests[2] != "https://api.telegram.org/bottest-token/sendMessage" || !strings.Contains(requests[3], "Для заказа нужно один раз разрешить доступ к геолокации") {
+		t.Fatalf("second user did not receive location guide: %v", requests[2:])
 	}
 }
 

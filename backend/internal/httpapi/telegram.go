@@ -63,8 +63,6 @@ type telegramSendMessageResponse struct {
 	} `json:"result"`
 }
 
-const locationGuideTesterTelegramID int64 = 1048084234
-
 func (s *Server) contact(w http.ResponseWriter, r *http.Request) {
 	contact, err := s.store.VerifiedContact(r.Context(), mustSession(r))
 	if err != nil {
@@ -259,7 +257,7 @@ func (s *Server) clientTelegramWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isBotCommand(message.Text, "/start") {
-		if err := s.sendStartMessage(r.Context(), message.Chat.ID, message.From.ID); err != nil {
+		if err := s.sendStartMessage(r.Context(), message.Chat.ID); err != nil {
 			s.log().Warn("telegram start message failed", "error", err)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -444,12 +442,8 @@ func (s *Server) sendClientBotMessage(ctx context.Context, chatID int64, text st
 	return result.Result.MessageID, nil
 }
 
-func (s *Server) sendStartMessage(ctx context.Context, chatID, telegramUserID int64) error {
-	if telegramUserID == locationGuideTesterTelegramID {
-		return s.sendLocationWelcome(ctx, chatID)
-	}
-	_, err := s.sendClientBotMessage(ctx, chatID, "Добро пожаловать в Tako Lako", s.mainMiniAppKeyboard())
-	return err
+func (s *Server) sendStartMessage(ctx context.Context, chatID int64) error {
+	return s.sendLocationWelcome(ctx, chatID)
 }
 
 func (s *Server) sendLocationWelcome(ctx context.Context, chatID int64) error {
