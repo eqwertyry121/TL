@@ -476,6 +476,66 @@ func TestSendClientBotMessageUsesSharedTelegramHTTPClient(t *testing.T) {
 	}
 }
 
+func TestStartLocationWelcomeIsRestrictedToTester(t *testing.T) {
+	var requests []string
+	server := New(config.Config{
+		Env:              "test",
+		ClientBotToken:   "test-token",
+		ClientMiniAppURL: "https://takolako.site/main/",
+		DevSandboxMode:   true,
+		BuildSHA:         "test-build",
+	}, nil, slog.Default())
+	server.telegramHTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests = append(requests, req.URL.String())
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		requests = append(requests, string(body))
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true,"result":{"message_id":42}}`)),
+			Request:    req,
+		}, nil
+	})}
+
+	if err := server.sendStartMessage(context.Background(), 123, locationGuideTesterTelegramID); err != nil {
+		t.Fatalf("tester start message: %v", err)
+	}
+	if len(requests) != 6 {
+		t.Fatalf("tester request count = %d, want 6 entries for 3 requests", len(requests))
+	}
+	if requests[0] != "https://api.telegram.org/bottest-token/sendMessage" {
+		t.Fatalf("welcome endpoint = %q", requests[0])
+	}
+	if !strings.Contains(requests[1], "Для заказа нужно один раз разрешить доступ к геолокации") {
+		t.Fatalf("welcome text missing location instruction: %s", requests[1])
+	}
+	if requests[2] != "https://api.telegram.org/bottest-token/sendPhoto" || !strings.Contains(requests[3], "onboarding/telegram-chat.png") {
+		t.Fatalf("first guide photo request = %q / %s", requests[2], requests[3])
+	}
+	if requests[4] != "https://api.telegram.org/bottest-token/sendPhoto" || !strings.Contains(requests[5], "onboarding/telegram-geolocation.png") {
+		t.Fatalf("second guide photo request = %q / %s", requests[4], requests[5])
+	}
+
+	if err := server.sendStartMessage(context.Background(), 456, 999); err != nil {
+		t.Fatalf("regular start message: %v", err)
+	}
+	if len(requests) != 8 || requests[6] != "https://api.telegram.org/bottest-token/sendMessage" || strings.Contains(requests[7], "onboarding/") {
+		t.Fatalf("regular user received tester guide: %v", requests[6:])
+	}
+}
+
+func TestClientPublicAssetURLPreservesPagesPrefix(t *testing.T) {
+	server := &Server{cfg: config.Config{ClientMiniAppURL: "https://takolako.site/testbranch/main/"}}
+	got := server.clientPublicAssetURL("onboarding/telegram-chat.png")
+	want := "https://takolako.site/testbranch/onboarding/telegram-chat.png"
+	if got != want {
+		t.Fatalf("public asset URL = %q, want %q", got, want)
+	}
+}
+
 func TestCachedRuntimePayloadCoalescesConcurrentMisses(t *testing.T) {
 	var calls atomic.Int64
 	release := make(chan struct{})

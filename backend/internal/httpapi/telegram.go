@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -62,6 +63,8 @@ type telegramSendMessageResponse struct {
 		MessageID int64 `json:"message_id"`
 	} `json:"result"`
 }
+
+const locationGuideTesterTelegramID int64 = 1048084234
 
 func (s *Server) contact(w http.ResponseWriter, r *http.Request) {
 	contact, err := s.store.VerifiedContact(r.Context(), mustSession(r))
@@ -257,7 +260,9 @@ func (s *Server) clientTelegramWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isBotCommand(message.Text, "/start") {
-		_, _ = s.sendClientBotMessage(r.Context(), message.Chat.ID, "Добро пожаловать в Tako Lako", s.mainMiniAppKeyboard())
+		if err := s.sendStartMessage(r.Context(), message.Chat.ID, message.From.ID); err != nil {
+			s.log().Warn("telegram start message failed", "error", err)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
@@ -383,6 +388,12 @@ func (s *Server) orderMiniAppKeyboard() map[string]any {
 	}}
 }
 
+func (s *Server) locationGuideKeyboard() map[string]any {
+	return map[string]any{"inline_keyboard": [][]map[string]any{
+		{{"text": "Заказать еду", "web_app": map[string]any{"url": s.clientMiniAppURL("/")}}},
+	}}
+}
+
 func (s *Server) clientMiniAppURL(route string) string {
 	return miniAppURL(s.cfg.ClientMiniAppURL, route, s.cfg.BuildSHA)
 }
@@ -432,6 +443,82 @@ func (s *Server) sendClientBotMessage(ctx context.Context, chatID int64, text st
 		return 0, fmt.Errorf("telegram_http_%d", response.StatusCode)
 	}
 	return result.Result.MessageID, nil
+}
+
+func (s *Server) sendStartMessage(ctx context.Context, chatID, telegramUserID int64) error {
+	if telegramUserID == locationGuideTesterTelegramID {
+		return s.sendLocationWelcome(ctx, chatID)
+	}
+	_, err := s.sendClientBotMessage(ctx, chatID, "Добро пожаловать в Tako Lako", s.mainMiniAppKeyboard())
+	return err
+}
+
+func (s *Server) sendLocationWelcome(ctx context.Context, chatID int64) error {
+	if _, err := s.sendClientBotMessage(ctx, chatID, "Если у вас возникнут проблемы — пишите мне, я помогу! @eqwertyry\n\nДля заказа нужно один раз разрешить доступ к геолокации.\n\n1. Нажмите на название бота вверху чата.\n2. Включите переключатель «Geolocation».\n3. Вернитесь назад и нажмите «Заказать еду».\n\nЕсли Android попросит доступ к местоположению, выберите «Разрешить при использовании приложения».", s.locationGuideKeyboard()); err != nil {
+		return err
+	}
+
+	steps := []struct {
+		assetPath string
+		caption   string
+	}{
+		{assetPath: "onboarding/telegram-chat.png", caption: "Шаг 1. Нажмите на название бота вверху чата."},
+		{assetPath: "onboarding/telegram-geolocation.png", caption: "Шаг 2. Включите переключатель «Geolocation»."},
+	}
+	for _, step := range steps {
+		if _, err := s.sendClientBotPhoto(ctx, chatID, s.clientPublicAssetURL(step.assetPath), step.caption); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Server) sendClientBotPhoto(ctx context.Context, chatID int64, photoURL, caption string) (int64, error) {
+	if strings.TrimSpace(s.cfg.ClientBotToken) == "" || strings.TrimSpace(photoURL) == "" {
+		return 0, core.ErrInvalidInput
+	}
+	payload := map[string]any{
+		"chat_id": chatID,
+		"photo":   photoURL,
+		"caption": caption,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return 0, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+s.cfg.ClientBotToken+"/sendPhoto", bytes.NewReader(raw))
+	if err != nil {
+		return 0, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := s.telegramClient().Do(request)
+	if err != nil {
+		return 0, fmt.Errorf("telegram_network_error")
+	}
+	defer response.Body.Close()
+	var result telegramSendMessageResponse
+	_ = json.NewDecoder(response.Body).Decode(&result)
+	if response.StatusCode < 200 || response.StatusCode >= 300 || !result.OK {
+		return 0, fmt.Errorf("telegram_http_%d", response.StatusCode)
+	}
+	return result.Result.MessageID, nil
+}
+
+func (s *Server) clientPublicAssetURL(assetPath string) string {
+	rawBase := strings.TrimSpace(s.cfg.ClientMiniAppURL)
+	if rawBase == "" {
+		rawBase = "https://takolako.site/main/"
+	}
+	parsed, err := url.Parse(rawBase)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	rootPath := strings.TrimSuffix(strings.TrimRight(parsed.Path, "/"), "/main")
+	parsed.Path = strings.TrimRight(rootPath, "/") + "/" + strings.TrimLeft(assetPath, "/")
+	parsed.RawPath = ""
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
 }
 
 func replyKeyboardRemove() map[string]any {
