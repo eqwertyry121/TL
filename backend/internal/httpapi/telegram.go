@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -454,71 +453,8 @@ func (s *Server) sendStartMessage(ctx context.Context, chatID, telegramUserID in
 }
 
 func (s *Server) sendLocationWelcome(ctx context.Context, chatID int64) error {
-	if _, err := s.sendClientBotMessage(ctx, chatID, "Если у вас возникнут проблемы — пишите мне, я помогу! @eqwertyry\n\nДля заказа нужно один раз разрешить доступ к геолокации.\n\n1. Нажмите на название бота вверху чата.\n2. Включите переключатель «Geolocation».\n3. Вернитесь назад и нажмите «Заказать еду».\n\nЕсли Android попросит доступ к местоположению, выберите «Разрешить при использовании приложения».", s.locationGuideKeyboard()); err != nil {
-		return err
-	}
-
-	steps := []struct {
-		assetPath string
-		caption   string
-	}{
-		{assetPath: "onboarding/telegram-chat.png", caption: "Шаг 1. Нажмите на название бота вверху чата."},
-		{assetPath: "onboarding/telegram-geolocation.png", caption: "Шаг 2. Включите переключатель «Geolocation»."},
-	}
-	for _, step := range steps {
-		if _, err := s.sendClientBotPhoto(ctx, chatID, s.clientPublicAssetURL(step.assetPath), step.caption); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Server) sendClientBotPhoto(ctx context.Context, chatID int64, photoURL, caption string) (int64, error) {
-	if strings.TrimSpace(s.cfg.ClientBotToken) == "" || strings.TrimSpace(photoURL) == "" {
-		return 0, core.ErrInvalidInput
-	}
-	payload := map[string]any{
-		"chat_id": chatID,
-		"photo":   photoURL,
-		"caption": caption,
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return 0, err
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+s.cfg.ClientBotToken+"/sendPhoto", bytes.NewReader(raw))
-	if err != nil {
-		return 0, err
-	}
-	request.Header.Set("Content-Type", "application/json")
-	response, err := s.telegramClient().Do(request)
-	if err != nil {
-		return 0, fmt.Errorf("telegram_network_error")
-	}
-	defer response.Body.Close()
-	var result telegramSendMessageResponse
-	_ = json.NewDecoder(response.Body).Decode(&result)
-	if response.StatusCode < 200 || response.StatusCode >= 300 || !result.OK {
-		return 0, fmt.Errorf("telegram_http_%d", response.StatusCode)
-	}
-	return result.Result.MessageID, nil
-}
-
-func (s *Server) clientPublicAssetURL(assetPath string) string {
-	rawBase := strings.TrimSpace(s.cfg.ClientMiniAppURL)
-	if rawBase == "" {
-		rawBase = "https://takolako.site/main/"
-	}
-	parsed, err := url.Parse(rawBase)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return ""
-	}
-	rootPath := strings.TrimSuffix(strings.TrimRight(parsed.Path, "/"), "/main")
-	parsed.Path = strings.TrimRight(rootPath, "/") + "/" + strings.TrimLeft(assetPath, "/")
-	parsed.RawPath = ""
-	parsed.RawQuery = ""
-	parsed.Fragment = ""
-	return parsed.String()
+	_, err := s.sendClientBotMessage(ctx, chatID, "Для заказа нужно один раз разрешить доступ к геолокации.\n\n1. Нажмите на название бота вверху чата.\n2. Включите переключатель «Геолокация».\n\nЕсли Android попросит доступ, выберите «Разрешить при использовании приложения».\n\nЕсли возникнут проблемы — пишите мне, я помогу! @eqwertyry", s.locationGuideKeyboard())
+	return err
 }
 
 func replyKeyboardRemove() map[string]any {
