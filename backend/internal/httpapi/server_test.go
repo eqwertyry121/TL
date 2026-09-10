@@ -508,6 +508,7 @@ func TestStartLocationWelcomeIsRestrictedToTester(t *testing.T) {
 		t.Fatalf("welcome endpoint = %q", requests[0])
 	}
 	if !strings.Contains(requests[1], "Для заказа нужно один раз разрешить доступ к геолокации") ||
+		!strings.Contains(requests[1], "1. Перейдите в профиль бота") ||
 		!strings.Contains(requests[1], "Включите переключатель «Геолокация»") ||
 		!strings.Contains(requests[1], "Если возникнут проблемы — пишите мне, я помогу! @eqwertyry") {
 		t.Fatalf("welcome text missing location instruction: %s", requests[1])

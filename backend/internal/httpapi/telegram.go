@@ -453,7 +453,7 @@ func (s *Server) sendStartMessage(ctx context.Context, chatID, telegramUserID in
 }
 
 func (s *Server) sendLocationWelcome(ctx context.Context, chatID int64) error {
-	_, err := s.sendClientBotMessage(ctx, chatID, "Для заказа нужно один раз разрешить доступ к геолокации.\n\n1. Нажмите на название бота вверху чата.\n2. Включите переключатель «Геолокация».\n\nЕсли Android попросит доступ, выберите «Разрешить при использовании приложения».\n\nЕсли возникнут проблемы — пишите мне, я помогу! @eqwertyry", s.locationGuideKeyboard())
+	_, err := s.sendClientBotMessage(ctx, chatID, "Для заказа нужно один раз разрешить доступ к геолокации.\n\n1. Перейдите в профиль бота.\n2. Включите переключатель «Геолокация».\n\nЕсли Android попросит доступ, выберите «Разрешить при использовании приложения».\n\nЕсли возникнут проблемы — пишите мне, я помогу! @eqwertyry", s.locationGuideKeyboard())
 	return err
 }
 
