@@ -575,16 +575,30 @@ h2 {
 }
 .booking-empty { padding: 2rem 1rem; text-align: center; color: var(--muted); }
 
-.day-off-booking {
+.day-off-actions {
+	display: grid;
+	gap: 0.65rem;
+	margin-top: 0.85rem;
+}
+
+.day-off-booking,
+.day-off-menu {
 	display: grid;
 	place-items: center;
 	width: 100%;
 	min-height: 3.3rem;
-	margin-top: 0.85rem;
 	border-radius: 1rem;
+	font-weight: 900;
+}
+
+.day-off-booking {
 	background: var(--color-surface);
 	color: var(--color-primary);
-	font-weight: 900;
+}
+
+.day-off-menu {
+	background: var(--color-primary);
+	color: #fff;
 }
 
 @media (max-width: 430px) {

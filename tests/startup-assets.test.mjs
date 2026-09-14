@@ -88,6 +88,18 @@ test("client floating cart separates quantity from total", () => {
   assertIncludes(styles, ".cart-float-total");
 });
 
+test("client day-off overlay lets customers browse the current menu without opening checkout", () => {
+  const source = readSource("apps/client/src/App.tsx");
+  const overlay = sliceBetween(source, "function DayOffOverlay(", "function ProfileBadge(");
+
+  assertIncludes(source, "const checkoutOpen = Boolean(data.runtime?.accepting_orders);");
+  assertIncludes(source, "const [dayOffMenuVisible, setDayOffMenuVisible] = useState(false);");
+  assertIncludes(source, "dayOffOverlayOpen={dayOffBlocked}");
+  assertIncludes(overlay, "onViewMenu");
+  assertIncludes(overlay, 'type="button"');
+  assertIncludes(overlay, 't(locale, "viewMenu")');
+});
+
 test("client shows combos inline without a separate transition control", () => {
   const source = readSource("apps/client/src/App.tsx");
   const styles = readSource("apps/client/src/styles.css");

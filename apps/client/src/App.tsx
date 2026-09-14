@@ -90,6 +90,7 @@ export function App() {
 function ClientMiniApp() {
   const [route, setRoute] = useState<Route>(initialClientRoute);
   const [locale, setLocale] = useState<Locale>(() => loadLocale(initialLocale()));
+  const [dayOffMenuVisible, setDayOffMenuVisible] = useState(false);
   const [cart, setCart] = useState<CartState>(loadCart);
   const [additionCart, setAdditionCart] = useState<CartState>({ version: 1, lines: {} });
   const [draft, setDraft] = useState<CheckoutDraft>(loadCheckoutDraft);
@@ -144,7 +145,7 @@ function ClientMiniApp() {
   const checkoutOpen = Boolean(data.runtime?.accepting_orders);
   const activeOrder = data.orders.find((order) => !isTerminalOrderStatus(order.fulfillment_status));
   const allowConcurrentDevOrders = devSandbox && data.session?.telegram_user_id === 1048084234;
-  const dayOffBlocked = isDayOffRuntime(data.runtime) && (data.runtime?.reason === "manual_day_off" || route.name !== "booking") && !isOwnerTelegramId(data.session?.telegram_user_id);
+  const dayOffBlocked = isDayOffRuntime(data.runtime) && (data.runtime?.reason === "manual_day_off" || route.name !== "booking") && !isOwnerTelegramId(data.session?.telegram_user_id) && !dayOffMenuVisible;
   const paymentMethods = useMemo(() => checkoutPaymentMethods(data.runtime?.enabled_payments || []), [data.runtime?.enabled_payments]);
   const cashLocationRequired = data.runtime?.cash_location_required ?? true;
   const persistentCityEnabled = verifiedContact?.city_verification_enabled === true;
@@ -274,6 +275,10 @@ function ClientMiniApp() {
     document.body.classList.toggle("has-day-off-overlay", dayOffBlocked);
     return () => document.body.classList.remove("has-day-off-overlay");
   }, [dayOffBlocked]);
+
+  useEffect(() => {
+    if (!isDayOffRuntime(data.runtime)) setDayOffMenuVisible(false);
+  }, [data.runtime]);
 
   useEffect(() => {
     if (!paymentMethods.includes(paymentMethod)) setPaymentMethod(paymentMethods[0] || "cash");
@@ -854,7 +859,7 @@ function ClientMiniApp() {
 
   if (publicInformationRoute) {
     return (
-      <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header={ui.brand} runtime={data.runtime} session={data.session}>
+      <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header={ui.brand} runtime={data.runtime} session={data.session} dayOffOverlayOpen={dayOffBlocked} onViewMenu={viewMenuDuringDayOff}>
         <PublicInformation route={route} locale={locale} support={data.runtime?.support_text || "@Tako_Lako_N"} />
       </Shell>
     );
@@ -955,7 +960,7 @@ function ClientMiniApp() {
     );
 
   return (
-    <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header={ui.brand} runtime={data.runtime} session={data.session}>
+    <Shell locale={locale} route={route} onLocale={updateLocale} cartQuantity={cartQuantity} header={ui.brand} runtime={data.runtime} session={data.session} dayOffOverlayOpen={dayOffBlocked} onViewMenu={viewMenuDuringDayOff}>
       {error && (
         <div className="notice error">
           <Icon name="alert" size={18} />
@@ -978,6 +983,11 @@ function ClientMiniApp() {
       {confirmDialog && <ConfirmDialog dialog={confirmDialog} locale={locale} onClose={closeConfirm} />}
     </Shell>
   );
+
+  function viewMenuDuringDayOff() {
+    setDayOffMenuVisible(true);
+    navigate({ name: "menu" });
+  }
 }
 
 function initialClientRoute(): Route {
@@ -1109,6 +1119,8 @@ function Shell({
   cartQuantity,
   runtime,
   session,
+  dayOffOverlayOpen = false,
+  onViewMenu,
   onLocale,
 }: {
   children: React.ReactNode;
@@ -1118,17 +1130,18 @@ function Shell({
   cartQuantity: number;
   runtime?: AppData["runtime"];
   session?: Session | null;
+  dayOffOverlayOpen?: boolean;
+  onViewMenu?: () => void;
   onLocale: (locale: Locale) => void;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const copy = clientCopy(locale);
   const isRoot = route.name === "menu";
   const showLocale = isRoot || isPublicInformationRoute(route);
-  const dayOffBlocked = isDayOffRuntime(runtime) && (runtime?.reason === "manual_day_off" || route.name !== "booking") && !isOwnerTelegramId(session?.telegram_user_id);
-  const showClosedBanner = runtime && !runtime.accepting_orders && !dayOffBlocked;
+  const showClosedBanner = runtime && !runtime.accepting_orders && !dayOffOverlayOpen;
 
   return (
-    <div className={dayOffBlocked ? "app-shell is-day-off-blocked" : "app-shell"}>
+    <div className={dayOffOverlayOpen ? "app-shell is-day-off-blocked" : "app-shell"}>
       <header className="app-header">
         <div className="top-row">
           <div className="header-main">
@@ -1201,13 +1214,13 @@ function Shell({
 			</div>,
 			document.body,
 		)}
-      <main className="app-content" aria-hidden={dayOffBlocked ? "true" : undefined}>{children}</main>
-      {dayOffBlocked && <DayOffOverlay locale={locale} runtime={runtime} />}
+      <main className="app-content" aria-hidden={dayOffOverlayOpen ? "true" : undefined}>{children}</main>
+      {dayOffOverlayOpen && onViewMenu && <DayOffOverlay locale={locale} runtime={runtime} onViewMenu={onViewMenu} />}
     </div>
   );
 }
 
-function DayOffOverlay({ locale, runtime }: { locale: Locale; runtime?: AppData["runtime"] }) {
+function DayOffOverlay({ locale, runtime, onViewMenu }: { locale: Locale; runtime?: AppData["runtime"]; onViewMenu: () => void }) {
   const nextOpening = formatNextOpening(runtime?.next_opening, locale, runtime?.timezone);
   const title = dayOffTitle(runtime, locale);
 
@@ -1222,7 +1235,10 @@ function DayOffOverlay({ locale, runtime }: { locale: Locale; runtime?: AppData[
             <span>{t(locale, "nextOpening")}</span> <strong>{nextOpening}</strong>
           </small>
         )}
-			<a className="day-off-booking" href="#/booking">{bookingCopy(locale).title}</a>
+        <div className="day-off-actions">
+          <a className="day-off-booking" href="#/booking">{bookingCopy(locale).title}</a>
+          <button className="day-off-menu" type="button" onClick={onViewMenu}>{t(locale, "viewMenu")}</button>
+        </div>
       </section>
     </div>
   );

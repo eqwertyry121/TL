@@ -5,6 +5,7 @@ type Key =
   | "checkoutClosed"
   | "dayOffMessage"
   | "nextOpening"
+  | "viewMenu"
   | "menu"
   | "cart"
   | "checkout"
@@ -39,6 +40,7 @@ const dict: Record<Locale, Record<Key, string>> = {
     checkoutClosed: "Приём заказов временно закрыт",
     dayOffMessage: "Сегодня заказы не принимаем.",
     nextOpening: "Ждем вас",
+    viewMenu: "Посмотреть меню",
     menu: "Меню",
     cart: "Корзина",
     checkout: "Оформление",
@@ -72,6 +74,7 @@ const dict: Record<Locale, Record<Key, string>> = {
     checkoutClosed: "Porudžbine trenutno nisu dostupne",
     dayOffMessage: "Danas ne primamo porudžbine.",
     nextOpening: "Čekamo vas",
+    viewMenu: "Pogledaj meni",
     menu: "Meni",
     cart: "Korpa",
     checkout: "Plaćanje",
@@ -105,6 +108,7 @@ const dict: Record<Locale, Record<Key, string>> = {
     checkoutClosed: "Orders are not accepted now",
     dayOffMessage: "We are not taking orders today.",
     nextOpening: "See you",
+    viewMenu: "View menu",
     menu: "Menu",
     cart: "Cart",
     checkout: "Checkout",
