@@ -45,7 +45,7 @@ const (
 	deliveryAlertTelegramID   = int64(8609105840)
 	orderAdditionWindow       = 5 * time.Minute
 	pickupAddressSnapshot     = "Самовывоз"
-	currentTermsVersion       = "2026-08-17"
+	currentTermsVersion       = "2026-09-21"
 	maxPhoneLength            = 32
 	maxAddressLength          = 240
 	maxCustomerCommentLength  = 300
@@ -493,7 +493,7 @@ func (s *Store) SessionByToken(ctx context.Context, token string) (core.Session,
 func (s *Store) Settings(ctx context.Context) (core.Settings, error) {
 	var settings core.Settings
 	err := s.pool.QueryRow(ctx, `
-		SELECT timezone, currency, manual_day_off, day_off_banner, flat_delivery_fee_minor,
+		SELECT timezone, currency, manual_day_off, day_off_banner, flat_delivery_fee_minor, delivery_minimum_order_minor,
 			support_text, support_phone, terms_url, max_item_quantity, max_comment_length,
 			cash_enabled, card_enabled, crypto_enabled, cash_location_required, restaurant_latitude,
 			restaurant_longitude, cash_location_radius_meters, cash_location_ttl_seconds,
@@ -510,6 +510,7 @@ func (s *Store) Settings(ctx context.Context) (core.Settings, error) {
 		&settings.ManualDayOff,
 		&settings.DayOffBanner,
 		&settings.FlatDeliveryFeeMinor,
+		&settings.DeliveryMinimumOrderMinor,
 		&settings.SupportText,
 		&settings.SupportPhone,
 		&settings.TermsURL,
@@ -1807,6 +1808,12 @@ func (s *Store) CalculateForFulfillmentTiming(ctx context.Context, sess core.Ses
 			Version:        row.version,
 		})
 	}
+	if fulfillmentType == core.FulfillmentDelivery && calc.SubtotalMinor < settings.DeliveryMinimumOrderMinor {
+		return core.Calculation{}, &core.DeliveryMinimumError{
+			MinimumOrderMinor: settings.DeliveryMinimumOrderMinor,
+			SubtotalMinor:     calc.SubtotalMinor,
+		}
+	}
 	calc.TotalMinor = calc.SubtotalMinor + calc.DeliveryFeeMinor
 
 	token, tokenHash, err := randomToken()
@@ -2002,12 +2009,12 @@ func (s *Store) revalidateCalculationTx(ctx context.Context, tx pgx.Tx, items []
 	}
 
 	var currentCurrency string
-	var currentDelivery, maxItemQuantity int
+	var currentDelivery, currentDeliveryMinimum, maxItemQuantity int
 	if err := tx.QueryRow(ctx, `
-		SELECT currency, flat_delivery_fee_minor, max_item_quantity
+		SELECT currency, flat_delivery_fee_minor, delivery_minimum_order_minor, max_item_quantity
 		FROM app_settings
 		WHERE id=true
-	`).Scan(&currentCurrency, &currentDelivery, &maxItemQuantity); err != nil {
+	`).Scan(&currentCurrency, &currentDelivery, &currentDeliveryMinimum, &maxItemQuantity); err != nil {
 		return nil, 0, 0, 0, "", err
 	}
 	if fulfillmentType == core.FulfillmentPickup {
@@ -2087,6 +2094,12 @@ func (s *Store) revalidateCalculationTx(ctx context.Context, tx pgx.Tx, items []
 			LineTotalMinor: line,
 			Version:        row.version,
 		})
+	}
+	if fulfillmentType == core.FulfillmentDelivery && subtotal < currentDeliveryMinimum {
+		return nil, 0, 0, 0, "", &core.DeliveryMinimumError{
+			MinimumOrderMinor: currentDeliveryMinimum,
+			SubtotalMinor:     subtotal,
+		}
 	}
 	total := subtotal + currentDelivery
 	if subtotal != storedSubtotal || total != storedTotal {
@@ -3875,31 +3888,32 @@ func (s *Store) AdminDashboard(ctx context.Context, sess core.Session, now time.
 		payments = append(payments, "crypto")
 	}
 	runtime := core.Runtime{
-		ServerTime:               now.UTC(),
-		Timezone:                 settings.Timezone,
-		AcceptingOrders:          accept.OK,
-		Reason:                   accept.Reason,
-		NextOpening:              accept.NextOpening,
-		OrderOpenTime:            scheduleDay.OpenTime,
-		OrderCutoffTime:          scheduleDay.OrderCutoffTime,
-		DayOffBanner:             settings.DayOffBanner,
-		FlatDeliveryFeeMinor:     settings.FlatDeliveryFeeMinor,
-		Currency:                 settings.Currency,
-		EnabledPayments:          payments,
-		SupportedLocales:         []string{"ru", "sr", "en"},
-		SupportText:              settings.SupportText,
-		CashLocationRequired:     settings.CashLocationRequired,
-		CashLocationRadiusMeters: settings.CashLocationRadiusMeters,
-		PickupEnabled:            settings.PickupEnabled,
-		PickupAddress:            settings.PickupAddress,
-		PickupMapURL:             settings.PickupMapURL,
-		PickupMinLeadMinutes:     settings.PickupMinLeadMinutes,
-		PickupSlotMinutes:        settings.PickupSlotMinutes,
-		PickupLastTime:           settings.PickupLastTime,
-		DeliveryTimingEnabled:    settings.DeliveryTimingEnabled,
-		DeliveryMinLeadMinutes:   settings.DeliveryMinLeadMinutes,
-		DeliverySlotMinutes:      settings.DeliverySlotMinutes,
-		DeliveryLastTargetTime:   settings.DeliveryLastTargetTime,
+		ServerTime:                now.UTC(),
+		Timezone:                  settings.Timezone,
+		AcceptingOrders:           accept.OK,
+		Reason:                    accept.Reason,
+		NextOpening:               accept.NextOpening,
+		OrderOpenTime:             scheduleDay.OpenTime,
+		OrderCutoffTime:           scheduleDay.OrderCutoffTime,
+		DayOffBanner:              settings.DayOffBanner,
+		FlatDeliveryFeeMinor:      settings.FlatDeliveryFeeMinor,
+		DeliveryMinimumOrderMinor: settings.DeliveryMinimumOrderMinor,
+		Currency:                  settings.Currency,
+		EnabledPayments:           payments,
+		SupportedLocales:          []string{"ru", "sr", "en"},
+		SupportText:               settings.SupportText,
+		CashLocationRequired:      settings.CashLocationRequired,
+		CashLocationRadiusMeters:  settings.CashLocationRadiusMeters,
+		PickupEnabled:             settings.PickupEnabled,
+		PickupAddress:             settings.PickupAddress,
+		PickupMapURL:              settings.PickupMapURL,
+		PickupMinLeadMinutes:      settings.PickupMinLeadMinutes,
+		PickupSlotMinutes:         settings.PickupSlotMinutes,
+		PickupLastTime:            settings.PickupLastTime,
+		DeliveryTimingEnabled:     settings.DeliveryTimingEnabled,
+		DeliveryMinLeadMinutes:    settings.DeliveryMinLeadMinutes,
+		DeliverySlotMinutes:       settings.DeliverySlotMinutes,
+		DeliveryLastTargetTime:    settings.DeliveryLastTargetTime,
 	}
 	loc, err := time.LoadLocation(settings.Timezone)
 	if err != nil {
@@ -5798,6 +5812,7 @@ func staffAudit(member core.StaffMember) map[string]any {
 func safeSettingsAudit(settings core.Settings) map[string]any {
 	return map[string]any{
 		"flat_delivery_fee_minor":           settings.FlatDeliveryFeeMinor,
+		"delivery_minimum_order_minor":      settings.DeliveryMinimumOrderMinor,
 		"support_text":                      settings.SupportText,
 		"support_phone":                     settings.SupportPhone,
 		"terms_url":                         settings.TermsURL,

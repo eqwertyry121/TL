@@ -2060,6 +2060,16 @@ textarea {
   background: rgba(255, 253, 248, 0.9);
 }
 
+.checkout-minimum-note {
+  margin: 0;
+  border-left: 3px solid var(--wine);
+  padding: 0.7rem 0.85rem;
+  background: rgba(116, 29, 44, 0.07);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
 .checkout-order-summary summary {
   display: flex;
   min-height: 3.55rem;

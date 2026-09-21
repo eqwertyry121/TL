@@ -658,6 +658,11 @@ function ClientMiniApp() {
       return;
     }
     const deliverySelected = fulfillmentType === "delivery";
+    const deliveryMinimum = data.runtime?.delivery_minimum_order_minor ?? 0;
+    if (deliverySelected && subtotal < deliveryMinimum) {
+      setError(deliveryMinimumText(locale, deliveryMinimum, subtotal));
+      return;
+    }
     if (deliverySelected && (!draft.street.trim() || !draft.houseNumber.trim())) {
       setError(checkoutCopy(locale).nextAddress);
       return;
@@ -910,6 +915,7 @@ function ClientMiniApp() {
         pickupSlots={pickupSlots}
         deliverySlots={deliverySlots}
         deliveryTimingEnabled={deliveryTimingEnabled}
+        deliveryMinimumOrderMinor={data.runtime?.delivery_minimum_order_minor ?? 0}
         pickupAddress={data.runtime?.pickup_address || "Tako Lako, Novi Sad"}
         pickupMapUrl={data.runtime?.pickup_map_url || ""}
         pickupEnabled={data.runtime?.pickup_enabled !== false}
@@ -1714,6 +1720,7 @@ function Checkout({
   pickupSlots,
   deliverySlots,
   deliveryTimingEnabled,
+  deliveryMinimumOrderMinor,
   pickupAddress,
   pickupMapUrl,
   pickupEnabled,
@@ -1750,6 +1757,7 @@ function Checkout({
   pickupSlots: PickupSlots | null;
   deliverySlots: DeliverySlots | null;
   deliveryTimingEnabled: boolean;
+  deliveryMinimumOrderMinor: number;
   pickupAddress: string;
   pickupMapUrl: string;
   pickupEnabled: boolean;
@@ -1807,13 +1815,17 @@ function Checkout({
       }));
   const itemCount = summaryLines.reduce((sum, line) => sum + line.quantity, 0);
   const checkoutTotal = calculation?.total_minor ?? total;
+  const deliverySubtotal = calculation?.subtotal_minor ?? subtotal;
+  const deliveryMinimumReady = !deliverySelected || deliverySubtotal >= deliveryMinimumOrderMinor;
   const addressReady = !deliverySelected || Boolean(draft.street.trim() && draft.houseNumber.trim());
   const pickupTimeReady = deliverySelected || (pickupEnabled && Boolean(draft.pickupAt));
   const deliveryTimeReady = !deliverySelected || !deliveryTimingEnabled || draft.deliveryTimeMode === "ASAP" || Boolean(draft.deliveryRequestedAt);
-  const canSubmit = checkoutOpen && !submitting && addressReady && locationVerified && pickupTimeReady && deliveryTimeReady && termsAccepted;
+  const canSubmit = checkoutOpen && !submitting && deliveryMinimumReady && addressReady && locationVerified && pickupTimeReady && deliveryTimeReady && termsAccepted;
   const checkoutHint = !checkoutOpen
     ? checkoutClosedLabel
-    : !addressReady
+    : !deliveryMinimumReady
+      ? deliveryMinimumText(locale, deliveryMinimumOrderMinor, deliverySubtotal)
+      : !addressReady
       ? copy.nextAddress
       : !pickupTimeReady
         ? copy.nextPickupTime
@@ -1846,6 +1858,11 @@ function Checkout({
           <a href="#/cart">{copy.editCart}</a>
         </div>
       </details>
+      {!deliveryMinimumReady && (
+        <p className="checkout-minimum-note" role="status">
+          {deliveryMinimumText(locale, deliveryMinimumOrderMinor, deliverySubtotal)}
+        </p>
+      )}
       <div className="form checkout-section checkout-primary-section checkout-stage">
         <div className="checkout-stage-title"><span>1</span><div><strong>{copy.receivingStep}</strong><small>{copy.receivingStepHint}</small></div></div>
         <div className="fulfillment-selector">
@@ -3044,6 +3061,7 @@ function sameRuntime(current: Runtime | null, incoming: Runtime): boolean {
     && current.next_opening === incoming.next_opening
     && current.day_off_banner === incoming.day_off_banner
     && current.flat_delivery_fee_minor === incoming.flat_delivery_fee_minor
+    && current.delivery_minimum_order_minor === incoming.delivery_minimum_order_minor
     && current.currency === incoming.currency
     && current.enabled_payments.join(",") === incoming.enabled_payments.join(",")
     && current.supported_locales.join(",") === incoming.supported_locales.join(",")
@@ -3066,6 +3084,9 @@ function sameRuntime(current: Runtime | null, incoming: Runtime): boolean {
 function errorText(err: unknown, locale: Locale = "ru"): string {
   const code = typeof err === "object" && err && "code" in err ? String((err as { code: unknown }).code) : String((err as Error)?.message || err);
   const details = typeof err === "object" && err && "details" in err ? (err as { details?: Record<string, unknown> }).details : undefined;
+  if (code === "DELIVERY_MINIMUM_NOT_MET") {
+    return deliveryMinimumText(locale, Number(details?.minimum_order_minor || 2000), Number(details?.subtotal_minor || 0));
+  }
   if (code === "DELIVERY_SLOT_UNAVAILABLE" && typeof details?.next_available_at === "string") {
     const next = formatPickupTime(details.next_available_at);
     const delay = Number(details.queue_delay_minutes || 0);
@@ -3158,4 +3179,11 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
   } satisfies Record<Locale, Record<string, string>>;
   const localeMessages: Record<string, string> = messages[locale];
   return localeMessages[code] || localeMessages.SERVER_UNAVAILABLE;
+}
+
+function deliveryMinimumText(locale: Locale, minimum: number, subtotal: number): string {
+  const remaining = Math.max(0, minimum - subtotal);
+  if (locale === "en") return `Delivery minimum is ${money(minimum)}. Add ${money(remaining)} more.`;
+  if (locale === "sr") return `Minimalna dostava je ${money(minimum)}. Dodajte još ${money(remaining)}.`;
+  return `Минимум для доставки — ${money(minimum)}. Добавьте ещё на ${money(remaining)}.`;
 }

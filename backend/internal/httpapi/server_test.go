@@ -312,6 +312,21 @@ func TestWriteErrorReturnsInvalidInputForBadJSON(t *testing.T) {
 	}
 }
 
+func TestWriteErrorReturnsDeliveryMinimumDetails(t *testing.T) {
+	w := httptest.NewRecorder()
+
+	writeError(w, &core.DeliveryMinimumError{MinimumOrderMinor: 2000, SubtotalMinor: 1120})
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusUnprocessableEntity, w.Body.String())
+	}
+	for _, expected := range []string{`"code":"DELIVERY_MINIMUM_NOT_MET"`, `"minimum_order_minor":2000`, `"subtotal_minor":1120`} {
+		if !strings.Contains(w.Body.String(), expected) {
+			t.Fatalf("body missing %s: %s", expected, w.Body.String())
+		}
+	}
+}
+
 func TestDecodeJSONRejectsTrailingPayload(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(`{"ok":true}{"ok":false}`))
 	var payload struct {

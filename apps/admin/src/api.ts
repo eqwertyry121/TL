@@ -1317,6 +1317,7 @@ function seedSettings(): Settings {
     manual_day_off: false,
     day_off_banner: "ВЫХОДНОЙ",
     flat_delivery_fee_minor: 0,
+    delivery_minimum_order_minor: 2000,
     support_text: "@Tako_Lako_N",
     support_phone: "",
     terms_url: "",
@@ -1354,7 +1355,7 @@ function seedSettings(): Settings {
 function defaultSchedule(): ScheduleDay[] {
   return [0, 1, 2, 3, 4, 5, 6].map((day) => ({
     day_of_week: day,
-    closed: day === 1,
+    closed: false,
     open_time: "13:00",
     order_cutoff_time: "21:00",
     close_time: "22:00",
@@ -1384,6 +1385,7 @@ function runtimeFromSettings(settings: Settings) {
     order_cutoff_time: today?.order_cutoff_time ?? "",
     day_off_banner: settings.day_off_banner,
     flat_delivery_fee_minor: 0,
+    delivery_minimum_order_minor: settings.delivery_minimum_order_minor,
     currency: settings.currency,
     enabled_payments: [
       ...(settings.cash_enabled ? ["cash" as const] : []),
@@ -1671,6 +1673,7 @@ function loadSettings(): Settings {
   const normalized = {
     ...settings,
     flat_delivery_fee_minor: 0,
+    delivery_minimum_order_minor: settings.delivery_minimum_order_minor ?? 2000,
     support_text: "@Tako_Lako_N",
     max_item_quantity: Math.max(settings.max_item_quantity || 0, 99),
     crypto_enabled: shouldEnableCryptoTest ? true : settings.crypto_enabled,
@@ -1698,6 +1701,7 @@ function loadSettings(): Settings {
   };
   if (
     normalized.flat_delivery_fee_minor !== settings.flat_delivery_fee_minor ||
+    normalized.delivery_minimum_order_minor !== settings.delivery_minimum_order_minor ||
     normalized.support_text !== settings.support_text ||
     normalized.max_item_quantity !== settings.max_item_quantity ||
     normalized.crypto_enabled !== settings.crypto_enabled

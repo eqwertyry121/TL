@@ -80,6 +80,7 @@ var (
 	ErrDeliveryTimingUnavailable = errors.New("delivery timing unavailable")
 	ErrDeliverySlotUnavailable   = errors.New("delivery slot unavailable")
 	ErrDeliveryTimeInvalid       = errors.New("delivery time invalid")
+	ErrDeliveryMinimumNotMet     = errors.New("delivery minimum not met")
 	ErrReservationUnavailable    = errors.New("reservation unavailable")
 	ErrActiveReservationExists   = errors.New("active reservation exists")
 	ErrProductionUnsafeValue     = errors.New("unsafe production config")
@@ -89,6 +90,14 @@ type DeliverySlotUnavailableError struct {
 	NextAvailableAt   *time.Time
 	QueueDelayMinutes int
 }
+
+type DeliveryMinimumError struct {
+	MinimumOrderMinor int
+	SubtotalMinor     int
+}
+
+func (e *DeliveryMinimumError) Error() string { return ErrDeliveryMinimumNotMet.Error() }
+func (e *DeliveryMinimumError) Unwrap() error { return ErrDeliveryMinimumNotMet }
 
 func (e *DeliverySlotUnavailableError) Error() string { return ErrDeliverySlotUnavailable.Error() }
 func (e *DeliverySlotUnavailableError) Unwrap() error { return ErrDeliverySlotUnavailable }
@@ -122,6 +131,7 @@ type Settings struct {
 	ManualDayOff                  bool          `json:"manual_day_off"`
 	DayOffBanner                  string        `json:"day_off_banner"`
 	FlatDeliveryFeeMinor          int           `json:"flat_delivery_fee_minor"`
+	DeliveryMinimumOrderMinor     int           `json:"delivery_minimum_order_minor"`
 	SupportText                   string        `json:"support_text"`
 	SupportPhone                  string        `json:"support_phone"`
 	TermsURL                      string        `json:"terms_url"`
@@ -156,32 +166,33 @@ type Settings struct {
 }
 
 type Runtime struct {
-	ServerTime               time.Time `json:"server_time"`
-	Timezone                 string    `json:"timezone"`
-	AcceptingOrders          bool      `json:"accepting_orders"`
-	Reason                   string    `json:"reason"`
-	NextOpening              time.Time `json:"next_opening"`
-	OrderOpenTime            string    `json:"order_open_time"`
-	OrderCutoffTime          string    `json:"order_cutoff_time"`
-	DayOffBanner             string    `json:"day_off_banner"`
-	FlatDeliveryFeeMinor     int       `json:"flat_delivery_fee_minor"`
-	Currency                 string    `json:"currency"`
-	EnabledPayments          []string  `json:"enabled_payments"`
-	SupportedLocales         []string  `json:"supported_locales"`
-	SupportText              string    `json:"support_text"`
-	TermsURL                 string    `json:"terms_url"`
-	CashLocationRequired     bool      `json:"cash_location_required"`
-	CashLocationRadiusMeters int       `json:"cash_location_radius_meters"`
-	PickupEnabled            bool      `json:"pickup_enabled"`
-	PickupAddress            string    `json:"pickup_address"`
-	PickupMapURL             string    `json:"pickup_map_url"`
-	PickupMinLeadMinutes     int       `json:"pickup_min_lead_minutes"`
-	PickupSlotMinutes        int       `json:"pickup_slot_minutes"`
-	PickupLastTime           string    `json:"pickup_last_time"`
-	DeliveryTimingEnabled    bool      `json:"delivery_timing_enabled"`
-	DeliveryMinLeadMinutes   int       `json:"delivery_min_lead_minutes"`
-	DeliverySlotMinutes      int       `json:"delivery_slot_minutes"`
-	DeliveryLastTargetTime   string    `json:"delivery_last_target_time"`
+	ServerTime                time.Time `json:"server_time"`
+	Timezone                  string    `json:"timezone"`
+	AcceptingOrders           bool      `json:"accepting_orders"`
+	Reason                    string    `json:"reason"`
+	NextOpening               time.Time `json:"next_opening"`
+	OrderOpenTime             string    `json:"order_open_time"`
+	OrderCutoffTime           string    `json:"order_cutoff_time"`
+	DayOffBanner              string    `json:"day_off_banner"`
+	FlatDeliveryFeeMinor      int       `json:"flat_delivery_fee_minor"`
+	DeliveryMinimumOrderMinor int       `json:"delivery_minimum_order_minor"`
+	Currency                  string    `json:"currency"`
+	EnabledPayments           []string  `json:"enabled_payments"`
+	SupportedLocales          []string  `json:"supported_locales"`
+	SupportText               string    `json:"support_text"`
+	TermsURL                  string    `json:"terms_url"`
+	CashLocationRequired      bool      `json:"cash_location_required"`
+	CashLocationRadiusMeters  int       `json:"cash_location_radius_meters"`
+	PickupEnabled             bool      `json:"pickup_enabled"`
+	PickupAddress             string    `json:"pickup_address"`
+	PickupMapURL              string    `json:"pickup_map_url"`
+	PickupMinLeadMinutes      int       `json:"pickup_min_lead_minutes"`
+	PickupSlotMinutes         int       `json:"pickup_slot_minutes"`
+	PickupLastTime            string    `json:"pickup_last_time"`
+	DeliveryTimingEnabled     bool      `json:"delivery_timing_enabled"`
+	DeliveryMinLeadMinutes    int       `json:"delivery_min_lead_minutes"`
+	DeliverySlotMinutes       int       `json:"delivery_slot_minutes"`
+	DeliveryLastTargetTime    string    `json:"delivery_last_target_time"`
 }
 
 type DeliveryASAP struct {

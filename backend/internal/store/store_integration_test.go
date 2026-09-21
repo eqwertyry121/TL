@@ -110,6 +110,64 @@ func TestCreateCashOrderRejectsStaleHiddenItemCalculation(t *testing.T) {
 	}
 }
 
+func TestDeliveryMinimumAppliesOnlyToDelivery(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	sess := clientSession(t, ctx, st, clientTelegramID)
+	now := time.Now().UTC()
+	items := []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 1}}
+
+	_, err := st.CalculateForFulfillment(ctx, sess, items, core.FulfillmentDelivery, now)
+	var minimumErr *core.DeliveryMinimumError
+	if !errors.As(err, &minimumErr) {
+		t.Fatalf("delivery calculation error = %v, want DeliveryMinimumError", err)
+	}
+	if minimumErr.MinimumOrderMinor != 2000 || minimumErr.SubtotalMinor >= minimumErr.MinimumOrderMinor {
+		t.Fatalf("delivery minimum details = %+v", minimumErr)
+	}
+
+	if _, err := st.CalculateForFulfillment(ctx, sess, items, core.FulfillmentPickup, now); err != nil {
+		t.Fatalf("pickup calculation below delivery minimum: %v", err)
+	}
+}
+
+func TestCreateCashOrderRevalidatesRaisedDeliveryMinimum(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	if _, err := pool.Exec(ctx, `UPDATE app_settings SET delivery_minimum_order_minor=0 WHERE id=true`); err != nil {
+		t.Fatalf("disable delivery minimum: %v", err)
+	}
+	sess := clientSession(t, ctx, st, clientTelegramID)
+	now := time.Now().UTC()
+	calc, err := st.Calculate(ctx, sess, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 1}}, now)
+	if err != nil {
+		t.Fatalf("calculate below future minimum: %v", err)
+	}
+	challenge, err := st.CreateCashLocationChallenge(ctx, sess, store.CreateCashLocationChallengeInput{CalculationToken: calc.Token}, now, true)
+	if err != nil {
+		t.Fatalf("create location challenge: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE app_settings SET delivery_minimum_order_minor=2000 WHERE id=true`); err != nil {
+		t.Fatalf("raise delivery minimum: %v", err)
+	}
+
+	_, err = st.CreateCashOrder(ctx, sess, store.CreateOrderInput{
+		CalculationToken:        calc.Token,
+		CashLocationChallengeID: challenge.ID.String(),
+		Address:                 "Test address 1",
+		PaymentMethod:           core.PaymentCash,
+		TermsAccepted:           true,
+		Locale:                  "ru",
+	}, "delivery-minimum-revalidation", "delivery-minimum-revalidation-hash", now)
+	if !errors.Is(err, core.ErrDeliveryMinimumNotMet) {
+		t.Fatalf("create order error = %v, want ErrDeliveryMinimumNotMet", err)
+	}
+}
+
 func TestCreateCashOrderAcceptsNoPhone(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)

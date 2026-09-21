@@ -99,6 +99,17 @@ test("delivery scheduling uses one order per thirty-minute slot", () => {
   assert.match(source, /delivery_last_target_time\s*=\s*'21:00'/i);
 });
 
+test("current ordering policy is daily with a 2000 RSD delivery minimum", () => {
+  const source = compactSql(readMigration("059_delivery_minimum_and_daily_schedule.sql"));
+  assert.match(source, /delivery_minimum_order_minor\s+integer\s+NOT\s+NULL\s+DEFAULT\s+2000/i);
+  assert.match(source, /SET\s+delivery_minimum_order_minor\s*=\s*2000/i);
+  assert.match(source, /manual_day_off\s*=\s*false/i);
+  assert.match(source, /UPDATE\s+restaurant_schedule\s+SET\s+closed\s*=\s*false/i);
+  assert.match(source, /open_time\s*=\s*'13:00'/i);
+  assert.match(source, /order_cutoff_time\s*=\s*'21:00'/i);
+  assert.match(source, /close_time\s*=\s*'22:00'/i);
+});
+
 function readMigration(file) {
   return readFileSync(new URL(file, migrationsDir), "utf8");
 }

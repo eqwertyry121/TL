@@ -42,7 +42,7 @@ Telegram BackButton синхронизирован с routes. Назад пос�
 ## 3. Меню
 
 - header с logo/name;
-- красная плашка `ВЫХОДНОЙ` для Monday/manual stop;
+- красная плашка `ВЫХОДНОЙ` для manual stop;
 - сообщение о закрытом приёме до 13/после 21;
 - категории;
 - dish card: photo, title, weight, price, allergen marker;
@@ -101,7 +101,7 @@ server calculation.
 
 Frontend берёт решение из `runtime`:
 
-- Monday/manual stop → красная `ВЫХОДНОЙ`;
+- manual stop → красная `ВЫХОДНОЙ`;
 - до 13:00 → следующий приём;
 - 13:00–21:00 → checkout enabled;
 - после 21:00 → `Приём заказов на сегодня завершён`.
@@ -276,7 +276,7 @@ Playwright:
 
 - open → add quantities → cart → cash order → status/history;
 - reload cart;
-- Monday/manual day off/after 21;
+- manual day off/after 21;
 - hidden/price changed item;
 - double click and lost response;
 - чужой order forbidden;
@@ -305,7 +305,8 @@ Real Telegram Android/iOS/Desktop smoke:
 
 - Клиент оформляет cash order без выбора чего-либо кроме dishes/quantity.
 - Нет map/coordinates/zones/modifiers.
-- Monday/manual `ВЫХОДНОЙ` даёт красную плашку и блокирует checkout.
+- Manual `ВЫХОДНОЙ` даёт красную плашку и блокирует checkout.
+- Для доставки checkout показывает минимум 2 000 RSD и не отправляет меньшую сумму; самовывоз не ограничен.
 - После 21:00 backend/frontend не создают order.
 - Double tap/timeout создаёт ровно один order.
 - Cart переживает закрытие Mini App.

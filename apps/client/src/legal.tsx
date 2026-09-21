@@ -64,7 +64,7 @@ export const legalProfile = {
 
 const legalCopy: Record<Locale, LegalCopy> = {
   sr: {
-    updated: "Datum primene: 27.08.2026. · verzija 2026-08-27",
+    updated: "Datum primene: 21.09.2026. · verzija 2026-09-21",
     nav: { terms: "Uslovi prodaje", returns: "Reklamacije i povraćaj", privacy: "Privatnost" },
     merchantTitle: "Podaci o prodavcu",
     merchantIntro: "Tako Lako je naziv prodajnog mesta. Ugovorna strana i rukovalac podacima je preduzetnik naveden ispod.",
@@ -109,7 +109,7 @@ const legalCopy: Record<Locale, LegalCopy> = {
           id: "prices",
           title: "3. Cene i dostava",
           paragraphs: [
-            "Sve cene su konačne potrošačke cene u dinarima (RSD). Prodavac nije u sistemu PDV-a. Dostava je besplatna i nema minimalne vrednosti porudžbine. Prodavac ne menja cenu nakon prihvatanja porudžbine bez izričite saglasnosti kupca.",
+            "Sve cene su konačne potrošačke cene u dinarima (RSD). Prodavac nije u sistemu PDV-a. Dostava je besplatna, uz minimalnu vrednost porudžbine od 2.000 RSD; za lično preuzimanje nema minimalne vrednosti. Prodavac ne menja cenu nakon prihvatanja porudžbine bez izričite saglasnosti kupca.",
             "Kupac odgovara za tačnost telefona i tekstualne adrese. Dostava se vrši tokom objavljenog radnog vremena. Okvirni rok dostave je od 5 do 60 minuta od završetka pripreme hrane, u zavisnosti od adrese, opterećenja i saobraćaja. Ako taj rok nije moguć, prodavac kontaktira kupca radi dogovora o novom roku ili otkazivanju bez troška za kupca.",
           ],
         },
@@ -261,7 +261,7 @@ const legalCopy: Record<Locale, LegalCopy> = {
     },
   },
   ru: {
-    updated: "Дата применения: 27.08.2026 · версия 2026-08-27",
+    updated: "Дата применения: 21.09.2026 · версия 2026-09-21",
     nav: { terms: "Условия продажи", returns: "Претензии и возврат", privacy: "Конфиденциальность" },
     merchantTitle: "Данные продавца",
     merchantIntro: "Tako Lako — название торговой точки. Стороной договора и оператором персональных данных является указанный ниже предприниматель.",
@@ -286,7 +286,7 @@ const legalCopy: Record<Locale, LegalCopy> = {
       sections: [
         { id: "scope", title: "1. Продавец и применение условий", paragraphs: ["Продавец готовит и доставляет еду в Нови-Саде, на территории, где доставка доступна в момент заказа. Условия применяются к потребителям, оформляющим заказ через приложение Tako Lako.", "К заказу применяется версия условий, показанная непосредственно перед его отправкой. Императивные нормы Республики Сербии имеют приоритет."] },
         { id: "order", title: "2. Заключение договора и подтверждение заказа", bullets: ["Покупатель выбирает товары и количество, указывает адрес доставки или самовывоз, выбирает доступный способ оплаты и проверяет итоговый состав заказа.", "Цены, стоимость доставки, итоговая сумма, способ оплаты и адрес показываются до кнопки отправки заказа.", "Заказ принят, когда приложение показывает его номер и статус принятия. При онлайн-оплате это происходит только после серверного подтверждения платежа.", "Если товар недоступен или доставка объективно невозможна, продавец сразу предлагает изменить или отменить заказ; уже списанная сумма возвращается полностью."] },
-        { id: "prices", title: "3. Цены и доставка", paragraphs: ["Все цены — конечные потребительские цены в сербских динарах (RSD). Продавец не находится в системе PDV. Доставка бесплатная, минимального заказа нет. После принятия заказа цена не меняется без явного согласия покупателя.", "Покупатель отвечает за правильность адреса доставки. Доставка выполняется в опубликованные часы работы. Ориентировочный срок доставки — от 5 до 60 минут с момента приготовления еды, в зависимости от адреса, загрузки и дорожной ситуации. Если этот срок невозможен, продавец связывается с покупателем в Telegram и согласует новый срок либо отмену без расходов для покупателя."] },
+        { id: "prices", title: "3. Цены и доставка", paragraphs: ["Все цены — конечные потребительские цены в сербских динарах (RSD). Продавец не находится в системе PDV. Доставка бесплатная при сумме заказа от 2 000 RSD; для самовывоза минимальной суммы нет. После принятия заказа цена не меняется без явного согласия покупателя.", "Покупатель отвечает за правильность адреса доставки. Доставка выполняется в опубликованные часы работы. Ориентировочный срок доставки — от 5 до 60 минут с момента приготовления еды, в зависимости от адреса, загрузки и дорожной ситуации. Если этот срок невозможен, продавец связывается с покупателем в Telegram и согласует новый срок либо отмену без расходов для покупателя."] },
         { id: "payment", title: "4. Способы и безопасность оплаты", bullets: ["Доступны только способы оплаты, показанные при оформлении. Пока карты не активированы, реальные заказы оплачиваются наличными при доставке.", "После подключения карт их данные вводятся только на защищённой странице договорного платёжного провайдера. Tako Lako не получает и не хранит номер карты, срок действия или CVV/CVC.", "Карточный заказ считается оплаченным только после подтверждения провайдера на сервере. Возврат на страницу с сообщением об успехе сам по себе не подтверждает оплату.", "Оплата проводится в RSD. Банк-эмитент может применить конвертацию или свою комиссию для счёта в другой валюте."] },
         { id: "receipt", title: "5. Фискальный чек", paragraphs: ["Продавец регистрирует продажу и выдаёт фискальный чек по правилам Республики Сербии. Покупатель получает чек вместе с доставкой либо в электронной форме, когда это разрешено законом."] },
         { id: "food", title: "6. Еда, сведения о товаре и аллергены", paragraphs: ["Фотографии имеют иллюстративный характер; небольшие отличия внешнего вида не означают несоответствие, если состав и заказанный товар соответствуют описанию. Сведения о составе, количестве и аллергенах показываются у товара либо предоставляются поддержкой до заказа.", "Свободный комментарий к заказу не гарантирует исключения аллергена. Покупателю с аллергией следует до отправки заказа уточнить у поддержки, возможна ли безопасная подготовка."] },
@@ -319,7 +319,7 @@ const legalCopy: Record<Locale, LegalCopy> = {
     },
   },
   en: {
-    updated: "Effective date: 27 August 2026 · version 2026-08-27",
+    updated: "Effective date: 21 September 2026 · version 2026-09-21",
     nav: { terms: "Terms of sale", returns: "Complaints and refunds", privacy: "Privacy" },
     merchantTitle: "Merchant details",
     merchantIntro: "Tako Lako is the name of the sales outlet. The contracting party and personal-data controller is the entrepreneur identified below.",
@@ -344,7 +344,7 @@ const legalCopy: Record<Locale, LegalCopy> = {
       sections: [
         { id: "scope", title: "1. Merchant and scope", paragraphs: ["The merchant prepares and delivers food in Novi Sad where delivery is available at the time of ordering. These terms apply to consumers ordering through the Tako Lako application.", "The version displayed immediately before the order is submitted applies to that order. Mandatory laws of the Republic of Serbia prevail over these terms."] },
         { id: "order", title: "2. Contract and order confirmation", bullets: ["The customer selects products and quantities, provides a delivery address or chooses pickup, selects an offered payment method and reviews the final order summary.", "Prices, delivery charge, total, payment method and delivery details are shown before the order button.", "An order is accepted when the application displays its number and accepted status. For online payment, this happens only after server-side payment confirmation.", "If an item is unavailable or delivery is objectively impossible, the merchant promptly offers an amendment or cancellation; any confirmed charge is refunded in full."] },
-        { id: "prices", title: "3. Prices and delivery", paragraphs: ["All prices are final consumer prices in Serbian dinars (RSD). The merchant is not in the Serbian VAT system. Delivery is free and there is no minimum order value. An accepted price is not changed without the customer's explicit agreement.", "The customer is responsible for an accurate delivery address. Delivery takes place during the published working hours. The indicative delivery time is 5 to 60 minutes after the food is prepared, depending on the address, workload and traffic. If that timing is not possible, the merchant contacts the customer in Telegram to agree a new time or cancel without cost to the customer."] },
+        { id: "prices", title: "3. Prices and delivery", paragraphs: ["All prices are final consumer prices in Serbian dinars (RSD). The merchant is not in the Serbian VAT system. Delivery is free for orders of at least 2,000 RSD; pickup has no minimum order value. An accepted price is not changed without the customer's explicit agreement.", "The customer is responsible for an accurate delivery address. Delivery takes place during the published working hours. The indicative delivery time is 5 to 60 minutes after the food is prepared, depending on the address, workload and traffic. If that timing is not possible, the merchant contacts the customer in Telegram to agree a new time or cancel without cost to the customer."] },
         { id: "payment", title: "4. Payment methods and security", bullets: ["Only payment methods shown at checkout are available. Until cards are activated, real orders are paid in cash on delivery.", "Once cards are enabled, card details are entered only on the contracted payment provider's secure hosted page. Tako Lako does not receive or store the card number, expiry date or CVV/CVC.", "A card order is paid only after server-side confirmation from the payment provider. A browser success page is not proof of payment by itself.", "Payments are charged in RSD. The card issuer may apply conversion or its own fee where the customer's account uses another currency."] },
         { id: "receipt", title: "5. Fiscal receipt", paragraphs: ["The merchant records the sale and issues a fiscal receipt under Serbian law. The customer receives it with the delivery or electronically when the legal requirements for electronic delivery are met."] },
         { id: "food", title: "6. Food information and allergens", paragraphs: ["Images are illustrative. Minor visual differences do not make food non-conforming where its composition and the ordered product match the description. Available composition, quantity and allergen information is shown with the product or provided by support before ordering.", "A free-text order comment does not guarantee removal of an allergen. Customers with allergies should contact support before ordering to confirm whether safe preparation is possible."] },

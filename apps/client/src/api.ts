@@ -136,6 +136,13 @@ function demoApi(): Api {
         };
       });
       const subtotal = calculationItems.reduce((sum, item) => sum + item.line_total_minor, 0);
+      const minimum = loadDemoSettings().delivery_minimum_order_minor;
+      if (fulfillmentType === "delivery" && subtotal < minimum) {
+        throw apiError("DELIVERY_MINIMUM_NOT_MET", 422, {
+          minimum_order_minor: minimum,
+          subtotal_minor: subtotal,
+        });
+      }
       const calculation = {
         calculation_token: crypto.randomUUID(),
         items: calculationItems,
@@ -522,6 +529,7 @@ function loadDemoRuntime(): Runtime {
     order_cutoff_time: today?.order_cutoff_time ?? "",
     day_off_banner: settings.day_off_banner,
     flat_delivery_fee_minor: 0,
+    delivery_minimum_order_minor: settings.delivery_minimum_order_minor,
     support_text: "@Tako_Lako_N",
     enabled_payments: [
       ...(settings.cash_enabled ? ["cash" as const] : []),
@@ -546,6 +554,7 @@ function loadDemoSettings(): Settings {
   const settings = loadJSON<Settings>(demoSettingsKey, seedDemoSettings());
   const normalized: Settings = {
     ...settings,
+    delivery_minimum_order_minor: settings.delivery_minimum_order_minor ?? 2000,
     cash_location_required: settings.cash_location_required ?? true,
     restaurant_latitude: settings.restaurant_latitude ?? 45.24197,
     restaurant_longitude: settings.restaurant_longitude ?? 19.808807,
@@ -575,6 +584,7 @@ function loadDemoSettings(): Settings {
     return next;
   }
   if (
+    normalized.delivery_minimum_order_minor !== settings.delivery_minimum_order_minor ||
     normalized.cash_location_required !== settings.cash_location_required ||
     normalized.restaurant_latitude !== settings.restaurant_latitude ||
     normalized.restaurant_longitude !== settings.restaurant_longitude ||
@@ -632,7 +642,7 @@ function demoNextOpening(schedule: ScheduleDay[], timezone: string): string | un
 function defaultSchedule(): ScheduleDay[] {
   return [0, 1, 2, 3, 4, 5, 6].map((day) => ({
     day_of_week: day,
-    closed: day === 1,
+    closed: false,
     open_time: "13:00",
     order_cutoff_time: "21:00",
     close_time: "22:00",
@@ -647,6 +657,7 @@ function seedDemoSettings(): Settings {
     manual_day_off: false,
     day_off_banner: "ВЫХОДНОЙ",
     flat_delivery_fee_minor: 0,
+    delivery_minimum_order_minor: 2000,
     support_text: "@Tako_Lako_N",
     support_phone: "",
     terms_url: "",

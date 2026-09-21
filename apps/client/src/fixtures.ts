@@ -9,6 +9,7 @@ export const demoRuntime: Runtime = {
   order_cutoff_time: "21:00",
   day_off_banner: "ВЫХОДНОЙ",
   flat_delivery_fee_minor: 0,
+  delivery_minimum_order_minor: 2000,
   currency: "RSD",
   enabled_payments: ["cash"],
   supported_locales: ["ru", "sr", "en"],

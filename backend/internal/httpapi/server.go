@@ -390,32 +390,33 @@ func (s *Server) runtimePayload(ctx context.Context) (core.Runtime, int, error) 
 		payments = []string{}
 	}
 	return core.Runtime{
-		ServerTime:               now,
-		Timezone:                 settings.Timezone,
-		AcceptingOrders:          accept.OK,
-		Reason:                   accept.Reason,
-		NextOpening:              accept.NextOpening,
-		OrderOpenTime:            scheduleDay.OpenTime,
-		OrderCutoffTime:          scheduleDay.OrderCutoffTime,
-		DayOffBanner:             settings.DayOffBanner,
-		FlatDeliveryFeeMinor:     settings.FlatDeliveryFeeMinor,
-		Currency:                 settings.Currency,
-		EnabledPayments:          payments,
-		SupportedLocales:         []string{"ru", "sr", "en"},
-		SupportText:              settings.SupportText,
-		TermsURL:                 settings.TermsURL,
-		CashLocationRequired:     settings.CashLocationRequired,
-		CashLocationRadiusMeters: settings.CashLocationRadiusMeters,
-		PickupEnabled:            settings.PickupEnabled,
-		PickupAddress:            settings.PickupAddress,
-		PickupMapURL:             settings.PickupMapURL,
-		PickupMinLeadMinutes:     settings.PickupMinLeadMinutes,
-		PickupSlotMinutes:        settings.PickupSlotMinutes,
-		PickupLastTime:           settings.PickupLastTime,
-		DeliveryTimingEnabled:    settings.DeliveryTimingEnabled,
-		DeliveryMinLeadMinutes:   settings.DeliveryMinLeadMinutes,
-		DeliverySlotMinutes:      settings.DeliverySlotMinutes,
-		DeliveryLastTargetTime:   settings.DeliveryLastTargetTime,
+		ServerTime:                now,
+		Timezone:                  settings.Timezone,
+		AcceptingOrders:           accept.OK,
+		Reason:                    accept.Reason,
+		NextOpening:               accept.NextOpening,
+		OrderOpenTime:             scheduleDay.OpenTime,
+		OrderCutoffTime:           scheduleDay.OrderCutoffTime,
+		DayOffBanner:              settings.DayOffBanner,
+		FlatDeliveryFeeMinor:      settings.FlatDeliveryFeeMinor,
+		DeliveryMinimumOrderMinor: settings.DeliveryMinimumOrderMinor,
+		Currency:                  settings.Currency,
+		EnabledPayments:           payments,
+		SupportedLocales:          []string{"ru", "sr", "en"},
+		SupportText:               settings.SupportText,
+		TermsURL:                  settings.TermsURL,
+		CashLocationRequired:      settings.CashLocationRequired,
+		CashLocationRadiusMeters:  settings.CashLocationRadiusMeters,
+		PickupEnabled:             settings.PickupEnabled,
+		PickupAddress:             settings.PickupAddress,
+		PickupMapURL:              settings.PickupMapURL,
+		PickupMinLeadMinutes:      settings.PickupMinLeadMinutes,
+		PickupSlotMinutes:         settings.PickupSlotMinutes,
+		PickupLastTime:            settings.PickupLastTime,
+		DeliveryTimingEnabled:     settings.DeliveryTimingEnabled,
+		DeliveryMinLeadMinutes:    settings.DeliveryMinLeadMinutes,
+		DeliverySlotMinutes:       settings.DeliverySlotMinutes,
+		DeliveryLastTargetTime:    settings.DeliveryLastTargetTime,
 	}, settings.Version, nil
 }
 
@@ -2808,6 +2809,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code, messageKey = http.StatusConflict, "DELIVERY_SLOT_UNAVAILABLE", "delivery_slot_unavailable"
 	case errors.Is(err, core.ErrDeliveryTimeInvalid):
 		status, code, messageKey = http.StatusBadRequest, "DELIVERY_TIME_INVALID", "delivery_time_invalid"
+	case errors.Is(err, core.ErrDeliveryMinimumNotMet):
+		status, code, messageKey = http.StatusUnprocessableEntity, "DELIVERY_MINIMUM_NOT_MET", "delivery_minimum_not_met"
 	case errors.Is(err, core.ErrReservationUnavailable):
 		status, code, messageKey = http.StatusConflict, "RESERVATION_UNAVAILABLE", "reservation_unavailable"
 	case errors.Is(err, core.ErrActiveReservationExists):
@@ -2830,6 +2833,11 @@ func writeError(w http.ResponseWriter, err error) {
 		if deliverySlotErr.NextAvailableAt != nil {
 			payload["next_available_at"] = deliverySlotErr.NextAvailableAt
 		}
+	}
+	var deliveryMinimumErr *core.DeliveryMinimumError
+	if errors.As(err, &deliveryMinimumErr) {
+		payload["minimum_order_minor"] = deliveryMinimumErr.MinimumOrderMinor
+		payload["subtotal_minor"] = deliveryMinimumErr.SubtotalMinor
 	}
 	writeJSON(w, status, map[string]any{
 		"error": payload,

@@ -31,8 +31,7 @@
 
 Зафиксировать начальные значения:
 
-- Monday closed;
-- Tuesday–Sunday open 13:00–22:00;
+- open daily 13:00–22:00;
 - checkout 13:00–21:00;
 - manual ADMIN day-off switch;
 - текст красной плашки: `ВЫХОДНОЙ`;
@@ -70,7 +69,7 @@ Default мастер-ТЗ: остаётся.
 
 - единая стоимость доставки для всех адресов;
 - либо доставка бесплатная;
-- нужен ли минимальный заказ — актуальный default: нет;
+- минимальная сумма блюд для доставки — 2 000 RSD, для самовывоза — нет;
 - какие поля адреса обязательны;
 - текст предупреждения проверить адрес/телефон.
 
@@ -173,7 +172,7 @@ Menu / Orders / Staff / Schedule / Analytics / Settings. На главной с�
 
 - В меню нет sizes/options/modifiers и inventory.
 - Указана единая цена доставки либо zero.
-- График точно соответствует Monday off, 13–22, checkout до 21.
+- График точно соответствует работе без выходных 13–22, checkout до 21.
 - Известны Telegram IDs всех initial staff.
 - Card/crypto явно marked enabled later либо есть official integration input.
 - Kitchen и Courier wireframes имеют по одной основной кнопке.

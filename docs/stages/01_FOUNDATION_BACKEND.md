@@ -250,8 +250,7 @@ Local bootstrap seed:
 
 Seed:
 
-- Mon closed;
-- Tue–Sun open 13:00–22:00;
+- daily open 13:00–22:00;
 - accepting 13:00–21:00.
 
 Функция `CanAcceptOrder(serverNow)`:
@@ -386,8 +385,7 @@ Seed:
 
 Unit:
 
-- Monday closed;
-- Tue–Sun before 13, 13–21 accepted, after 21 rejected;
+- every day before 13, 13–21 accepted, after 21 rejected;
 - manual day off overrides schedule;
 - next opening;
 - money/quantity/flat delivery;
@@ -423,7 +421,8 @@ Integration:
 
 - API cash flow проходит от calculation до `DELIVERED`.
 - State chain содержит только `NEW → OUT_FOR_DELIVERY → DELIVERED`.
-- Monday/manual day off/after 21 реально блокируют order server-side.
+- Manual day off/after 21 реально блокируют order server-side.
+- Delivery subtotal below 2 000 RSD is rejected server-side; pickup has no minimum.
 - Kitchen response не содержит phone/address.
 - Один duplicate request не создаёт второй order/notification.
 - Schema не содержит zones/options/inventory/courier assignment.

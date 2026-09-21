@@ -183,7 +183,7 @@ Backup без restore test не считается готовым.
 8. ADMIN скрывает dish; Client больше его не заказывает.
 9. ADMIN включает `ВЫХОДНОЙ`; Client видит red banner и не оформляет.
 10. ADMIN выключает; schedule снова действует.
-11. Проверить after 21 и Monday.
+11. Проверить каждый день до 13 и after 21.
 12. Проверить accidental ready → Admin return to NEW.
 13. Repeat enabled card/crypto flows if any.
 
@@ -221,7 +221,7 @@ Backup без restore test не считается готовым.
 
 - menu/prices/translations correct;
 - initial staff roles correct;
-- Monday/13/21/22/manual day off correct;
+- daily 13/21/22/manual day off correct;
 - cash/change/fiscal process known;
 - enabled payment tested;
 - support contact available;

@@ -49,7 +49,7 @@ SQL и deploy.
 
 - `manual_day_off=false`;
 - backend снова проверяет обычный weekday/time;
-- если сейчас Monday/вне 13–21, orders всё равно closed с правильной причиной.
+- если сейчас вне 13–21, orders всё равно closed с правильной причиной.
 
 Audit хранит ADMIN, time, old/new. Switch не отменяет existing orders.
 
@@ -62,13 +62,12 @@ Audit хранит ADMIN, time, old/new. Switch не отменяет existing o
 - order cutoff;
 - restaurant close time.
 - кнопки открытия/закрытия дня сохраняют график сразу, чтобы ADMIN мог быстро
-  включить понедельник для теста и сразу проверить Client;
+  изменить отдельный день и сразу проверить Client;
 - ручное редактирование времени сохраняется кнопкой `Сохранить график`.
 
 Initial:
 
-- Monday closed;
-- Tue–Sun open 13, cutoff 21, close 22.
+- Every day open 13, cutoff 21, close 22.
 
 Validation:
 
@@ -339,7 +338,7 @@ E2E:
 - One switch blocks checkout and shows exact red `ВЫХОДНОЙ` banner.
 - Kitchen has no menu/visibility controls.
 - Dish can be add/edit/hide/archive easily, historical orders remain correct.
-- Schedule defaults exactly Monday off, Tue–Sun 13–22, checkout to 21.
+- Schedule defaults exactly to daily 13–22, checkout to 21.
 - Analytics matches a manually calculated test set.
 - Non-ADMIN cannot access any Admin endpoint.
 
