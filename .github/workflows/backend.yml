@@ -68,6 +68,7 @@ jobs:
           PERF_CONCURRENCY: "1,10,20"
           PERF_CHECKOUT_ITERATIONS: "12"
           PERF_CHECKOUT_CONCURRENCY: "3"
+          PERF_CHECKOUT_QUANTITY: "2"
           PERF_CHECKOUT_MAX_P95_MS: "500"
           PERF_ALLOW_LOCAL_BASE_URL: "true"
         run: |
