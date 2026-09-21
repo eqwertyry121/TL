@@ -1672,9 +1672,10 @@ func TestCalculateQueryCountIsBoundedByCartSize(t *testing.T) {
 
 	clientSession := clientSession(t, ctx, st, clientTelegramID)
 	now := time.Now().UTC()
+	singleMenuItem := []core.CartItemInput{{ItemID: seededMenuItemInputs[0].ItemID, Quantity: 2}}
 
 	counter.Reset()
-	if _, err := st.Calculate(ctx, clientSession, seededMenuItemInputs[:1], now); err != nil {
+	if _, err := st.Calculate(ctx, clientSession, singleMenuItem, now); err != nil {
 		t.Fatalf("calculate single item: %v", err)
 	}
 	singleItemQueries := counter.Count()
@@ -1695,6 +1696,7 @@ func TestCreateCashOrderQueryCountIsBoundedByCartSize(t *testing.T) {
 	defer pool.Close()
 
 	now := time.Now().UTC()
+	singleMenuItem := []core.CartItemInput{{ItemID: seededMenuItemInputs[0].ItemID, Quantity: 2}}
 	singleSession, singleInput := prepareCashOrderForCart(
 		t,
 		ctx,
@@ -1702,7 +1704,7 @@ func TestCreateCashOrderQueryCountIsBoundedByCartSize(t *testing.T) {
 		clientTelegramID,
 		"+38160111441",
 		"Novi Sad create one item",
-		seededMenuItemInputs[:1],
+		singleMenuItem,
 		now,
 	)
 	counter.Reset()
@@ -1741,6 +1743,7 @@ func TestCreateCashOrderPersistsTermsVersion(t *testing.T) {
 	defer pool.Close()
 
 	now := time.Now().UTC()
+	singleMenuItem := []core.CartItemInput{{ItemID: seededMenuItemInputs[0].ItemID, Quantity: 2}}
 	session, input := prepareCashOrderForCart(
 		t,
 		ctx,
@@ -1748,7 +1751,7 @@ func TestCreateCashOrderPersistsTermsVersion(t *testing.T) {
 		clientTelegramID,
 		"+38160111455",
 		"Novi Sad terms version",
-		seededMenuItemInputs[:1],
+		singleMenuItem,
 		now,
 	)
 	input.TermsVersion = "2026-08-19"
