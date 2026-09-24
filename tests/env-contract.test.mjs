@@ -124,6 +124,25 @@ test("backend CI runs the full PostgreSQL integration gate", () => {
   assert.doesNotMatch(stepBlock, /go test \.\/backend\/internal\//, "PostgreSQL integration gate must not hard-code a package subset");
 });
 
+test("production deployment verifies a backup before migration startup", () => {
+  const backendWorkflow = readSource(".github/workflows/backend.yml");
+  const deployStep = sliceWorkflowStep(backendWorkflow, "Deploy backend on VPS");
+  const backupIndex = deployStep.indexOf("sh ./backup.sh");
+  const migrationDeployIndex = deployStep.indexOf("docker compose --env-file .env.production");
+
+  assert.ok(backupIndex >= 0, "production deploy must create and restore-check a database/media backup");
+  assert.ok(migrationDeployIndex > backupIndex, "backup must complete before app startup runs database migrations");
+});
+
+test("production deployment is skipped when VPS secrets are missing", () => {
+  const backendWorkflow = readSource(".github/workflows/backend.yml");
+  const configStep = sliceWorkflowStep(backendWorkflow, "Check deploy configuration");
+
+  assert.match(configStep, /TK_DEPLOY_HOST.*TK_DEPLOY_USER.*TK_DEPLOY_SSH_KEY.*TK_DEPLOY_PATH/);
+  assert.match(configStep, /echo "enabled=false"/);
+  assert.match(configStep, /exit 0/);
+});
+
 test("backend CI proves the optimized public API contract before load smoke", () => {
   const backendWorkflow = readSource(".github/workflows/backend.yml");
   const stepBlock = sliceWorkflowStep(backendWorkflow, "API public load smoke");

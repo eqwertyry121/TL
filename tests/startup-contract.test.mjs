@@ -38,7 +38,7 @@ test("client checkout does not collect or require a phone", () => {
   const checkoutBody = sliceBetween(appSource, "function Checkout(", "function deliveryTimingCopy");
   const submitBody = sliceBetween(appSource, "async function submitOrder()", "  async function submitAddition");
 
-  assertIncludes(checkoutBody, "const canSubmit = checkoutOpen && !submitting && deliveryMinimumReady && addressReady && locationVerified");
+  assertIncludes(checkoutBody, "const canSubmit = checkoutOpen && !submitting && fulfillmentAvailable && deliveryMinimumReady && addressReady && locationVerified");
   assertIncludes(checkoutBody, "disabled={locationLoading}");
   assertNotIncludes(checkoutBody, 'autoComplete="tel"');
   assertNotIncludes(checkoutBody, "phoneReady");

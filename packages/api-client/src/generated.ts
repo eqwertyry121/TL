@@ -22,6 +22,7 @@ export interface Runtime {
   day_off_banner: string;
   flat_delivery_fee_minor: number;
   delivery_minimum_order_minor: number;
+  delivery_enabled: boolean;
   currency: "RSD";
   enabled_payments: PaymentMethod[];
   supported_locales: Array<"ru" | "sr" | "en">;
@@ -274,6 +275,7 @@ export interface Settings {
   day_off_banner: string;
   flat_delivery_fee_minor: number;
   delivery_minimum_order_minor: number;
+  delivery_enabled: boolean;
   support_text: string;
   support_phone: string;
   terms_url: string;

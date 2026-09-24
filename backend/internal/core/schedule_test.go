@@ -16,9 +16,9 @@ func TestCanAcceptOrderSchedule(t *testing.T) {
 		at   time.Time
 		ok   bool
 	}{
-		{"monday closed", time.Date(2026, 8, 10, 14, 0, 0, 0, loc), false},
-		{"before opening", time.Date(2026, 8, 11, 12, 59, 0, 0, loc), false},
-		{"opening accepted", time.Date(2026, 8, 11, 13, 0, 0, 0, loc), true},
+		{"monday opening accepted", time.Date(2026, 8, 10, 10, 0, 0, 0, loc), true},
+		{"before opening", time.Date(2026, 8, 11, 9, 59, 0, 0, loc), false},
+		{"opening accepted", time.Date(2026, 8, 11, 10, 0, 0, 0, loc), true},
 		{"cutoff accepted", time.Date(2026, 8, 11, 20, 59, 0, 0, loc), true},
 		{"after cutoff rejected", time.Date(2026, 8, 11, 21, 0, 0, 0, loc), false},
 	}
@@ -29,6 +29,18 @@ func TestCanAcceptOrderSchedule(t *testing.T) {
 				t.Fatalf("OK=%v, want %v, reason=%s", got.OK, tt.ok, got.Reason)
 			}
 		})
+	}
+}
+
+func TestDefaultScheduleAcceptsOrdersDailyFromTenToTwentyOne(t *testing.T) {
+	schedule := DefaultSchedule()
+	if len(schedule) != 7 {
+		t.Fatalf("schedule has %d days, want 7", len(schedule))
+	}
+	for weekday, day := range schedule {
+		if day.DayOfWeek != weekday || day.Closed || day.OpenTime != "10:00" || day.OrderCutoffTime != "21:00" {
+			t.Errorf("schedule[%d] = %+v, want open daily 10:00 to 21:00", weekday, day)
+		}
 	}
 }
 

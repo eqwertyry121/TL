@@ -32,7 +32,7 @@ paths:
       security: []
       responses:
         "200":
-          description: Runtime settings and schedule state. Uses weak ETag W/"runtime-<revision>-<derived-state-key>" and Cache-Control no-cache.
+          description: Runtime settings and schedule state, including delivery_enabled. Uses weak ETag W/"runtime-<revision>-<derived-state-key>" and Cache-Control no-cache.
           headers:
             ETag:
               schema:
@@ -582,11 +582,11 @@ paths:
     get:
       responses:
         "200":
-          description: Safe admin settings without secrets
+          description: Safe admin settings without secrets; includes delivery_enabled.
     put:
       responses:
         "200":
-          description: Safe admin settings updated
+          description: Safe admin settings updated; delivery_enabled is optional for older admin clients.
   /admin/schedule:
     get:
       responses:

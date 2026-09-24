@@ -51,7 +51,7 @@ const mobileTabs = navItems(["home", "orders", "reservations", "menu"]);
 const moreTabs = navItems(["schedule", "analytics", "settings", "audit"]);
 const moreTabIds = new Set<AdminTab>(moreTabs.map((entry) => entry.id));
 
-const quickSchedule = { open_time: "13:00", order_cutoff_time: "21:00", close_time: "22:00" };
+const quickSchedule = { open_time: "10:00", order_cutoff_time: "21:00", close_time: "22:00" };
 type AdminActionOptions = { reload?: boolean; refreshDashboard?: boolean; successMessage?: string };
 type AdminActionRunner = <T>(action: (authToken: string) => Promise<T>, options?: AdminActionOptions) => Promise<T | undefined>;
 type AdminLoadKey = "dashboard" | "menu" | "settings" | "schedule" | "orders" | "reservations" | "analytics" | "audit";
@@ -502,6 +502,14 @@ export function App() {
 		await run((authToken) => api.cancelReservation(authToken, reservation.id), { successMessage: "Стол освобождён" });
 	}
 
+  async function setDeliveryEnabled(enabled: boolean) {
+    if (!settings) return;
+    await run(
+      (authToken) => api.updateSettings(authToken, { ...settings, delivery_enabled: enabled }),
+      { successMessage: enabled ? "Доставка включена" : "Доставка отключена" },
+    );
+  }
+
   function renderActiveTab() {
     if (tab === "home") {
       return dashboard && settings ? (
@@ -509,6 +517,7 @@ export function App() {
           dashboard={dashboard}
           settings={settings}
           onDayOff={setDayOff}
+          onDeliveryEnabled={setDeliveryEnabled}
           onOpenOrders={openOrdersView}
         />
       ) : <SectionSkeleton title="Главная" />;
@@ -792,11 +801,13 @@ function HomeTab({
   dashboard,
   settings,
   onDayOff,
+  onDeliveryEnabled,
   onOpenOrders,
 }: {
   dashboard: AdminDashboard;
   settings: Settings;
   onDayOff(enabled: boolean): Promise<void>;
+  onDeliveryEnabled(enabled: boolean): Promise<void>;
   onOpenOrders(view: OrdersView): void;
 }) {
   const accepting = dashboard.runtime.accepting_orders;
@@ -815,9 +826,20 @@ function HomeTab({
           <h2>{accepting ? "Заказы принимаются" : "Заказы не принимаются"}</h2>
           <p>{accepting ? `Сегодня ${orderWindow}` : `${compactRuntimeReason(dashboard.runtime.reason)} · ${orderWindow}`}</p>
         </div>
-        <button className={settings.manual_day_off ? "primary" : "danger-button"} onClick={() => void onDayOff(!settings.manual_day_off)}>
-          {settings.manual_day_off ? "Возобновить приём" : "Остановить приём"}
-        </button>
+        <div className="home-status-actions">
+          <button className={settings.manual_day_off ? "primary" : "danger-button"} onClick={() => void onDayOff(!settings.manual_day_off)}>
+            {settings.manual_day_off ? "Возобновить приём" : "Остановить приём"}
+          </button>
+          <div className="home-delivery-toggle">
+            <span className="status-dot-label">
+              <span className={`status-dot ${settings.delivery_enabled ? "is-enabled" : "is-disabled"}`} />
+              Доставка {settings.delivery_enabled ? "включена" : "отключена"}
+            </span>
+            <button className={settings.delivery_enabled ? "danger-button" : "primary"} onClick={() => void onDeliveryEnabled(!settings.delivery_enabled)}>
+              {settings.delivery_enabled ? "Отключить доставку" : "Включить доставку"}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="home-section">
@@ -2022,7 +2044,7 @@ function ScheduleTab({
                 <label><span>Открытие</span><input type="time" value={day.open_time} onChange={(event) => patchDay(index, { open_time: event.target.value })} /></label>
                 <label><span>Заказы до</span><input type="time" value={day.order_cutoff_time} onChange={(event) => patchDay(index, { order_cutoff_time: event.target.value })} /></label>
                 <label><span>Закрытие</span><input type="time" value={day.close_time} onChange={(event) => patchDay(index, { close_time: event.target.value })} /></label>
-                <button className="schedule-template" disabled={saving} onClick={() => void patchDayAndSave(index, quickSchedule)}>13–21–22</button>
+                <button className="schedule-template" disabled={saving} onClick={() => void patchDayAndSave(index, quickSchedule)}>10–21–22</button>
               </div>
             )}
           </article>

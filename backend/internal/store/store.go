@@ -156,6 +156,7 @@ type UpdateSettingsInput struct {
 	PickupSlotMinutes             int     `json:"pickup_slot_minutes"`
 	PickupMaxOrdersPerSlot        int     `json:"pickup_max_orders_per_slot"`
 	PickupLastTime                string  `json:"pickup_last_time"`
+	DeliveryEnabled               *bool   `json:"delivery_enabled"`
 	DeliveryTimingEnabled         bool    `json:"delivery_timing_enabled"`
 	DeliveryMinLeadMinutes        int     `json:"delivery_min_lead_minutes"`
 	DeliverySlotMinutes           int     `json:"delivery_slot_minutes"`
@@ -493,7 +494,7 @@ func (s *Store) SessionByToken(ctx context.Context, token string) (core.Session,
 func (s *Store) Settings(ctx context.Context) (core.Settings, error) {
 	var settings core.Settings
 	err := s.pool.QueryRow(ctx, `
-		SELECT timezone, currency, manual_day_off, day_off_banner, flat_delivery_fee_minor, delivery_minimum_order_minor,
+		SELECT timezone, currency, manual_day_off, day_off_banner, flat_delivery_fee_minor, delivery_minimum_order_minor, delivery_enabled,
 			support_text, support_phone, terms_url, max_item_quantity, max_comment_length,
 			cash_enabled, card_enabled, crypto_enabled, cash_location_required, restaurant_latitude,
 			restaurant_longitude, cash_location_radius_meters, cash_location_ttl_seconds,
@@ -511,6 +512,7 @@ func (s *Store) Settings(ctx context.Context) (core.Settings, error) {
 		&settings.DayOffBanner,
 		&settings.FlatDeliveryFeeMinor,
 		&settings.DeliveryMinimumOrderMinor,
+		&settings.DeliveryEnabled,
 		&settings.SupportText,
 		&settings.SupportPhone,
 		&settings.TermsURL,
@@ -648,6 +650,9 @@ func (s *Store) DeliverySlots(ctx context.Context, sess core.Session, now time.T
 	settings, err := s.Settings(ctx)
 	if err != nil {
 		return core.DeliverySlots{}, err
+	}
+	if !settings.DeliveryEnabled {
+		return core.DeliverySlots{}, core.ErrDeliveryUnavailable
 	}
 	if !settings.DeliveryTimingEnabled || !s.deliveryTimingAccess(sess.TelegramUserID) {
 		return core.DeliverySlots{}, core.ErrDeliveryTimingUnavailable
@@ -965,8 +970,8 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 			pickup_instructions_en=$19, pickup_min_lead_minutes=$20, pickup_slot_minutes=$21,
 			pickup_max_orders_per_slot=$22, pickup_last_time=$23::time, delivery_timing_enabled=$24,
 			delivery_min_lead_minutes=$25, delivery_slot_minutes=$26, delivery_max_orders_per_slot=$27,
-			delivery_last_target_time=$28::time, version=version+1, updated_at=now()
-		WHERE id=true AND version=$29
+			delivery_last_target_time=$28::time, delivery_enabled=COALESCE($29::boolean, delivery_enabled), version=version+1, updated_at=now()
+		WHERE id=true AND version=$30
 	`, input.FlatDeliveryFeeMinor, safe(input.SupportText), safe(input.SupportPhone), safe(input.TermsURL),
 		input.MaxItemQuantity, input.MaxCommentLength, input.CashEnabled, input.CashLocationRequired,
 		input.RestaurantLatitude, input.RestaurantLongitude, input.CashLocationRadiusMeters,
@@ -975,7 +980,7 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 		safe(input.PickupInstructionsSR), safe(input.PickupInstructionsEN), input.PickupMinLeadMinutes,
 		input.PickupSlotMinutes, input.PickupMaxOrdersPerSlot, input.PickupLastTime,
 		input.DeliveryTimingEnabled, input.DeliveryMinLeadMinutes, input.DeliverySlotMinutes,
-		input.DeliveryMaxOrdersPerSlot, input.DeliveryLastTargetTime, input.Version)
+		input.DeliveryMaxOrdersPerSlot, input.DeliveryLastTargetTime, input.DeliveryEnabled, input.Version)
 	if err != nil {
 		return core.Settings{}, err
 	}
@@ -1009,6 +1014,9 @@ func (s *Store) UpdateSettings(ctx context.Context, sess core.Session, input Upd
 	afterAudit.PickupMaxOrdersPerSlot = input.PickupMaxOrdersPerSlot
 	afterAudit.PickupLastTime = input.PickupLastTime
 	afterAudit.DeliveryTimingEnabled = input.DeliveryTimingEnabled
+	if input.DeliveryEnabled != nil {
+		afterAudit.DeliveryEnabled = *input.DeliveryEnabled
+	}
 	afterAudit.DeliveryMinLeadMinutes = input.DeliveryMinLeadMinutes
 	afterAudit.DeliverySlotMinutes = input.DeliverySlotMinutes
 	afterAudit.DeliveryMaxOrdersPerSlot = input.DeliveryMaxOrdersPerSlot
@@ -1723,6 +1731,9 @@ func (s *Store) CalculateForFulfillmentTiming(ctx context.Context, sess core.Ses
 	if err != nil {
 		return core.Calculation{}, err
 	}
+	if fulfillmentType == core.FulfillmentDelivery && !settings.DeliveryEnabled {
+		return core.Calculation{}, core.ErrDeliveryUnavailable
+	}
 	quantities := map[uuid.UUID]int{}
 	ids := []uuid.UUID{}
 	for _, item := range input {
@@ -2009,13 +2020,18 @@ func (s *Store) revalidateCalculationTx(ctx context.Context, tx pgx.Tx, items []
 	}
 
 	var currentCurrency string
+	var deliveryEnabled bool
 	var currentDelivery, currentDeliveryMinimum, maxItemQuantity int
 	if err := tx.QueryRow(ctx, `
-		SELECT currency, flat_delivery_fee_minor, delivery_minimum_order_minor, max_item_quantity
+		SELECT currency, flat_delivery_fee_minor, delivery_minimum_order_minor, max_item_quantity, delivery_enabled
 		FROM app_settings
 		WHERE id=true
-	`).Scan(&currentCurrency, &currentDelivery, &currentDeliveryMinimum, &maxItemQuantity); err != nil {
+		FOR SHARE
+	`).Scan(&currentCurrency, &currentDelivery, &currentDeliveryMinimum, &maxItemQuantity, &deliveryEnabled); err != nil {
 		return nil, 0, 0, 0, "", err
+	}
+	if fulfillmentType == core.FulfillmentDelivery && !deliveryEnabled {
+		return nil, 0, 0, 0, "", core.ErrDeliveryUnavailable
 	}
 	if fulfillmentType == core.FulfillmentPickup {
 		currentDelivery = 0
@@ -2639,6 +2655,9 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 	fulfillmentType, err := normalizeFulfillmentType(input.FulfillmentType)
 	if err != nil {
 		return core.Order{}, err
+	}
+	if fulfillmentType == core.FulfillmentDelivery && !settings.DeliveryEnabled {
+		return core.Order{}, core.ErrDeliveryUnavailable
 	}
 	address := safe(input.Address)
 	comment := safe(input.Comment)
@@ -5813,6 +5832,7 @@ func safeSettingsAudit(settings core.Settings) map[string]any {
 	return map[string]any{
 		"flat_delivery_fee_minor":           settings.FlatDeliveryFeeMinor,
 		"delivery_minimum_order_minor":      settings.DeliveryMinimumOrderMinor,
+		"delivery_enabled":                  settings.DeliveryEnabled,
 		"support_text":                      settings.SupportText,
 		"support_phone":                     settings.SupportPhone,
 		"terms_url":                         settings.TermsURL,

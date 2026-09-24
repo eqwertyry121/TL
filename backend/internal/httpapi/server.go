@@ -400,6 +400,7 @@ func (s *Server) runtimePayload(ctx context.Context) (core.Runtime, int, error) 
 		DayOffBanner:              settings.DayOffBanner,
 		FlatDeliveryFeeMinor:      settings.FlatDeliveryFeeMinor,
 		DeliveryMinimumOrderMinor: settings.DeliveryMinimumOrderMinor,
+		DeliveryEnabled:           settings.DeliveryEnabled,
 		Currency:                  settings.Currency,
 		EnabledPayments:           payments,
 		SupportedLocales:          []string{"ru", "sr", "en"},
@@ -2705,6 +2706,7 @@ func runtimeETag(revision int, runtime core.Runtime, fallbackTimezone string) st
 	stateKey := strings.Join([]string{
 		local.Format("20060102"),
 		strconv.FormatBool(runtime.AcceptingOrders),
+		strconv.FormatBool(runtime.DeliveryEnabled),
 		etagToken(runtime.Reason, "unknown"),
 		nextOpening,
 	}, "-")
@@ -2801,6 +2803,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code, messageKey = http.StatusConflict, "CASH_LOCATION_INACCURATE", "cash_location_inaccurate"
 	case errors.Is(err, core.ErrPickupUnavailable):
 		status, code, messageKey = http.StatusConflict, "PICKUP_UNAVAILABLE", "pickup_unavailable"
+	case errors.Is(err, core.ErrDeliveryUnavailable):
+		status, code, messageKey = http.StatusConflict, "DELIVERY_UNAVAILABLE", "delivery_unavailable"
 	case errors.Is(err, core.ErrPickupSlotUnavailable):
 		status, code, messageKey = http.StatusConflict, "PICKUP_SLOT_UNAVAILABLE", "pickup_slot_unavailable"
 	case errors.Is(err, core.ErrDeliveryTimingUnavailable):

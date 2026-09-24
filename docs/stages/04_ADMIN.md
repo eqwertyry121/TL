@@ -29,6 +29,7 @@ SQL и deploy.
 
 - принимает ли ресторан orders;
 - крупный switch `Остановить приём заказов`;
+- отдельная кнопка `Отключить доставку`;
 - current new/out-for-delivery counts;
 - orders/revenue today;
 - последние ошибки notifications/payments.
@@ -49,7 +50,7 @@ SQL и deploy.
 
 - `manual_day_off=false`;
 - backend снова проверяет обычный weekday/time;
-- если сейчас вне 13–21, orders всё равно closed с правильной причиной.
+- если сейчас вне 10–21, orders всё равно closed с правильной причиной.
 
 Audit хранит ADMIN, time, old/new. Switch не отменяет existing orders.
 
@@ -67,7 +68,7 @@ Audit хранит ADMIN, time, old/new. Switch не отменяет existing o
 
 Initial:
 
-- Every day open 13, cutoff 21, close 22.
+- Every day open 10, cutoff 21, close 22.
 
 Validation:
 
@@ -79,6 +80,15 @@ Validation:
 После save changes применяются сразу к новым checkout. Никакого сложного
 holiday calendar в первой версии; разовый праздник закрывается manual
 `ВЫХОДНОЙ`.
+
+## 3.1. Приём доставки
+
+- отдельная быстрая кнопка на главной админки;
+- выключение скрывает доставку при оформлении и блокирует новые delivery-заказы
+  на backend, включая уже рассчитанную корзину;
+- самовывоз продолжает работать;
+- уже созданные заказы не отменяются и остаются доступны сотрудникам;
+- состояние сохраняется в `app_settings` с version и записью в audit.
 
 ## 4. Categories
 
@@ -301,6 +311,7 @@ Backend:
 
 - role matrix all admin endpoints;
 - manual day off overrides and audit;
+- delivery switch blocks new delivery orders while pickup and existing orders remain available;
 - schedule validation;
 - category/dish CRUD/archive/history;
 - visibility immediately changes menu/calculation;
@@ -316,6 +327,7 @@ E2E:
 - upload/replace image;
 - change price and Client sees update;
 - turn `ВЫХОДНОЙ` on/off and Client banner/checkout;
+- turn delivery off/on and verify Client checkout plus pickup availability;
 - edit schedule;
 - add/deactivate staff;
 - cancel/return order;
@@ -336,9 +348,11 @@ E2E:
 
 - ADMIN controls all daily functions without developer/SQL.
 - One switch blocks checkout and shows exact red `ВЫХОДНОЙ` banner.
+- ADMIN can immediately turn delivery off/on without closing pickup; new delivery
+  orders are blocked while existing orders remain available.
 - Kitchen has no menu/visibility controls.
 - Dish can be add/edit/hide/archive easily, historical orders remain correct.
-- Schedule defaults exactly to daily 13–22, checkout to 21.
+- Schedule defaults exactly to daily 10–22, checkout to 21.
 - Analytics matches a manually calculated test set.
 - Non-ADMIN cannot access any Admin endpoint.
 

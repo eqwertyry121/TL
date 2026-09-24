@@ -135,6 +135,7 @@ export interface SettingsInput {
   pickup_slot_minutes: number;
   pickup_max_orders_per_slot: number;
   pickup_last_time: string;
+  delivery_enabled: boolean;
   delivery_timing_enabled: boolean;
   delivery_min_lead_minutes: number;
   delivery_slot_minutes: number;
@@ -1343,6 +1344,7 @@ function seedSettings(): Settings {
     pickup_max_orders_per_slot: 3,
     pickup_last_time: "22:00",
     delivery_timing_enabled: false,
+    delivery_enabled: true,
     delivery_min_lead_minutes: 30,
     delivery_slot_minutes: 30,
     delivery_max_orders_per_slot: 1,
@@ -1356,7 +1358,7 @@ function defaultSchedule(): ScheduleDay[] {
   return [0, 1, 2, 3, 4, 5, 6].map((day) => ({
     day_of_week: day,
     closed: false,
-    open_time: "13:00",
+    open_time: "10:00",
     order_cutoff_time: "21:00",
     close_time: "22:00",
     version: 1,
@@ -1386,6 +1388,7 @@ function runtimeFromSettings(settings: Settings) {
     day_off_banner: settings.day_off_banner,
     flat_delivery_fee_minor: 0,
     delivery_minimum_order_minor: settings.delivery_minimum_order_minor,
+    delivery_enabled: settings.delivery_enabled,
     currency: settings.currency,
     enabled_payments: [
       ...(settings.cash_enabled ? ["cash" as const] : []),
@@ -1694,6 +1697,7 @@ function loadSettings(): Settings {
     pickup_max_orders_per_slot: settings.pickup_max_orders_per_slot || 3,
     pickup_last_time: settings.pickup_last_time || "22:00",
     delivery_timing_enabled: settings.delivery_timing_enabled ?? false,
+    delivery_enabled: settings.delivery_enabled ?? true,
     delivery_min_lead_minutes: settings.delivery_min_lead_minutes || 30,
     delivery_slot_minutes: settings.delivery_slot_minutes || 30,
     delivery_max_orders_per_slot: settings.delivery_max_orders_per_slot || 1,
@@ -1704,7 +1708,8 @@ function loadSettings(): Settings {
     normalized.delivery_minimum_order_minor !== settings.delivery_minimum_order_minor ||
     normalized.support_text !== settings.support_text ||
     normalized.max_item_quantity !== settings.max_item_quantity ||
-    normalized.crypto_enabled !== settings.crypto_enabled
+    normalized.crypto_enabled !== settings.crypto_enabled ||
+    normalized.delivery_enabled !== settings.delivery_enabled
   ) {
     saveSettings(normalized);
   }

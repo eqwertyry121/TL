@@ -79,13 +79,13 @@ func nextOpening(localNow time.Time, schedule map[int]ScheduleDay) time.Time {
 
 func DefaultSchedule() []ScheduleDay {
 	return []ScheduleDay{
-		{DayOfWeek: 0, Closed: false, OpenTime: "13:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
-		{DayOfWeek: 1, Closed: true, OpenTime: "13:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
-		{DayOfWeek: 2, Closed: false, OpenTime: "13:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
-		{DayOfWeek: 3, Closed: false, OpenTime: "13:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
-		{DayOfWeek: 4, Closed: false, OpenTime: "13:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
-		{DayOfWeek: 5, Closed: false, OpenTime: "13:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
-		{DayOfWeek: 6, Closed: false, OpenTime: "13:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
+		{DayOfWeek: 0, Closed: false, OpenTime: "10:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
+		{DayOfWeek: 1, Closed: false, OpenTime: "10:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
+		{DayOfWeek: 2, Closed: false, OpenTime: "10:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
+		{DayOfWeek: 3, Closed: false, OpenTime: "10:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
+		{DayOfWeek: 4, Closed: false, OpenTime: "10:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
+		{DayOfWeek: 5, Closed: false, OpenTime: "10:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
+		{DayOfWeek: 6, Closed: false, OpenTime: "10:00", OrderCutoffTime: "21:00", CloseTime: "22:00"},
 	}
 }
 

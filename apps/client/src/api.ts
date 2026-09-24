@@ -118,6 +118,9 @@ function demoApi(): Api {
       return { categories: loadDemoCategories() };
     },
     async calculate(_token, items, fulfillmentType, timing = {}) {
+      if (fulfillmentType === "delivery" && !loadDemoSettings().delivery_enabled) {
+        throw apiError("DELIVERY_UNAVAILABLE");
+      }
       const categories = loadDemoCategories();
       const lookup = menuLookup(categories);
       const calculationItems = items.map(({ item_id, quantity }) => {
@@ -161,6 +164,7 @@ function demoApi(): Api {
       return calculation;
     },
     async deliverySlots() {
+      if (!loadDemoSettings().delivery_enabled) throw apiError("DELIVERY_UNAVAILABLE");
       const first = new Date(Date.now() + 40 * 60 * 1000);
       first.setMinutes(Math.ceil(first.getMinutes() / 30) * 30, 0, 0);
       const slots = Array.from({ length: 6 }, (_, index) => {
@@ -258,6 +262,9 @@ function demoApi(): Api {
       const orders = loadDemoOrders();
       const existing = orders.find((order) => (order as DemoOrder).__key === idempotencyKey);
       if (existing) return stripDemo(existing);
+      if (input.fulfillment_type === "delivery" && !runtime.delivery_enabled) {
+        throw apiError("DELIVERY_UNAVAILABLE");
+      }
       const decoded = loadDemoCalculation(input.calculation_token);
       const decodedFulfillmentType = decoded.fulfillment_type || "delivery";
       if (decodedFulfillmentType !== input.fulfillment_type) {
@@ -530,6 +537,7 @@ function loadDemoRuntime(): Runtime {
     day_off_banner: settings.day_off_banner,
     flat_delivery_fee_minor: 0,
     delivery_minimum_order_minor: settings.delivery_minimum_order_minor,
+    delivery_enabled: settings.delivery_enabled,
     support_text: "@Tako_Lako_N",
     enabled_payments: [
       ...(settings.cash_enabled ? ["cash" as const] : []),
@@ -555,6 +563,7 @@ function loadDemoSettings(): Settings {
   const normalized: Settings = {
     ...settings,
     delivery_minimum_order_minor: settings.delivery_minimum_order_minor ?? 2000,
+    delivery_enabled: settings.delivery_enabled ?? true,
     cash_location_required: settings.cash_location_required ?? true,
     restaurant_latitude: settings.restaurant_latitude ?? 45.24197,
     restaurant_longitude: settings.restaurant_longitude ?? 19.808807,
@@ -585,6 +594,7 @@ function loadDemoSettings(): Settings {
   }
   if (
     normalized.delivery_minimum_order_minor !== settings.delivery_minimum_order_minor ||
+    normalized.delivery_enabled !== settings.delivery_enabled ||
     normalized.cash_location_required !== settings.cash_location_required ||
     normalized.restaurant_latitude !== settings.restaurant_latitude ||
     normalized.restaurant_longitude !== settings.restaurant_longitude ||
@@ -643,7 +653,7 @@ function defaultSchedule(): ScheduleDay[] {
   return [0, 1, 2, 3, 4, 5, 6].map((day) => ({
     day_of_week: day,
     closed: false,
-    open_time: "13:00",
+    open_time: "10:00",
     order_cutoff_time: "21:00",
     close_time: "22:00",
     version: 1,
@@ -658,6 +668,7 @@ function seedDemoSettings(): Settings {
     day_off_banner: "ВЫХОДНОЙ",
     flat_delivery_fee_minor: 0,
     delivery_minimum_order_minor: 2000,
+    delivery_enabled: true,
     support_text: "@Tako_Lako_N",
     support_phone: "",
     terms_url: "",

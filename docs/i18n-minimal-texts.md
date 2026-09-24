@@ -6,7 +6,7 @@
 | Key | RU | SR-Latn | EN |
 |---|---|---|---|
 | day_off | ВЫХОДНОЙ | ZATVORENO | CLOSED |
-| checkout_closed | Заказы сегодня принимаем с 13:00 до 21:00 | Porudžbine danas primamo od 13:00 do 21:00 | Orders are accepted today from 13:00 to 21:00 |
+| checkout_closed | Заказы сегодня принимаем с 10:00 до 21:00 | Porudžbine danas primamo od 10:00 do 21:00 | Orders are accepted today from 10:00 to 21:00 |
 | order_new | Заказ принят, готовится | Porudžbina je prihvaćena i priprema se | Order accepted, preparing |
 | order_out_for_delivery | Заказ в доставке | Porudžbina je na dostavi | Order is out for delivery |
 | order_delivered | Заказ доставлен | Porudžbina je dostavljena | Order delivered |

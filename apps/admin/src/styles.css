@@ -1200,6 +1200,28 @@ p {
   padding: clamp(1rem, 2.4vw, 1.35rem);
 }
 
+.home-status-actions,
+.home-delivery-toggle {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.home-status-actions {
+  min-width: 13rem;
+}
+
+.home-delivery-toggle .status-dot-label {
+  text-transform: none;
+}
+
+.home-delivery-toggle .status-dot.is-enabled {
+  background: var(--color-secondary);
+}
+
+.home-delivery-toggle .status-dot.is-disabled {
+  background: var(--color-accent);
+}
+
 .home-status h2,
 .home-section h2,
 .today-card h2,
@@ -2425,7 +2447,13 @@ p {
     font-size: clamp(1.45rem, 7vw, 1.82rem);
   }
 
-  .home-status > button {
+  .home-status-actions,
+  .home-status-actions > button {
+    width: 100%;
+  }
+
+  .home-status-actions > button,
+  .home-delivery-toggle > button {
     min-height: 2.65rem;
   }
 

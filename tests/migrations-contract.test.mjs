@@ -110,6 +110,14 @@ test("current ordering policy is daily with a 2000 RSD delivery minimum", () => 
   assert.match(source, /close_time\s*=\s*'22:00'/i);
 });
 
+test("latest business hours accept orders daily from 10:00 to 21:00", () => {
+  const source = compactSql(readMigration("061_schedule_open_at_10.sql"));
+  assert.match(source, /UPDATE\s+restaurant_schedule\s+SET\s+closed\s*=\s*false/i);
+  assert.match(source, /open_time\s*=\s*'10:00'/i);
+  assert.match(source, /order_cutoff_time\s*=\s*'21:00'/i);
+  assert.match(source, /close_time\s*=\s*'22:00'/i);
+});
+
 function readMigration(file) {
   return readFileSync(new URL(file, migrationsDir), "utf8");
 }

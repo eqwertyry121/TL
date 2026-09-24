@@ -148,6 +148,7 @@ function ClientMiniApp() {
   const dayOffBlocked = isDayOffRuntime(data.runtime) && (data.runtime?.reason === "manual_day_off" || route.name !== "booking") && !isOwnerTelegramId(data.session?.telegram_user_id) && !dayOffMenuVisible;
   const paymentMethods = useMemo(() => checkoutPaymentMethods(data.runtime?.enabled_payments || []), [data.runtime?.enabled_payments]);
   const cashLocationRequired = data.runtime?.cash_location_required ?? true;
+  const deliveryEnabled = data.runtime?.delivery_enabled !== false;
   const persistentCityEnabled = verifiedContact?.city_verification_enabled === true;
   const savedCityVerified = persistentCityEnabled && Boolean(verifiedContact?.city_verified_at);
   const deliveryTimingEnabled = data.runtime?.delivery_timing_enabled === true && data.session?.delivery_timing_access === true;
@@ -281,6 +282,17 @@ function ClientMiniApp() {
   }, [data.runtime]);
 
   useEffect(() => {
+    if (route.name !== "checkout" || data.runtime?.delivery_enabled !== false || !data.runtime.pickup_enabled || fulfillmentType !== "delivery") return;
+    const nextDraft = { ...draft, fulfillmentType: "pickup" as const, deliveryTimeMode: "ASAP" as const, deliveryRequestedAt: "" };
+    setFulfillmentType("pickup");
+    setDraft(nextDraft);
+    saveCheckoutDraft(nextDraft);
+    setCalculation(null);
+    setCashLocation(null);
+    clearCheckoutProgress();
+  }, [data.runtime?.delivery_enabled, data.runtime?.pickup_enabled, draft, fulfillmentType, route.name]);
+
+  useEffect(() => {
     if (!paymentMethods.includes(paymentMethod)) setPaymentMethod(paymentMethods[0] || "cash");
   }, [paymentMethod, paymentMethods]);
 
@@ -298,7 +310,7 @@ function ClientMiniApp() {
   }, [token, route.name, fulfillmentType, locale, withAuth]);
 
   useEffect(() => {
-    if (!token || route.name !== "checkout" || fulfillmentType !== "delivery" || !deliveryTimingEnabled) {
+    if (!token || route.name !== "checkout" || fulfillmentType !== "delivery" || !deliveryEnabled || !deliveryTimingEnabled) {
       setDeliverySlots(null);
       return;
     }
@@ -313,7 +325,7 @@ function ClientMiniApp() {
       })
       .catch((err) => alive && setError(errorText(err, locale)));
     return () => { alive = false; };
-  }, [token, route.name, fulfillmentType, locale, withAuth, deliveryTimingEnabled]);
+  }, [token, route.name, fulfillmentType, locale, withAuth, deliveryEnabled, deliveryTimingEnabled]);
 
   useEffect(() => {
     if (!token || !checkoutSignature || restoredCheckoutSignature === checkoutSignature) return;
@@ -912,6 +924,7 @@ function ClientMiniApp() {
         checkoutClosedLabel={checkoutClosedText(data.runtime, locale)}
         locale={locale}
         fulfillmentType={fulfillmentType}
+        deliveryEnabled={deliveryEnabled}
         pickupSlots={pickupSlots}
         deliverySlots={deliverySlots}
         deliveryTimingEnabled={deliveryTimingEnabled}
@@ -1145,6 +1158,9 @@ function Shell({
   const isRoot = route.name === "menu";
   const showLocale = isRoot || isPublicInformationRoute(route);
   const showClosedBanner = runtime && !runtime.accepting_orders && !dayOffOverlayOpen;
+  const orderHours = runtime?.order_open_time && runtime.order_cutoff_time
+    ? `${runtime.order_open_time}–${runtime.order_cutoff_time}`
+    : "10:00–21:00";
 
   return (
     <div className={dayOffOverlayOpen ? "app-shell is-day-off-blocked" : "app-shell"}>
@@ -1159,9 +1175,9 @@ function Shell({
             {isRoot && <span className="brand-mark" aria-hidden="true">TL</span>}
             <div className="brand">
               <strong>{header}{devSandbox && <em className="dev-environment-badge">DEV</em>}</strong>
-              <span className="worktime" aria-label={copy.orderHoursAria}>
+              <span className="worktime" aria-label={`${copy.orderHoursAria}: ${orderHours}`}>
                 <span>{copy.orderHours}</span>
-                <strong>13:00–21:00</strong>
+                <strong>{orderHours}</strong>
               </span>
             </div>
           </div>
@@ -1717,6 +1733,7 @@ function Checkout({
   checkoutClosedLabel,
   locale,
   fulfillmentType,
+  deliveryEnabled,
   pickupSlots,
   deliverySlots,
   deliveryTimingEnabled,
@@ -1754,6 +1771,7 @@ function Checkout({
   checkoutClosedLabel: string;
   locale: Locale;
   fulfillmentType: FulfillmentType;
+  deliveryEnabled: boolean;
   pickupSlots: PickupSlots | null;
   deliverySlots: DeliverySlots | null;
   deliveryTimingEnabled: boolean;
@@ -1817,12 +1835,15 @@ function Checkout({
   const checkoutTotal = calculation?.total_minor ?? total;
   const deliverySubtotal = calculation?.subtotal_minor ?? subtotal;
   const deliveryMinimumReady = !deliverySelected || deliverySubtotal >= deliveryMinimumOrderMinor;
+  const fulfillmentAvailable = deliverySelected ? deliveryEnabled : pickupEnabled;
   const addressReady = !deliverySelected || Boolean(draft.street.trim() && draft.houseNumber.trim());
   const pickupTimeReady = deliverySelected || (pickupEnabled && Boolean(draft.pickupAt));
   const deliveryTimeReady = !deliverySelected || !deliveryTimingEnabled || draft.deliveryTimeMode === "ASAP" || Boolean(draft.deliveryRequestedAt);
-  const canSubmit = checkoutOpen && !submitting && deliveryMinimumReady && addressReady && locationVerified && pickupTimeReady && deliveryTimeReady && termsAccepted;
+  const canSubmit = checkoutOpen && !submitting && fulfillmentAvailable && deliveryMinimumReady && addressReady && locationVerified && pickupTimeReady && deliveryTimeReady && termsAccepted;
   const checkoutHint = !checkoutOpen
     ? checkoutClosedLabel
+    : !fulfillmentAvailable
+      ? deliveryUnavailableText(locale, pickupEnabled)
     : !deliveryMinimumReady
       ? deliveryMinimumText(locale, deliveryMinimumOrderMinor, deliverySubtotal)
       : !addressReady
@@ -1868,18 +1889,19 @@ function Checkout({
         <div className="fulfillment-selector">
           <span>{copy.fulfillmentTitle}</span>
           <div>
-            <button type="button" className={deliverySelected ? "active" : ""} onClick={() => onFulfillmentType("delivery")}>
+            {deliveryEnabled && <button type="button" className={deliverySelected ? "active" : ""} onClick={() => onFulfillmentType("delivery")}>
               <strong>{copy.deliveryTitle}</strong>
               <small>{copy.deliveryDescription}</small>
-            </button>
+            </button>}
             <button type="button" className={!deliverySelected ? "active" : ""} disabled={!pickupEnabled} onClick={() => onFulfillmentType("pickup")}>
               <strong>{copy.pickupTitle}</strong>
               <small>{copy.pickupDescription}</small>
             </button>
           </div>
-          {!deliverySelected && <p>{copy.pickupSelected}</p>}
+          {!deliveryEnabled && <p role="status">{deliveryUnavailableText(locale, pickupEnabled)}</p>}
+          {!deliverySelected && deliveryEnabled && <p>{copy.pickupSelected}</p>}
         </div>
-        {deliverySelected && (
+        {deliverySelected && deliveryEnabled && (
           <>
             <div className="address-grid main-address-grid">
               <label>
@@ -1900,7 +1922,7 @@ function Checkout({
             </div>
           </>
         )}
-        {deliverySelected && deliveryTimingEnabled && (
+        {deliverySelected && deliveryEnabled && deliveryTimingEnabled && (
           <section className="delivery-timing" aria-label={timingCopy.title}>
             <div className="delivery-timing-head"><strong>{timingCopy.title}</strong></div>
             <div className="delivery-timing-modes">
@@ -2035,7 +2057,7 @@ function Checkout({
             </div>
           </div>
         )}
-        {deliverySelected && deliveryTimingEnabled && deliverySlots?.asap?.queue_position && (
+        {deliverySelected && deliveryEnabled && deliveryTimingEnabled && deliverySlots?.asap?.queue_position && (
           <div className="delivery-timing-final">
             <span>{draft.deliveryTimeMode === "SCHEDULED" ? timingCopy.scheduled : timingCopy.queue}</span>
             <strong>{draft.deliveryTimeMode === "SCHEDULED" && draft.deliveryRequestedAt ? formatPickupTime(draft.deliveryRequestedAt) : `№${deliverySlots.asap.queue_position}`}</strong>
@@ -2434,6 +2456,12 @@ function checkoutClosedText(runtime: Runtime | undefined, locale: Locale): strin
   if (locale === "sr") return `Porudžbine možete napraviti od ${openTime} do ${cutoffTime}`;
   if (locale === "en") return `Orders can be placed from ${openTime} to ${cutoffTime}`;
   return `Заказать можно с ${openTime} до ${cutoffTime}`;
+}
+
+function deliveryUnavailableText(locale: Locale, pickupEnabled: boolean): string {
+  if (locale === "en") return pickupEnabled ? "Delivery is temporarily unavailable. You can choose pickup." : "Delivery and pickup are temporarily unavailable.";
+  if (locale === "sr") return pickupEnabled ? "Dostava je trenutno nedostupna. Možete izabrati lično preuzimanje." : "Dostava i lično preuzimanje trenutno nisu dostupni.";
+  return pickupEnabled ? "Доставка временно недоступна. Можно оформить самовывоз." : "Доставка и самовывоз временно недоступны.";
 }
 
 function additionBlockedText(order: Order, locale: Locale): string {
@@ -3062,6 +3090,7 @@ function sameRuntime(current: Runtime | null, incoming: Runtime): boolean {
     && current.day_off_banner === incoming.day_off_banner
     && current.flat_delivery_fee_minor === incoming.flat_delivery_fee_minor
     && current.delivery_minimum_order_minor === incoming.delivery_minimum_order_minor
+    && current.delivery_enabled === incoming.delivery_enabled
     && current.currency === incoming.currency
     && current.enabled_payments.join(",") === incoming.enabled_payments.join(",")
     && current.supported_locales.join(",") === incoming.supported_locales.join(",")
@@ -3112,6 +3141,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       CASH_LOCATION_INACCURATE: "Геолокация неточная. Повторите проверку у окна или на улице.",
       PICKUP_UNAVAILABLE: "Самовывоз сейчас недоступен",
       PICKUP_SLOT_UNAVAILABLE: "Это время уже недоступно. Выберите другой слот.",
+		DELIVERY_UNAVAILABLE: "Доставка временно недоступна. Можно оформить самовывоз.",
 		DELIVERY_TIMING_UNAVAILABLE: "На сегодня свободного времени уже нет.",
 		DELIVERY_SLOT_UNAVAILABLE: "На это время уже набралась очередь. Выберите ближайший свободный вариант.",
 		DELIVERY_TIME_INVALID: "Выберите доступное время из списка.",
@@ -3139,6 +3169,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       CASH_LOCATION_INACCURATE: "Geolokacija nije dovoljno precizna. Ponovite proveru pored prozora ili napolju.",
       PICKUP_UNAVAILABLE: "Lično preuzimanje trenutno nije dostupno",
       PICKUP_SLOT_UNAVAILABLE: "Ovaj termin više nije dostupan. Izaberite drugi.",
+		DELIVERY_UNAVAILABLE: "Dostava je trenutno nedostupna. Možete izabrati lično preuzimanje.",
 		DELIVERY_TIMING_UNAVAILABLE: "Danas više nema slobodnih termina.",
 		DELIVERY_SLOT_UNAVAILABLE: "Ovaj termin je popunjen. Izaberite sledeći slobodan.",
 		DELIVERY_TIME_INVALID: "Izaberite dostupno vreme sa liste.",
@@ -3166,6 +3197,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
       CASH_LOCATION_INACCURATE: "Geolocation is not accurate enough. Repeat the check near a window or outside.",
       PICKUP_UNAVAILABLE: "Pickup is currently unavailable",
       PICKUP_SLOT_UNAVAILABLE: "This pickup time is no longer available. Choose another slot.",
+		DELIVERY_UNAVAILABLE: "Delivery is temporarily unavailable. You can choose pickup.",
 		DELIVERY_TIMING_UNAVAILABLE: "There are no delivery preparation slots left today.",
 		DELIVERY_SLOT_UNAVAILABLE: "That time just filled up. Choose the nearest available slot.",
 		DELIVERY_TIME_INVALID: "Choose an available time from the list.",

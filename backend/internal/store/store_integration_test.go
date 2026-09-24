@@ -133,6 +133,86 @@ func TestDeliveryMinimumAppliesOnlyToDelivery(t *testing.T) {
 	}
 }
 
+func TestDeliveryToggleBlocksStaleDeliveryCalculationAndKeepsPickup(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	admin := bootstrapOwnerSession(t, ctx, st)
+	client := clientSession(t, ctx, st, clientTelegramID)
+	now := time.Now().UTC()
+	items := []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 10}}
+	calc, err := st.CalculateForFulfillment(ctx, client, items, core.FulfillmentDelivery, now)
+	if err != nil {
+		t.Fatalf("delivery calculation before toggle: %v", err)
+	}
+	challenge, err := st.CreateCashLocationChallenge(ctx, client, store.CreateCashLocationChallengeInput{CalculationToken: calc.Token}, now, true)
+	if err != nil {
+		t.Fatalf("create delivery location challenge: %v", err)
+	}
+
+	settings, err := st.Settings(ctx)
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	disabled := false
+	updated, err := st.UpdateSettings(ctx, admin, store.UpdateSettingsInput{
+		FlatDeliveryFeeMinor:          settings.FlatDeliveryFeeMinor,
+		SupportText:                   settings.SupportText,
+		SupportPhone:                  settings.SupportPhone,
+		TermsURL:                      settings.TermsURL,
+		MaxItemQuantity:               settings.MaxItemQuantity,
+		MaxCommentLength:              settings.MaxCommentLength,
+		CashEnabled:                   settings.CashEnabled,
+		CardEnabled:                   settings.CardEnabled,
+		CryptoEnabled:                 settings.CryptoEnabled,
+		CashLocationRequired:          settings.CashLocationRequired,
+		RestaurantLatitude:            settings.RestaurantLatitude,
+		RestaurantLongitude:           settings.RestaurantLongitude,
+		CashLocationRadiusMeters:      settings.CashLocationRadiusMeters,
+		CashLocationTTLSeconds:        settings.CashLocationTTLSeconds,
+		CashLocationMaxAccuracyMeters: settings.CashLocationMaxAccuracyMeters,
+		PickupEnabled:                 settings.PickupEnabled,
+		PickupAddress:                 settings.PickupAddress,
+		PickupMapURL:                  settings.PickupMapURL,
+		PickupInstructionsRU:          settings.PickupInstructionsRU,
+		PickupInstructionsSR:          settings.PickupInstructionsSR,
+		PickupInstructionsEN:          settings.PickupInstructionsEN,
+		PickupMinLeadMinutes:          settings.PickupMinLeadMinutes,
+		PickupSlotMinutes:             settings.PickupSlotMinutes,
+		PickupMaxOrdersPerSlot:        settings.PickupMaxOrdersPerSlot,
+		PickupLastTime:                settings.PickupLastTime,
+		DeliveryEnabled:               &disabled,
+		DeliveryTimingEnabled:         settings.DeliveryTimingEnabled,
+		DeliveryMinLeadMinutes:        settings.DeliveryMinLeadMinutes,
+		DeliverySlotMinutes:           settings.DeliverySlotMinutes,
+		DeliveryMaxOrdersPerSlot:      settings.DeliveryMaxOrdersPerSlot,
+		DeliveryLastTargetTime:        settings.DeliveryLastTargetTime,
+		Version:                       settings.Version,
+	})
+	if err != nil {
+		t.Fatalf("disable delivery: %v", err)
+	}
+	if updated.DeliveryEnabled {
+		t.Fatal("delivery remained enabled after settings update")
+	}
+
+	_, err = st.CreateCashOrder(ctx, client, store.CreateOrderInput{
+		CalculationToken:        calc.Token,
+		CashLocationChallengeID: challenge.ID.String(),
+		Address:                 "Test address 1",
+		PaymentMethod:           core.PaymentCash,
+		TermsAccepted:           true,
+		Locale:                  "ru",
+	}, "delivery-disabled-stale-calc", "delivery-disabled-stale-calc-hash", now)
+	if !errors.Is(err, core.ErrDeliveryUnavailable) {
+		t.Fatalf("stale delivery order error = %v, want ErrDeliveryUnavailable", err)
+	}
+	if _, err := st.CalculateForFulfillment(ctx, client, items, core.FulfillmentPickup, now); err != nil {
+		t.Fatalf("pickup calculation after delivery toggle: %v", err)
+	}
+}
+
 func TestCreateCashOrderRevalidatesRaisedDeliveryMinimum(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)

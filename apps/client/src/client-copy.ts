@@ -74,7 +74,7 @@ export type ClientCopy = {
 const copy: Record<Locale, ClientCopy> = {
   ru: {
     brand: "Tako Lako — Грузинская кухня", loading: "Загрузка…", statusUpdateFailed: "Не удалось обновить статус заказа", cancel: "Отмена", back: "Назад",
-    orderHours: "Заказы", orderHoursAria: "Приём заказов с 13:00 до 21:00", ownerRoleSwitch: "Переключение роли owner", roleClient: "Клиент", roleAdmin: "Админ", roleKitchen: "Кухня", roleCourier: "Курьер",
+    orderHours: "Заказы", orderHoursAria: "Приём заказов", ownerRoleSwitch: "Переключение роли owner", roleClient: "Клиент", roleAdmin: "Админ", roleKitchen: "Кухня", roleCourier: "Курьер",
     addToCart: "В корзину", unitShort: "шт", combo: (index) => `Комбо ${index}`, orderLoading: "Загружаем заказ…", addition: "Дозаказ",
     toOrder: (number) => `К заказу #${number}`, timeRemaining: "Осталось", backToOrder: "Назад к заказу", add: "Добавить", positionsShort: "поз.", nothingSelected: "Ничего не выбрано", addToOrder: "Добавить к заказу",
     dishNotFound: "Блюдо не найдено", unavailable: "Блюдо недоступно", removeUnavailable: "Удалить недоступное блюдо", emptyCart: "Корзина пуста",
@@ -89,7 +89,7 @@ const copy: Record<Locale, ClientCopy> = {
   },
   sr: {
     brand: "Tako Lako — Gruzijska kuhinja", loading: "Učitavanje…", statusUpdateFailed: "Nije uspelo ažuriranje statusa porudžbine", cancel: "Otkaži", back: "Nazad",
-    orderHours: "Porudžbine", orderHoursAria: "Porudžbine od 13:00 do 21:00", ownerRoleSwitch: "Promena owner uloge", roleClient: "Klijent", roleAdmin: "Admin", roleKitchen: "Kuhinja", roleCourier: "Kurir",
+    orderHours: "Porudžbine", orderHoursAria: "Radno vreme za porudžbine", ownerRoleSwitch: "Promena owner uloge", roleClient: "Klijent", roleAdmin: "Admin", roleKitchen: "Kuhinja", roleCourier: "Kurir",
     addToCart: "U korpu", unitShort: "kom", combo: (index) => `Kombo ${index}`, orderLoading: "Učitavamo porudžbinu…", addition: "Dodatna porudžbina",
     toOrder: (number) => `Za porudžbinu #${number}`, timeRemaining: "Preostalo", backToOrder: "Nazad na porudžbinu", add: "Dodaj", positionsShort: "stav.", nothingSelected: "Ništa nije izabrano", addToOrder: "Dodaj porudžbini",
     dishNotFound: "Jelo nije pronađeno", unavailable: "Jelo nije dostupno", removeUnavailable: "Ukloni nedostupno jelo", emptyCart: "Korpa je prazna",
@@ -104,7 +104,7 @@ const copy: Record<Locale, ClientCopy> = {
   },
   en: {
     brand: "Tako Lako — Georgian cuisine", loading: "Loading…", statusUpdateFailed: "Could not update the order status", cancel: "Cancel", back: "Back",
-    orderHours: "Orders", orderHoursAria: "Orders from 13:00 to 21:00", ownerRoleSwitch: "Switch owner role", roleClient: "Client", roleAdmin: "Admin", roleKitchen: "Kitchen", roleCourier: "Courier",
+    orderHours: "Orders", orderHoursAria: "Order hours", ownerRoleSwitch: "Switch owner role", roleClient: "Client", roleAdmin: "Admin", roleKitchen: "Kitchen", roleCourier: "Courier",
     addToCart: "Add to cart", unitShort: "pcs", combo: (index) => `Combo ${index}`, orderLoading: "Loading order…", addition: "Add to order",
     toOrder: (number) => `For order #${number}`, timeRemaining: "Time left", backToOrder: "Back to order", add: "Add", positionsShort: "items", nothingSelected: "Nothing selected", addToOrder: "Add to order",
     dishNotFound: "Dish not found", unavailable: "Dish unavailable", removeUnavailable: "Remove unavailable dish", emptyCart: "Cart is empty",

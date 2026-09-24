@@ -76,6 +76,7 @@ var (
 	ErrCashLocationOutside       = errors.New("cash location outside delivery radius")
 	ErrCashLocationInaccurate    = errors.New("cash location inaccurate")
 	ErrPickupUnavailable         = errors.New("pickup unavailable")
+	ErrDeliveryUnavailable       = errors.New("delivery unavailable")
 	ErrPickupSlotUnavailable     = errors.New("pickup slot unavailable")
 	ErrDeliveryTimingUnavailable = errors.New("delivery timing unavailable")
 	ErrDeliverySlotUnavailable   = errors.New("delivery slot unavailable")
@@ -132,6 +133,7 @@ type Settings struct {
 	DayOffBanner                  string        `json:"day_off_banner"`
 	FlatDeliveryFeeMinor          int           `json:"flat_delivery_fee_minor"`
 	DeliveryMinimumOrderMinor     int           `json:"delivery_minimum_order_minor"`
+	DeliveryEnabled               bool          `json:"delivery_enabled"`
 	SupportText                   string        `json:"support_text"`
 	SupportPhone                  string        `json:"support_phone"`
 	TermsURL                      string        `json:"terms_url"`
@@ -176,6 +178,7 @@ type Runtime struct {
 	DayOffBanner              string    `json:"day_off_banner"`
 	FlatDeliveryFeeMinor      int       `json:"flat_delivery_fee_minor"`
 	DeliveryMinimumOrderMinor int       `json:"delivery_minimum_order_minor"`
+	DeliveryEnabled           bool      `json:"delivery_enabled"`
 	Currency                  string    `json:"currency"`
 	EnabledPayments           []string  `json:"enabled_payments"`
 	SupportedLocales          []string  `json:"supported_locales"`
