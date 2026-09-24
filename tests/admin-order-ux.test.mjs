@@ -3,11 +3,62 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { parseNumberDraft } from "../apps/admin/src/number-draft.ts";
+import { settingsInputFromSettings } from "../apps/admin/src/api.ts";
 
 test("number draft stays empty while the admin replaces a price", () => {
   assert.equal(parseNumberDraft(""), undefined);
   assert.equal(parseNumberDraft("-"), undefined);
   assert.equal(parseNumberDraft("750"), 750);
+});
+
+test("admin settings requests omit response-only settings", () => {
+  const settings = {
+    timezone: "Europe/Belgrade",
+    currency: "RSD",
+    manual_day_off: false,
+    day_off_banner: "",
+    delivery_minimum_order_minor: 2000,
+    delivery_enabled: true,
+    schedule: [],
+    flat_delivery_fee_minor: 0,
+    support_text: "@support",
+    support_phone: "",
+    terms_url: "",
+    max_item_quantity: 99,
+    max_comment_length: 300,
+    cash_enabled: true,
+    card_enabled: false,
+    crypto_enabled: false,
+    cash_location_required: true,
+    restaurant_latitude: 45.24197,
+    restaurant_longitude: 19.808807,
+    cash_location_radius_meters: 12000,
+    cash_location_ttl_seconds: 180,
+    cash_location_max_accuracy_meters: 200,
+    pickup_enabled: true,
+    pickup_address: "Restaurant",
+    pickup_map_url: "",
+    pickup_instructions_ru: "",
+    pickup_instructions_sr: "",
+    pickup_instructions_en: "",
+    pickup_min_lead_minutes: 40,
+    pickup_slot_minutes: 15,
+    pickup_max_orders_per_slot: 3,
+    pickup_last_time: "22:00",
+    delivery_timing_enabled: false,
+    delivery_min_lead_minutes: 30,
+    delivery_slot_minutes: 30,
+    delivery_max_orders_per_slot: 1,
+    delivery_last_target_time: "21:00",
+    version: 7,
+  };
+
+  const payload = settingsInputFromSettings(settings);
+  assert.equal(payload.delivery_enabled, true);
+  assert.equal(payload.version, 7);
+  assert.equal("manual_day_off" in payload, false);
+  assert.equal("delivery_minimum_order_minor" in payload, false);
+  assert.equal("schedule" in payload, false);
 });
 
 test("admin active order rows render cached address and item composition", async () => {

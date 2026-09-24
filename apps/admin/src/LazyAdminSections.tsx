@@ -1,7 +1,7 @@
 import type { AdminAnalytics, AnalyticsBreakdown, AuditEntry, AuditLogResponse, Settings } from "@tk-delivery/api-client/generated";
 import { Save } from "lucide-react";
 import { useEffect, useState } from "react";
-import { money, type AnalyticsRange, type SettingsInput } from "./api";
+import { money, settingsInputFromSettings, type AnalyticsRange, type SettingsInput } from "./api";
 import { parseNumberDraft } from "./number-draft";
 
 export function AnalyticsSection({ analytics, range, onRange, onExport }: { analytics: AdminAnalytics; range: AnalyticsRange; onRange(range: AnalyticsRange): void; onExport(): void }) {
@@ -199,7 +199,7 @@ export function SettingsSection({ settings, demoMode, onSave }: { settings: Sett
         </div>
       </details>
 
-      <button className="primary sticky-save" onClick={() => void onSave({ ...form, flat_delivery_fee_minor: 0, card_enabled: false, crypto_enabled: demoMode ? form.crypto_enabled : false })}>
+      <button className="primary sticky-save" onClick={() => void onSave(settingsInputFromSettings({ ...form, flat_delivery_fee_minor: 0, card_enabled: false, crypto_enabled: demoMode ? form.crypto_enabled : false }))}>
         <Save size={16} /> Сохранить настройки
       </button>
     </section>

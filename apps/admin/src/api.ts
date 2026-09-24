@@ -144,6 +144,43 @@ export interface SettingsInput {
   version: number;
 }
 
+export function settingsInputFromSettings(settings: Settings): SettingsInput {
+  return {
+    flat_delivery_fee_minor: settings.flat_delivery_fee_minor,
+    support_text: settings.support_text,
+    support_phone: settings.support_phone,
+    terms_url: settings.terms_url,
+    max_item_quantity: settings.max_item_quantity,
+    max_comment_length: settings.max_comment_length,
+    cash_enabled: settings.cash_enabled,
+    card_enabled: settings.card_enabled,
+    crypto_enabled: settings.crypto_enabled,
+    cash_location_required: settings.cash_location_required,
+    restaurant_latitude: settings.restaurant_latitude,
+    restaurant_longitude: settings.restaurant_longitude,
+    cash_location_radius_meters: settings.cash_location_radius_meters,
+    cash_location_ttl_seconds: settings.cash_location_ttl_seconds,
+    cash_location_max_accuracy_meters: settings.cash_location_max_accuracy_meters,
+    pickup_enabled: settings.pickup_enabled,
+    pickup_address: settings.pickup_address,
+    pickup_map_url: settings.pickup_map_url,
+    pickup_instructions_ru: settings.pickup_instructions_ru,
+    pickup_instructions_sr: settings.pickup_instructions_sr,
+    pickup_instructions_en: settings.pickup_instructions_en,
+    pickup_min_lead_minutes: settings.pickup_min_lead_minutes,
+    pickup_slot_minutes: settings.pickup_slot_minutes,
+    pickup_max_orders_per_slot: settings.pickup_max_orders_per_slot,
+    pickup_last_time: settings.pickup_last_time,
+    delivery_enabled: settings.delivery_enabled,
+    delivery_timing_enabled: settings.delivery_timing_enabled,
+    delivery_min_lead_minutes: settings.delivery_min_lead_minutes,
+    delivery_slot_minutes: settings.delivery_slot_minutes,
+    delivery_max_orders_per_slot: settings.delivery_max_orders_per_slot,
+    delivery_last_target_time: settings.delivery_last_target_time,
+    version: settings.version,
+  };
+}
+
 export interface StaffInput {
   telegram_user_id?: number;
   display_label: string;

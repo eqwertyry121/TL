@@ -8,6 +8,7 @@ import {
   createAdminApi,
   isAuthError,
   money,
+  settingsInputFromSettings,
   statusText,
   type AdminBootstrapResponse,
   type AdminMenuResponse,
@@ -505,7 +506,7 @@ export function App() {
   async function setDeliveryEnabled(enabled: boolean) {
     if (!settings) return;
     await run(
-      (authToken) => api.updateSettings(authToken, { ...settings, delivery_enabled: enabled }),
+      (authToken) => api.updateSettings(authToken, { ...settingsInputFromSettings(settings), delivery_enabled: enabled }),
       { successMessage: enabled ? "Доставка включена" : "Доставка отключена" },
     );
   }
