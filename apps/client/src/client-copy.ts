@@ -60,6 +60,7 @@ export type ClientCopy = {
   cashOnly: string;
   orderProgressed: string;
   additionNotAllowed: string;
+  deliveryTemporarilyClosed: string;
   portalTitle: string;
   openMiniApp: string;
   portalHint: string;
@@ -83,6 +84,7 @@ const copy: Record<Locale, ClientCopy> = {
     pickupAccepted: (time) => `Принят · забрать в ${time}`, pickupReady: (time) => `Готов · ждём к ${time}`, pickupCompleted: "Заказ выдан", historyEmpty: "История пуста", showMore: "Показать ещё",
     minus: "Уменьшить количество", plus: "Увеличить количество", fewMinutes: "несколько минут",
     additionalAlreadyAdded: "Дозаказ уже был добавлен", pickupPreparationStarted: "Кухня уже готовит заказ к выбранному времени", additionExpired: "Прошло больше 5 минут", ordersClosed: "Приём заказов закрыт", orderingEnded: "Приём заказов завершён", cashOnly: "Доступно только для наличных", orderProgressed: "Заказ уже передан дальше", additionNotAllowed: "Сейчас добавить нельзя",
+    deliveryTemporarilyClosed: "Приём заказов на доставку временно закрыт. Приходите к нам в кафе или заказывайте через другие службы доставки.",
     portalTitle: "Грузинская кухня в Telegram", openMiniApp: "Открыть Mini App", portalHint: "Если Telegram не открылся автоматически, найдите бота @takolako_main_bot.",
     openBotTitle: "Заказ оформляется в Telegram", openBotText: "Так мы подтверждаем геолокацию для cash-заказа, если она нужна.", openBot: "Открыть бота",
     devUnavailable: "DEV временно не загрузился", devUnavailableText: "Обновите Mini App. Переход в рабочее приложение отключён.", refreshDev: "Обновить DEV",
@@ -98,6 +100,7 @@ const copy: Record<Locale, ClientCopy> = {
     pickupAccepted: (time) => `Prihvaćeno · preuzimanje u ${time}`, pickupReady: (time) => `Spremno · čekamo vas u ${time}`, pickupCompleted: "Porudžbina je preuzeta", historyEmpty: "Istorija je prazna", showMore: "Prikaži još",
     minus: "Smanji količinu", plus: "Povećaj količinu", fewMinutes: "nekoliko minuta",
     additionalAlreadyAdded: "Dodatna porudžbina je već poslata", pickupPreparationStarted: "Kuhinja već priprema porudžbinu za izabrano vreme", additionExpired: "Prošlo je više od 5 minuta", ordersClosed: "Porudžbine su zatvorene", orderingEnded: "Prijem porudžbina je završen", cashOnly: "Dostupno samo za gotovinu", orderProgressed: "Porudžbina je već prosleđena", additionNotAllowed: "Trenutno nije moguće dodati",
+    deliveryTemporarilyClosed: "Prijem porudžbina za dostavu je privremeno obustavljen. Posetite nas u restoranu ili naručite preko drugih dostavnih službi.",
     portalTitle: "Gruzijska kuhinja u Telegramu", openMiniApp: "Otvori Mini App", portalHint: "Ako se Telegram nije automatski otvorio, pronađite bota @takolako_main_bot.",
     openBotTitle: "Porudžbina se završava u Telegramu", openBotText: "Tako potvrđujemo lokaciju za gotovinsku porudžbinu, ako je potrebno.", openBot: "Otvori bota",
     devUnavailable: "DEV se privremeno nije učitao", devUnavailableText: "Osvežite Mini App. Prelazak u produkciju je isključen.", refreshDev: "Osveži DEV",
@@ -113,6 +116,7 @@ const copy: Record<Locale, ClientCopy> = {
     pickupAccepted: (time) => `Accepted · collect at ${time}`, pickupReady: (time) => `Ready · see you at ${time}`, pickupCompleted: "Order collected", historyEmpty: "History is empty", showMore: "Show more",
     minus: "Decrease quantity", plus: "Increase quantity", fewMinutes: "a few minutes",
     additionalAlreadyAdded: "Items have already been added", pickupPreparationStarted: "The kitchen is already preparing the order for the selected time", additionExpired: "More than 5 minutes have passed", ordersClosed: "Orders are closed", orderingEnded: "Ordering has ended", cashOnly: "Available for cash orders only", orderProgressed: "The order has already moved forward", additionNotAllowed: "Items cannot be added now",
+    deliveryTemporarilyClosed: "Delivery orders are temporarily unavailable. Visit us at the cafe or order through other delivery services.",
     portalTitle: "Georgian cuisine in Telegram", openMiniApp: "Open Mini App", portalHint: "If Telegram did not open automatically, find @takolako_main_bot.",
     openBotTitle: "Checkout continues in Telegram", openBotText: "This lets us verify location for a cash order when it is required.", openBot: "Open bot",
     devUnavailable: "DEV did not load", devUnavailableText: "Refresh the Mini App. Switching to production is disabled.", refreshDev: "Refresh DEV",

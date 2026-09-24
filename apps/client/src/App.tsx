@@ -986,6 +986,9 @@ function ClientMiniApp() {
           <span>{error}</span>
         </div>
       )}
+      {route.name === "menu" && data.runtime?.delivery_enabled === false && (
+        <div className="closed-banner" role="status">{ui.deliveryTemporarilyClosed}</div>
+      )}
       {route.name === "menu" && !data.session && !devSandbox && <OpenInTelegramCard locale={locale} />}
       {content}
       {cartQuantity > 0 && route.name !== "checkout" && route.name !== "cart" && route.name !== "add" && (
