@@ -175,6 +175,11 @@ Kitchen может одним нажатием сообщить клиенту �
 Job retry работает из PostgreSQL. Если Telegram notification не отправилось,
 order всё равно появится app polling.
 
+При создании самовывоза backend ставит отдельный Telegram alert каждому
+активному сотруднику `ADMIN` из staff whitelist. Worker повторно проверяет
+активный доступ перед отправкой; этот alert не создаётся для Courier и не
+заменяет сообщение Client после готовности заказа.
+
 ## 8. Courier polling
 
 Каждые примерно 5 секунд:
@@ -347,6 +352,7 @@ E2E:
 - Kitchen имеет два простых внутренних списка `НОВЫЕ`/`В ПРОЦЕССЕ`, без
   отдельного экрана деталей, и одну основную финальную action.
 - Orders появляются автоматически без accept.
+- Новый pickup order уведомляет всех active `ADMIN` из staff whitelist.
 - Courier один, без claim/assignment/route engine.
 - Kitchen ready одновременно меняет status и ставит client/courier messages.
 - Courier sees correct address/phone/cash.

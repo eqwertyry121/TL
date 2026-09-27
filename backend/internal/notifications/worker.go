@@ -307,10 +307,9 @@ func (w *Worker) claimJobs(ctx context.Context) ([]job, error) {
 }
 
 func (w *Worker) processJob(ctx context.Context, current job) error {
-	// Ordinary order operations stay inside the Mini App. The explicit owner
-	// delivery alert is the only order event allowed into an admin private chat.
+	// Only explicit order alert templates are sent to admin private chats.
 	if current.reservationID == uuid.Nil && current.recipientKind == "admin" &&
-		!strings.HasPrefix(current.template, "owner_delivery_alert_") {
+		!isAllowedAdminOrderAlert(current.template) {
 		return w.markSent(ctx, current.id)
 	}
 	token, chatID, text, err := w.buildMessage(ctx, current)
@@ -394,6 +393,17 @@ func (w *Worker) buildMessage(ctx context.Context, current job) (string, int64, 
 		if w.staffToken == "" {
 			return "", 0, "", fmt.Errorf("missing_staff_bot_token")
 		}
+		if current.template == "admin_pickup_order_new" {
+			chatID, err := w.adminOrderTarget(ctx, current.eventKey)
+			if err != nil {
+				return "", 0, "", err
+			}
+			text, err := w.kitchenText(ctx, current.orderID, "kitchen_new_order")
+			if err != nil {
+				return "", 0, "", err
+			}
+			return w.staffToken, chatID, text, nil
+		}
 		if strings.HasPrefix(current.template, "owner_delivery_alert_") {
 			chatID, err := w.ownerReservationTarget(current.eventKey)
 			if err != nil {
@@ -413,6 +423,10 @@ func (w *Worker) buildMessage(ctx context.Context, current job) (string, int64, 
 	default:
 		return "", 0, "", fmt.Errorf("unknown_recipient_kind")
 	}
+}
+
+func isAllowedAdminOrderAlert(template string) bool {
+	return strings.HasPrefix(template, "owner_delivery_alert_") || template == "admin_pickup_order_new"
 }
 
 func (w *Worker) kitchenETAText(ctx context.Context, orderID uuid.UUID, number int, locale, eventKey string, updated bool) (string, error) {
@@ -570,6 +584,28 @@ func (w *Worker) ownerReservationTarget(eventKey string) (int64, error) {
 		}
 	}
 	return 0, errOperationalStaffUnavailable
+}
+
+func (w *Worker) adminOrderTarget(ctx context.Context, eventKey string) (int64, error) {
+	const marker = ":admin:"
+	markerIndex := strings.LastIndex(eventKey, marker)
+	if markerIndex < 0 {
+		return 0, fmt.Errorf("invalid_admin_order_recipient")
+	}
+	telegramID, err := strconv.ParseInt(eventKey[markerIndex+len(marker):], 10, 64)
+	if err != nil || telegramID <= 0 {
+		return 0, fmt.Errorf("invalid_admin_order_recipient")
+	}
+	var chatID int64
+	err = w.pool.QueryRow(ctx, `
+		SELECT telegram_user_id
+		FROM staff
+		WHERE telegram_user_id=$1 AND role='ADMIN' AND active=true
+	`, telegramID).Scan(&chatID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, errOperationalStaffUnavailable
+	}
+	return chatID, err
 }
 
 func localizedReservationText(locale, ru, sr, en string) string {

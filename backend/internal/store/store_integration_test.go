@@ -1492,6 +1492,16 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	defer pool.Close()
 
 	adminSession := bootstrapOwnerSession(t, ctx, st)
+	secondAdminID := int64(7000000201)
+	inactiveAdminID := int64(7000000202)
+	for _, input := range []store.AddStaffInput{
+		{TelegramUserID: secondAdminID, DisplayLabel: "Second admin", Role: core.RoleAdmin, Active: true},
+		{TelegramUserID: inactiveAdminID, DisplayLabel: "Inactive admin", Role: core.RoleAdmin, Active: false},
+	} {
+		if _, err := st.AddStaff(ctx, adminSession, input); err != nil {
+			t.Fatalf("add pickup alert admin %d: %v", input.TelegramUserID, err)
+		}
+	}
 	kitchenSession := adminSession
 	kitchenSession.ActiveRole = core.RoleKitchen
 	courierSession := adminSession
@@ -1553,6 +1563,42 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	if order.FulfillmentType != core.FulfillmentPickup || order.PickupAt == nil || order.PickupCookAt == nil || order.PickupAddress == "" {
 		t.Fatalf("pickup order snapshot mismatch: %+v", order)
 	}
+	adminAlertRows, err := pool.Query(ctx, `
+		SELECT event_key
+		FROM notification_jobs
+		WHERE order_id=$1 AND recipient_kind='admin' AND template='admin_pickup_order_new'
+		ORDER BY event_key
+	`, order.ID)
+	if err != nil {
+		t.Fatalf("query pickup admin alerts: %v", err)
+	}
+	adminRecipients := map[int64]bool{}
+	for adminAlertRows.Next() {
+		var eventKey string
+		if err := adminAlertRows.Scan(&eventKey); err != nil {
+			adminAlertRows.Close()
+			t.Fatalf("scan pickup admin alert: %v", err)
+		}
+		marker := strings.LastIndex(eventKey, ":admin:")
+		if marker < 0 {
+			adminAlertRows.Close()
+			t.Fatalf("pickup admin alert has no recipient: %q", eventKey)
+		}
+		telegramID, err := strconv.ParseInt(eventKey[marker+len(":admin:"):], 10, 64)
+		if err != nil {
+			adminAlertRows.Close()
+			t.Fatalf("parse pickup admin alert recipient %q: %v", eventKey, err)
+		}
+		adminRecipients[telegramID] = true
+	}
+	if err := adminAlertRows.Err(); err != nil {
+		adminAlertRows.Close()
+		t.Fatalf("read pickup admin alerts: %v", err)
+	}
+	adminAlertRows.Close()
+	if len(adminRecipients) != 2 || !adminRecipients[ownerTelegramID] || !adminRecipients[secondAdminID] || adminRecipients[inactiveAdminID] {
+		t.Fatalf("pickup admin alert recipients = %v, want active admins %d and %d only", adminRecipients, ownerTelegramID, secondAdminID)
+	}
 	if _, err := st.CreateCashOrder(ctx, clientSession, store.CreateOrderInput{
 		CalculationToken:        calc.Token,
 		CashLocationChallengeID: challenge.ID.String(),
@@ -1568,7 +1614,7 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	if want := order.PickupAt.Add(-40 * time.Minute); !order.PickupCookAt.Equal(want) {
 		t.Fatalf("pickup cook time = %s, want %s", order.PickupCookAt, want)
 	}
-	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{"kitchen": 1})
+	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{"kitchen": 1, "admin": 2})
 
 	ready, err := st.MarkReady(ctx, kitchenSession, order.ID, "idem-pickup-ready", "request-hash-pickup-ready", order.Version)
 	if err != nil {
@@ -1579,6 +1625,7 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	}
 	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{
 		"kitchen": 1,
+		"admin":   2,
 		"client":  1,
 	})
 

@@ -2856,6 +2856,18 @@ func (s *Store) CreateCashOrder(ctx context.Context, sess core.Session, input Cr
 		if err != nil {
 			return core.Order{}, err
 		}
+	} else if fulfillmentType == core.FulfillmentPickup {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO notification_jobs (order_id, recipient_kind, template, event_key)
+			SELECT $1, 'admin', 'admin_pickup_order_new',
+				'order:' || $1::text || ':pickup-alert:new:admin:' || target.telegram_user_id::text
+			FROM staff target
+			WHERE target.role='ADMIN' AND target.active=true
+			ON CONFLICT (event_key, recipient_kind) DO NOTHING
+		`, orderID)
+		if err != nil {
+			return core.Order{}, err
+		}
 	}
 	if err := s.finishIdempotency(ctx, tx, sess.UserID, "orders.create_cash", idempotencyKey, orderID); err != nil {
 		return core.Order{}, err

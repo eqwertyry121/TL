@@ -3,6 +3,7 @@ package notifications
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -383,6 +384,59 @@ func TestOwnerReservationTargetAllowsOnlyConfiguredOwners(t *testing.T) {
 	}
 	if _, err := worker.ownerReservationTarget("reservation:123:created"); !errors.Is(err, errLegacyOwnerTarget) {
 		t.Fatalf("legacy owner target error = %v, want %v", err, errLegacyOwnerTarget)
+	}
+}
+
+func TestAdminOrderAlertAllowlistIsLimitedToExplicitTemplates(t *testing.T) {
+	for template, want := range map[string]bool{
+		"owner_delivery_alert_new":      true,
+		"owner_delivery_alert_started":  true,
+		"admin_pickup_order_new":        true,
+		"admin_order_cancelled":         false,
+		"client_order_ready_for_pickup": false,
+	} {
+		if got := isAllowedAdminOrderAlert(template); got != want {
+			t.Errorf("isAllowedAdminOrderAlert(%q) = %t, want %t", template, got, want)
+		}
+	}
+}
+
+func TestAdminPickupOrderMessageTargetsActiveAdmin(t *testing.T) {
+	ctx := context.Background()
+	pool := newNotificationsIntegrationPool(t, ctx)
+	defer pool.Close()
+
+	activeAdminID := int64(7000000031)
+	inactiveAdminID := int64(7000000032)
+	activeUserID := insertNotificationTestUserWithTelegram(t, ctx, pool, activeAdminID)
+	inactiveUserID := insertNotificationTestUserWithTelegram(t, ctx, pool, inactiveAdminID)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO staff (user_id, telegram_user_id, role, display_label, active)
+		VALUES ($1, $2, 'ADMIN', 'Active admin', true), ($3, $4, 'ADMIN', 'Inactive admin', false)
+	`, activeUserID, activeAdminID, inactiveUserID, inactiveAdminID); err != nil {
+		t.Fatalf("insert admin staff: %v", err)
+	}
+	clientUserID := insertNotificationTestUserWithTelegram(t, ctx, pool, 7000000033)
+	orderID := insertNotificationTestOrderForUser(t, ctx, pool, clientUserID)
+	if _, err := pool.Exec(ctx, `
+		UPDATE orders SET fulfillment_type='pickup', pickup_at=now() + interval '2 hours' WHERE id=$1
+	`, orderID); err != nil {
+		t.Fatalf("set pickup order: %v", err)
+	}
+
+	worker := &Worker{pool: pool, staffToken: "staff-test-token"}
+	eventKey := fmt.Sprintf("order:%s:pickup-alert:new:admin:%d", orderID, activeAdminID)
+	token, chatID, text, err := worker.buildMessage(ctx, job{
+		orderID: orderID, recipientKind: "admin", template: "admin_pickup_order_new", eventKey: eventKey,
+	})
+	if err != nil {
+		t.Fatalf("build pickup admin alert: %v", err)
+	}
+	if token != "staff-test-token" || chatID != activeAdminID || !strings.Contains(text, "Тип: Самовывоз") || !strings.Contains(text, "Заберут в:") {
+		t.Fatalf("pickup admin alert = token %q, chat %d, text %q", token, chatID, text)
+	}
+	if _, err := worker.adminOrderTarget(ctx, fmt.Sprintf("order:%s:pickup-alert:new:admin:%d", orderID, inactiveAdminID)); !errors.Is(err, errOperationalStaffUnavailable) {
+		t.Fatalf("inactive admin target error = %v, want %v", err, errOperationalStaffUnavailable)
 	}
 }
 
