@@ -432,7 +432,7 @@ func TestAdminPickupOrderMessageTargetsActiveAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build pickup admin alert: %v", err)
 	}
-	if token != "staff-test-token" || chatID != activeAdminID || !strings.Contains(text, "Тип: Самовывоз") || !strings.Contains(text, "Заберут в:") {
+	if token != "staff-test-token" || chatID != activeAdminID || !strings.Contains(text, "Тип: самовывоз") || !strings.Contains(text, "Заберут в:") {
 		t.Fatalf("pickup admin alert = token %q, chat %d, text %q", token, chatID, text)
 	}
 	if _, err := worker.adminOrderTarget(ctx, fmt.Sprintf("order:%s:pickup-alert:new:admin:%d", orderID, inactiveAdminID)); !errors.Is(err, errOperationalStaffUnavailable) {

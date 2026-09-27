@@ -1596,8 +1596,35 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 		t.Fatalf("read pickup admin alerts: %v", err)
 	}
 	adminAlertRows.Close()
-	if len(adminRecipients) != 2 || !adminRecipients[ownerTelegramID] || !adminRecipients[secondAdminID] || adminRecipients[inactiveAdminID] {
-		t.Fatalf("pickup admin alert recipients = %v, want active admins %d and %d only", adminRecipients, ownerTelegramID, secondAdminID)
+	activeAdminRows, err := pool.Query(ctx, `
+		SELECT telegram_user_id
+		FROM staff
+		WHERE role='ADMIN' AND active=true
+	`)
+	if err != nil {
+		t.Fatalf("query active admin recipients: %v", err)
+	}
+	expectedAdminRecipients := map[int64]bool{}
+	for activeAdminRows.Next() {
+		var telegramID int64
+		if err := activeAdminRows.Scan(&telegramID); err != nil {
+			activeAdminRows.Close()
+			t.Fatalf("scan active admin recipient: %v", err)
+		}
+		expectedAdminRecipients[telegramID] = true
+	}
+	if err := activeAdminRows.Err(); err != nil {
+		activeAdminRows.Close()
+		t.Fatalf("read active admin recipients: %v", err)
+	}
+	activeAdminRows.Close()
+	if len(adminRecipients) != len(expectedAdminRecipients) || !adminRecipients[ownerTelegramID] || !adminRecipients[secondAdminID] || adminRecipients[inactiveAdminID] {
+		t.Fatalf("pickup admin alert recipients = %v, want all active admins %v and not inactive admin %d", adminRecipients, expectedAdminRecipients, inactiveAdminID)
+	}
+	for telegramID := range expectedAdminRecipients {
+		if !adminRecipients[telegramID] {
+			t.Errorf("active admin %d did not receive a pickup alert", telegramID)
+		}
 	}
 	if _, err := st.CreateCashOrder(ctx, clientSession, store.CreateOrderInput{
 		CalculationToken:        calc.Token,
@@ -1614,7 +1641,7 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	if want := order.PickupAt.Add(-40 * time.Minute); !order.PickupCookAt.Equal(want) {
 		t.Fatalf("pickup cook time = %s, want %s", order.PickupCookAt, want)
 	}
-	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{"kitchen": 1, "admin": 2})
+	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{"kitchen": 1, "admin": len(expectedAdminRecipients)})
 
 	ready, err := st.MarkReady(ctx, kitchenSession, order.ID, "idem-pickup-ready", "request-hash-pickup-ready", order.Version)
 	if err != nil {
@@ -1625,7 +1652,7 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	}
 	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{
 		"kitchen": 1,
-		"admin":   2,
+		"admin":   len(expectedAdminRecipients),
 		"client":  1,
 	})
 
