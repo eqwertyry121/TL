@@ -1689,6 +1689,7 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	}
 	assertNotificationJobs(t, ctx, pool, order.ID, map[string]int{
 		"kitchen": 1,
+		"admin":   len(expectedAdminRecipients),
 		"client":  2,
 	})
 
