@@ -23,9 +23,9 @@ test("client copy covers the primary customer flow in every locale", () => {
 
 test("delivery closure notice is localized and limited to the home screen when delivery is disabled", async () => {
   const expected = {
-    ru: "Приём заказов на доставку временно закрыт. Приходите к нам в кафе или заказывайте через другие службы доставки.",
-    sr: "Prijem porudžbina za dostavu je privremeno obustavljen. Posetite nas u restoranu ili naručite preko drugih dostavnih službi.",
-    en: "Delivery orders are temporarily unavailable. Visit us at the cafe or order through other delivery services.",
+    ru: "Доставка временно закрыта. Самовывоз доступен при оформлении заказа. Приходите в кафе или заказывайте через другие службы доставки.",
+    sr: "Dostava je privremeno obustavljena. Lično preuzimanje je dostupno pri poručivanju. Posetite nas u restoranu ili naručite preko drugih dostavnih službi.",
+    en: "Delivery is temporarily unavailable. Pickup is available at checkout. Visit the cafe or order through other delivery services.",
   };
   for (const [locale, text] of Object.entries(expected)) {
     assert.equal(clientCopy(locale).deliveryTemporarilyClosed, text);
