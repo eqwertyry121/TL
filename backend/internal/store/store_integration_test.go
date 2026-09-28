@@ -1081,6 +1081,45 @@ func TestReservationsUseSharedCapacityAndOneActiveBookingPerClient(t *testing.T)
 	}
 }
 
+func TestReservationsAllowMonday(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+
+	loc, err := time.LoadLocation("Europe/Belgrade")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.August, 23, 10, 0, 0, 0, loc)
+	date := "2026-08-24"
+	client := clientSession(t, ctx, st, clientTelegramID)
+
+	availability, err := st.ReservationAvailability(ctx, client, 2, now)
+	if err != nil {
+		t.Fatalf("monday reservation availability: %v", err)
+	}
+	var monday *core.ReservationAvailabilityDay
+	for i := range availability.Days {
+		if availability.Days[i].Date == date {
+			monday = &availability.Days[i]
+			break
+		}
+	}
+	if monday == nil || !slices.Contains(monday.Hours, 13) {
+		t.Fatalf("monday 13:00 should be available, got %+v", monday)
+	}
+
+	reservation, err := st.CreateReservation(ctx, client, store.CreateReservationInput{
+		Date: date, StartHour: 13, Guests: 2, Locale: "ru",
+	}, "reservation-monday", now)
+	if err != nil {
+		t.Fatalf("create monday reservation: %v", err)
+	}
+	if reservation.Date != date || reservation.StartHour != 13 {
+		t.Fatalf("monday reservation = %+v", reservation)
+	}
+}
+
 func TestAdminCanListAndCancelReservation(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)
@@ -1518,16 +1557,13 @@ func TestPickupOrderStaysOutOfCourierFlow(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("open pickup slots for test: %v", err)
 	}
-	// Use the next open day at noon: the token stays valid against PostgreSQL's
-	// real clock and the test never depends on the wall-clock hour of the CI run.
+	// Use the next calendar day at noon so the token stays valid against
+	// PostgreSQL's real clock and the test does not depend on CI's wall-clock hour.
 	belgrade, err := time.LoadLocation("Europe/Belgrade")
 	if err != nil {
 		t.Fatalf("load Belgrade timezone: %v", err)
 	}
 	targetDay := time.Now().In(belgrade).AddDate(0, 0, 1)
-	if targetDay.Weekday() == time.Monday {
-		targetDay = targetDay.AddDate(0, 0, 1)
-	}
 	now := time.Date(targetDay.Year(), targetDay.Month(), targetDay.Day(), 12, 0, 0, 0, belgrade).UTC()
 	calc, err := st.CalculateForFulfillment(ctx, clientSession, []core.CartItemInput{{ItemID: classicKhinkaliID, Quantity: 5}}, core.FulfillmentPickup, now)
 	if err != nil {

@@ -97,10 +97,6 @@ func (s *Store) ReservationAvailability(ctx context.Context, sess core.Session, 
 	for offset := 0; offset < reservationDays; offset++ {
 		date := startDate.AddDate(0, 0, offset)
 		day := core.ReservationAvailabilityDay{Date: date.Format("2006-01-02"), Hours: []int{}}
-		if date.Weekday() == time.Monday {
-			result.Days = append(result.Days, day)
-			continue
-		}
 		for hour := reservationFirstHour; hour <= reservationLastHour; hour++ {
 			if offset == 0 && hour <= localNow.Hour() {
 				continue
@@ -177,7 +173,7 @@ func (s *Store) CreateReservation(ctx context.Context, sess core.Session, input 
 	}
 	localNow := now.In(loc)
 	date, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(input.Date), loc)
-	if err != nil || date.Weekday() == time.Monday || input.StartHour < reservationFirstHour || input.StartHour > reservationLastHour {
+	if err != nil || input.StartHour < reservationFirstHour || input.StartHour > reservationLastHour {
 		return core.Reservation{}, core.ErrInvalidInput
 	}
 	today := localDate(localNow)
