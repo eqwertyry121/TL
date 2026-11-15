@@ -648,6 +648,8 @@ delivery-заказов. Самовывоз и уже созданные зак�
 - search hash телефона — HMAC-SHA256 с отдельным `PII_HASH_KEY`, не простой
   SHA-256;
 - audit ADMIN-действий;
+- запрет заказов для отдельно указанного Telegram ID, без сообщения клиенту о
+  причине; история заказов сохраняется. Подробности: [order-blocking.md](order-blocking.md);
 - payment signature/amount/currency check;
 - notification retry из PostgreSQL;
 - ежедневный backup и хотя бы один restore test до запуска;
