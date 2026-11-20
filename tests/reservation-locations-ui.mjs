@@ -35,7 +35,7 @@ try {
   const errors = [];
   page.on("pageerror", (err) => errors.push(err.message));
   const clientToken = await prepare(page, 1048084234);
-  const previous = await fetch(`${api}/api/v1/reservations/mine`, { headers: { Authorization: `Bearer ${clientToken}` } }).then((response) => response.json());
+  const previous = await fetch(`${api}/api/v1/reservations/mine?precision=15`, { headers: { Authorization: `Bearer ${clientToken}` } }).then((response) => response.json());
   if (previous.reservation) {
     const cancelled = await fetch(`${api}/api/v1/reservations/${previous.reservation.id}/cancel`, { method: "POST", headers: { Authorization: `Bearer ${clientToken}`, "Content-Type": "application/json" }, body: "{}" });
     assert.equal(cancelled.status, 200);
@@ -82,7 +82,7 @@ try {
     await admin.locator(".reservation-day-select summary").click();
     await admin.locator(".reservation-day-option").nth(dayOffset).click();
   }
-  const listed = await fetch(`${api}/api/v1/reservations/mine`, { headers: { Authorization: `Bearer ${clientToken}` } }).then((response) => response.json());
+  const listed = await fetch(`${api}/api/v1/reservations/mine?precision=15`, { headers: { Authorization: `Bearer ${clientToken}` } }).then((response) => response.json());
   assert.equal(listed.reservation.location_code, "podbara");
   const otherPage = await context.newPage();
   const otherToken = await prepare(otherPage, 1048084235);
@@ -94,7 +94,7 @@ try {
   const closedRequest = await fetch(`${api}/api/v1/reservations`, {
     method: "POST",
     headers: { Authorization: `Bearer ${otherToken}`, "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-    body: JSON.stringify({ location_code: "podbara", date: created.date, start_hour: created.start_hour, guests: 1, locale: "ru" }),
+    body: JSON.stringify({ location_code: "podbara", date: created.date, start_minute: created.start_minute, guests: 1, locale: "ru" }),
   });
   assert.equal(closedRequest.status, 409);
   assert.equal((await closedRequest.json()).error.code, "RESERVATION_LOCATION_CLOSED");
@@ -119,8 +119,7 @@ try {
     await otherPage.reload();
     await otherPage.getByText(heading, { exact: true }).first().waitFor();
     await otherPage.getByRole("radio", { name: /Podbara/ }).click();
-    await otherPage.locator(".booking-guest-select").waitFor();
-    assert.equal(await otherPage.locator(".booking-guest-select option").count(), 21);
+    await otherPage.waitForFunction(() => document.querySelectorAll(".booking-guest-select option").length === 21);
   }
   assert.deepEqual(errors, []);
   console.log("Reservation UI passed against isolated PostgreSQL: create 21, reload, close/reopen, existing booking and Telep independence.");

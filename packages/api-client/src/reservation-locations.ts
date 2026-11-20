@@ -2,10 +2,10 @@ import type { ReservationLocation } from "./generated";
 
 const demoKey = "tk-demo-reservation-locations-v1";
 
-export function reservationLocationName(code: string, locale: string): string {
-  if (code === "telep") return locale === "ru" ? "Телеп" : "Telep";
-  if (code === "podbara") return locale === "ru" ? "Подбара" : "Podbara";
-  return code;
+export function reservationLocationName(code: string, locale: string, name?: string): string {
+  if (code === "telep" && (!name || name === "Telep")) return locale === "ru" ? "Телеп" : "Telep";
+  if (code === "podbara" && (!name || name === "Podbara")) return locale === "ru" ? "Подбара" : "Podbara";
+  return name || code;
 }
 
 export function demoReservationLocations(): ReservationLocation[] {
@@ -17,8 +17,8 @@ export function demoReservationLocations(): ReservationLocation[] {
     // A malformed demo value must not prevent the booking screen from opening.
   }
   return [
-    { code: "telep", name: "Telep", address: "Koste Abraševića 49", max_guests: 5, booking_mode: "tables", is_open: saved.telep !== false },
-    { code: "podbara", name: "Podbara", address: "Temerinska 44", max_guests: 21, booking_mode: "seats", is_open: saved.podbara !== false },
+    { code: "telep", name: "Telep", address: "Koste Abraševića 49", max_guests: 5, booking_mode: "tables", is_open: saved.telep !== false, seat_capacity: 0, slot_step_minutes: 15, duration_minutes: 120, advance_days: 7, version: 1 },
+    { code: "podbara", name: "Podbara", address: "Temerinska 44", max_guests: 21, booking_mode: "seats", is_open: saved.podbara !== false, seat_capacity: 21, slot_step_minutes: 15, duration_minutes: 120, advance_days: 7, version: 1 },
   ];
 }
 

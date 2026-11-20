@@ -77,7 +77,7 @@ function realApi(baseURL: string): Api {
     listOrders: (token, filter = {}, signal) => get(`${baseURL}/api/v1/orders?${new URLSearchParams(clean(filter))}`, token, signal),
 		reservationLocations: (token, signal) => get(`${baseURL}/api/v1/reservations/locations`, token, signal),
 		reservationAvailability: (token, location, guests, signal) => get(`${baseURL}/api/v1/reservations/availability?location=${encodeURIComponent(location)}&guests=${guests}`, token, signal),
-		myReservation: (token, signal) => get(`${baseURL}/api/v1/reservations/mine`, token, signal),
+		myReservation: (token, signal) => get(`${baseURL}/api/v1/reservations/mine?precision=15`, token, signal),
 		createReservation: (token, input, idempotencyKey) => post(`${baseURL}/api/v1/reservations`, input, token, { "Idempotency-Key": idempotencyKey }),
 		cancelReservation: (token, id) => post(`${baseURL}/api/v1/reservations/${id}/cancel`, {}, token),
 		productEvents: async (token, events) => { await post(`${baseURL}/api/v1/analytics/events`, { events }, token); },
@@ -374,7 +374,8 @@ function demoApi(): Api {
 			const reservation: Reservation = {
 				id: crypto.randomUUID(), public_number: 1, location_code: location.code, location_name: location.name, location_address: location.address,
 				table_label: location.booking_mode === "tables" ? "Стол №1" : "", date: input.date,
-				start_hour: input.start_hour, end_hour: input.start_hour + 2, guests: input.guests,
+				start_hour: input.start_hour, end_hour: Math.ceil((input.start_minute + location.duration_minutes) / 60), start_minute: input.start_minute,
+				end_minute: input.start_minute + location.duration_minutes, manual: false, guests: input.guests,
 				status: "CONFIRMED", locale: input.locale, version: 1, created_at: new Date().toISOString(),
 			};
 			localStorage.setItem(demoReservationKey, JSON.stringify(reservation));
@@ -461,8 +462,9 @@ function demoReservationAvailability(guests: number, isOpen: boolean): Reservati
 	for (let offset = 0; offset < 7; offset += 1) {
 		const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
 		const dateText = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-		const hours = isOpen ? Array.from({ length: 9 }, (_, index) => 13 + index).filter((hour) => offset > 0 || hour > now.getHours()) : [];
-		days.push({ date: dateText, hours });
+		const minutes = isOpen ? Array.from({ length: 33 }, (_, index) => 13 * 60 + index * 15).filter((minute) => offset > 0 || minute > now.getHours() * 60 + now.getMinutes()) : [];
+		const hours = minutes.filter((minute) => minute % 60 === 0).map((minute) => minute / 60);
+		days.push({ date: dateText, hours, minutes });
 	}
 	return { timezone: "Europe/Belgrade", guests, days };
 }

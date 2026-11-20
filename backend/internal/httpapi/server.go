@@ -239,7 +239,13 @@ func (s *Server) Routes() http.Handler {
 
 			r.Get("/admin/orders", s.adminOrders)
 			r.Get("/admin/reservations", s.adminReservations)
+			r.Post("/admin/reservations", s.adminCreateReservation)
+			r.Put("/admin/reservations/{id}", s.adminUpdateReservation)
 			r.Put("/admin/reservation-locations/{code}", s.adminSetReservationLocation)
+			r.Get("/admin/reservation-locations/{code}/settings", s.adminReservationSettings)
+			r.Put("/admin/reservation-locations/{code}/settings", s.adminUpdateReservationSettings)
+			r.Post("/admin/reservation-tables", s.adminCreateReservationTable)
+			r.Put("/admin/reservation-tables/{id}", s.adminUpdateReservationTable)
 			r.Post("/admin/reservations/{id}/cancel", s.adminCancelReservation)
 			r.Post("/admin/orders/search", s.adminOrdersSearch)
 			r.Get("/admin/orders/{id}", s.adminOrder)
@@ -533,14 +539,15 @@ func (s *Server) staffBootstrap(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) adminBootstrap(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		InitData string `json:"init_data"`
-		Tab      string `json:"tab"`
-		Range    string `json:"range"`
-		Status   string `json:"status"`
-		Query    string `json:"q"`
-		Date     string `json:"date"`
-		Limit    int    `json:"limit"`
-		Offset   int    `json:"offset"`
+		InitData             string `json:"init_data"`
+		Tab                  string `json:"tab"`
+		Range                string `json:"range"`
+		Status               string `json:"status"`
+		Query                string `json:"q"`
+		Date                 string `json:"date"`
+		Limit                int    `json:"limit"`
+		Offset               int    `json:"offset"`
+		ReservationPrecision int    `json:"reservation_precision"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, err)
@@ -582,6 +589,10 @@ func (s *Server) adminBootstrap(w http.ResponseWriter, r *http.Request) {
 		reservations, err := s.store.AdminReservations(r.Context(), session, s.now())
 		if err != nil {
 			writeError(w, err)
+			return
+		}
+		if req.ReservationPrecision < 15 && hasFractionalReservations(reservations) {
+			writeError(w, core.ErrReservationClientOutdated)
 			return
 		}
 		response["reservations"] = map[string]any{"reservations": reservations}
@@ -2821,6 +2832,12 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code, messageKey = http.StatusConflict, "RESERVATION_UNAVAILABLE", "reservation_unavailable"
 	case errors.Is(err, core.ErrReservationLocationClosed):
 		status, code, messageKey = http.StatusConflict, "RESERVATION_LOCATION_CLOSED", "reservation_location_closed"
+	case errors.Is(err, core.ErrReservationSettingsConflict):
+		status, code, messageKey = http.StatusConflict, "RESERVATION_SETTINGS_CONFLICT", "reservation_settings_conflict"
+	case errors.Is(err, core.ErrReservationCapacityConflict):
+		status, code, messageKey = http.StatusConflict, "RESERVATION_CAPACITY_CONFLICT", "reservation_capacity_conflict"
+	case errors.Is(err, core.ErrReservationClientOutdated):
+		status, code, messageKey = http.StatusConflict, "RESERVATION_CLIENT_OUTDATED", "reservation_client_outdated"
 	case errors.Is(err, core.ErrActiveReservationExists):
 		status, code, messageKey = http.StatusConflict, "ACTIVE_RESERVATION_EXISTS", "active_reservation_exists"
 	case errors.Is(err, tgauth.ErrInvalidInitData):

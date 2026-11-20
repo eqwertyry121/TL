@@ -21,6 +21,8 @@ import {
   type MenuItemInput,
 } from "./api";
 import { parseNumberDraft } from "./number-draft";
+import { ReservationEditor, ReservationSettingsEditor, reservationTime } from "./ReservationEditors";
+import type { ReservationLocationSettings } from "@tk-delivery/api-client/generated";
 import { AlertTriangle, Archive, ArrowLeft, Ban, BarChart3, BellRing, CalendarCheck, CalendarDays, ChevronDown, ChevronRight, ClipboardList, Copy, Home, Menu as MenuIcon, MessageCircle, MoreHorizontal, Phone, RefreshCw, RotateCcw, Save, Search, Send, Settings as SettingsIcon, Shield, SlidersHorizontal, StickyNote, Trash2, Upload, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Component, Suspense, lazy, useEffect, useMemo, useRef, useState, type ErrorInfo, type FormEvent, type ReactNode } from "react";
@@ -256,7 +258,7 @@ export function App() {
 				setReservationAlerts((current) => [...current, ...newReservations.filter((reservation) => !current.some((queued) => queued.id === reservation.id))]);
 			}
 		}
-		knownReservationIDsRef.current = new Set(next.map((reservation) => reservation.id));
+		knownReservationIDsRef.current = new Set([...(previous || []), ...next.map((reservation) => reservation.id)]);
 		setReservations((current) => sameReservationVersions(current, next) ? current : next);
 	}
 
@@ -507,12 +509,27 @@ export function App() {
 	async function cancelBooking(reservation: Reservation) {
 		const confirmed = await askConfirm({
 			title: "Отменить бронь?",
-			message: `${reservationLocationName(reservation.location_code, "ru")} · ${formatReservationAdminDate(reservation.date)} в ${reservation.start_hour}:00 · ${guestCountLabel(reservation.guests)}`,
+			message: `${reservationLocationName(reservation.location_code, "ru", reservation.location_name)} · ${formatReservationAdminDate(reservation.date)} в ${reservationTime(reservation.start_minute)} · ${guestCountLabel(reservation.guests)}`,
 			confirmLabel: "Отменить бронь",
 			variant: "danger",
 		});
-		if (!confirmed) return;
-		await run((authToken) => api.cancelReservation(authToken, reservation.id), { successMessage: "Бронь отменена" });
+		if (!confirmed) return false;
+		return Boolean(await run((authToken) => api.cancelReservation(authToken, reservation.id), { successMessage: "Бронь отменена" }));
+	}
+
+	async function loadReservationsOnDate(date: string, signal?: AbortSignal) {
+		try {
+			return await withAuth((authToken) => api.reservationsOnDate(authToken, date, signal));
+		} catch (err) {
+			if (!signal?.aborted) setError(errorText(err));
+			return undefined;
+		}
+	}
+
+	async function loadReservationSettings(code: string) {
+		setError("");
+		try { return await withAuth((authToken) => api.reservationSettings(authToken, code)); }
+		catch (err) { setError(errorText(err)); return undefined; }
 	}
 
 	async function toggleReservationLocation(location: ReservationLocation) {
@@ -544,7 +561,7 @@ export function App() {
       ) : <SectionSkeleton title="Главная" />;
     }
     if (tab === "orders") return <OrdersTab orders={orders} page={ordersPage} initialView={ordersInitialView} onLoad={loadOrders} onLoadOrder={loadOrderDetail} onAction={run} />;
-		if (tab === "reservations") return <ReservationsTab reservations={reservations} locations={reservationLocations} updatingLocation={updatingLocation} focusDate={reservationFocusDate} onToggleLocation={toggleReservationLocation} onCancel={cancelBooking} />;
+		if (tab === "reservations") return <ReservationsTab reservations={reservations} locations={reservationLocations} updatingLocation={updatingLocation} focusDate={reservationFocusDate} onToggleLocation={toggleReservationLocation} onCancel={cancelBooking} onLoadDate={loadReservationsOnDate} onLoadSettings={loadReservationSettings} onAction={run} onLocationUpdated={(updated) => setReservationLocations((current) => current.map((item) => item.code === updated.code ? updated : item))} />;
     if (tab === "menu") return <MenuTab menu={menu} onAction={run} />;
     if (tab === "schedule") {
       return schedule.length && dashboard && settings ? (
@@ -601,7 +618,7 @@ export function App() {
 				>
 					<span className="owner-reservation-alert-icon"><BellRing size={20} /></span>
 					<span>
-						<strong>{reservationLocationName(reservationAlert.location_code, "ru")} · бронь на {String(reservationAlert.start_hour).padStart(2, "0")}:00</strong>
+						<strong>{reservationLocationName(reservationAlert.location_code, "ru", reservationAlert.location_name)} · бронь на {reservationTime(reservationAlert.start_minute)}</strong>
 						<small>{formatReservationShortDate(reservationAlert.date)} · {guestCountLabel(reservationAlert.guests)}{reservationAlert.table_label ? ` · ${reservationAlert.table_label}` : ""}</small>
 					</span>
 				</button>
@@ -1247,15 +1264,48 @@ function DishForm({
   );
 }
 
-function ReservationsTab({ reservations, locations, updatingLocation, focusDate, onToggleLocation, onCancel }: { reservations: Reservation[]; locations: ReservationLocation[]; updatingLocation: string; focusDate: string; onToggleLocation(location: ReservationLocation): void; onCancel(reservation: Reservation): void }) {
+function ReservationsTab({ reservations, locations, updatingLocation, focusDate, onToggleLocation, onCancel, onLoadDate, onLoadSettings, onAction, onLocationUpdated }: {
+  reservations: Reservation[];
+  locations: ReservationLocation[];
+  updatingLocation: string;
+  focusDate: string;
+  onToggleLocation(location: ReservationLocation): void;
+  onCancel(reservation: Reservation): Promise<boolean>;
+  onLoadDate(date: string, signal?: AbortSignal): Promise<{ reservations: Reservation[] } | undefined>;
+  onLoadSettings(code: string): Promise<ReservationLocationSettings | undefined>;
+  onAction: AdminActionRunner;
+  onLocationUpdated(location: ReservationLocation): void;
+}) {
   const days = useMemo(() => reservationAdminDays(7), []);
   const [selectedDate, setSelectedDate] = useState(days[0]);
-	const selectedReservations = reservations.filter((reservation) => reservation.date === selectedDate && reservation.status === "CONFIRMED");
+	const [dayReservations, setDayReservations] = useState<Reservation[] | null>(null);
+	const [revision, setRevision] = useState(0);
+	const [settings, setSettings] = useState<ReservationLocationSettings | null>(null);
+	const [settingsLoading, setSettingsLoading] = useState("");
+	const [editor, setEditor] = useState<{ reservation?: Reservation } | null>(null);
+	const loadDateRef = useRef(onLoadDate);
+	loadDateRef.current = onLoadDate;
+	const selectedReservations = (dayReservations || []).filter((reservation) => reservation.date === selectedDate && reservation.status === "CONFIRMED");
 	const activeCount = selectedReservations.length;
 
 	useEffect(() => {
-		if (focusDate && days.includes(focusDate)) setSelectedDate(focusDate);
-	}, [days, focusDate]);
+		if (focusDate) setSelectedDate(focusDate);
+	}, [focusDate]);
+
+	useEffect(() => {
+		setDayReservations(null);
+		return startVisiblePolling(async (signal) => {
+			const result = await loadDateRef.current(selectedDate, signal);
+			if (!signal.aborted && result) setDayReservations(result.reservations);
+		}, 10000, true);
+	}, [selectedDate, revision]);
+
+	async function openSettings(location: ReservationLocation) {
+		setSettingsLoading(location.code);
+		const result = await onLoadSettings(location.code);
+		setSettingsLoading("");
+		if (result) { setEditor(null); setSettings(result); }
+	}
 
   return (
     <div className="admin-stack reservations-admin">
@@ -1263,17 +1313,24 @@ function ReservationsTab({ reservations, locations, updatingLocation, focusDate,
 			<div className="section-heading"><h2>Приём брони</h2></div>
 			{locations.length === 0 ? <p>Загружаем точки…</p> : locations.map((location) => (
 				<div className="reservation-location-row" key={location.code}>
-					<div><strong>{reservationLocationName(location.code, "ru")}</strong><span>{location.address}</span><small>{location.is_open ? "Бронирование открыто" : "Бронирование закрыто"}</small></div>
-					<button type="button" className={location.is_open ? "danger-outline" : "secondary"} disabled={Boolean(updatingLocation)} onClick={() => onToggleLocation(location)}>
-						{location.is_open ? "Закрыть" : "Открыть"}
-					</button>
+					<div className="reservation-location-info"><strong>{reservationLocationName(location.code, "ru", location.name)}</strong><span>{location.address}</span><small>{location.is_open ? "Бронирование открыто" : "Бронирование закрыто"}</small></div>
+					<div className="reservation-location-actions">
+						<button type="button" disabled={Boolean(settingsLoading)} onClick={() => void openSettings(location)}>{settingsLoading === location.code ? "Загружаем…" : "Настроить"}</button>
+						<button type="button" className={location.is_open ? "danger-outline" : "secondary"} disabled={Boolean(updatingLocation)} onClick={() => onToggleLocation(location)}>{location.is_open ? "Закрыть" : "Открыть"}</button>
+					</div>
 				</div>
 			))}
 		</section>
+		{settings && <ReservationSettingsEditor key={settings.location.code} settings={settings} api={api} onAction={onAction} onClose={() => setSettings(null)} onUpdated={(updated) => { setSettings(updated); onLocationUpdated(updated.location); }} />}
+		{editor && <ReservationEditor key={editor.reservation?.id || "new"} reservation={editor.reservation} date={selectedDate} locations={locations} api={api} onAction={onAction} onClose={() => setEditor(null)} onSaved={(saved) => { setEditor(null); setSelectedDate(saved.date); setRevision((current) => current + 1); }} />}
+		<div className="reservation-toolbar">
+			<label><span>Выбрать дату</span><input type="date" value={selectedDate} onChange={(event) => { if (event.target.value) setSelectedDate(event.target.value); }} /></label>
+			<button className="primary" type="button" disabled={!locations.length} onClick={() => { setSettings(null); setEditor({}); }}>Добавить бронь</button>
+		</div>
 		<details className="reservation-day-select">
 			<summary aria-label="Выберите день">
 				<span><small>День</small><strong>{formatReservationAdminDate(selectedDate)}</strong></span>
-				<span className="reservation-day-select-meta">{activeCount > 0 ? activeCount : "Нет броней"}<ChevronDown size={18} /></span>
+				<span className="reservation-day-select-meta">{dayReservations === null ? "Загружаем…" : activeCount > 0 ? activeCount : "Нет броней"}<ChevronDown size={18} /></span>
 			</summary>
 			<div className="reservation-day-options" role="listbox" aria-label="Дни с бронями">
 				{days.map((date) => {
@@ -1303,14 +1360,14 @@ function ReservationsTab({ reservations, locations, updatingLocation, focusDate,
           <div><h2>{formatReservationAdminDate(selectedDate)}</h2></div>
           {activeCount > 0 && <span className="reservation-day-count">{activeCount}</span>}
         </div>
-        {selectedReservations.length > 0 ? (
+				{dayReservations === null ? <p>Загружаем брони…</p> : selectedReservations.length > 0 ? (
           <div className="reservation-admin-list">
             {selectedReservations.map((reservation) => {
               const username = (reservation.client_username || "").replace(/^@/, "");
               const client = username ? `@${username}` : reservation.client_first_name || "Клиент";
               return (
                 <article className="reservation-admin-row" key={reservation.id}>
-                  <div className="reservation-admin-time"><strong>{reservation.start_hour}:00</strong><span>{reservation.end_hour}:00</span></div>
+									<div className="reservation-admin-time"><strong>{reservationTime(reservation.start_minute)}</strong><span>{reservationTime(reservation.end_minute)}</span></div>
                   <div className="reservation-admin-main">
                     <strong>{username ? (
                       <a
@@ -1325,9 +1382,9 @@ function ReservationsTab({ reservations, locations, updatingLocation, focusDate,
                         {client}
                       </a>
                     ) : client}</strong>
-									<span>{guestCountLabel(reservation.guests)} · {reservationLocationName(reservation.location_code, "ru")}{reservation.table_label ? ` · ${reservation.table_label}` : ""}</span>
+										<span>{guestCountLabel(reservation.guests)} · {reservationLocationName(reservation.location_code, "ru", reservation.location_name)}{reservation.table_label ? ` · ${reservation.table_label}` : ""}{reservation.manual ? " · вручную" : ""}</span>
                   </div>
-                  <button className="danger-outline" type="button" onClick={() => onCancel(reservation)}>Освободить</button>
+									<div className="reservation-row-actions"><button type="button" onClick={() => { setSettings(null); setEditor({ reservation }); }}>Изменить</button><button className="danger-outline" type="button" onClick={() => void onCancel(reservation).then((cancelled) => { if (cancelled) setRevision((current) => current + 1); })}>Освободить</button></div>
                 </article>
               );
             })}
@@ -2697,6 +2754,11 @@ function auditActionText(action: string): string {
     "schedule.update": "График изменён",
     "staff.create": "Сотрудник добавлен",
     "staff.update": "Сотрудник изменён",
+    "reservation_location.settings": "Настройки бронирования изменены",
+    "reservation_table.save": "Стол изменён",
+    "reservation.manual_create": "Бронь добавлена вручную",
+    "reservation.update": "Бронь изменена",
+    "reservation.cancel": "Бронь отменена",
   };
   return map[action] || action;
 }
@@ -2704,6 +2766,11 @@ function auditActionText(action: string): string {
 function errorText(error: unknown): string {
   const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "";
   if (code === "ORDER_STATUS_CONFLICT") return "Данные устарели или статус уже изменился. Обнови экран.";
+  if (code === "RESERVATION_SETTINGS_CONFLICT") return "Бронь или настройки уже изменились. Закройте форму и откройте её заново.";
+  if (code === "RESERVATION_CAPACITY_CONFLICT") return "Нельзя уменьшить вместимость: на это время уже есть брони с большим числом гостей.";
+  if (code === "RESERVATION_UNAVAILABLE") return "На это время нельзя создать бронь: недостаточно мест или время уже прошло. Выберите другое время.";
+  if (code === "IDEMPOTENCY_CONFLICT") return "Данные изменились при повторной отправке. Откройте форму заново.";
+  if (code === "DEMO_UNAVAILABLE") return "Эта настройка доступна в рабочей dev-админке, а не в демонстрационном режиме.";
   if (code === "INVALID_INPUT") return "Некорректные данные. Проверь поля и ограничения.";
   if (code === "TELEGRAM_INIT_DATA_MISSING") return "Откройте админку именно через Telegram Mini App. В обычном браузере или внешней вкладке Telegram не передаёт данные входа.";
   if (code === "AUTH_INVALID") return "Telegram-сессия устарела или открыта не через @TakoLako_main_bot. Полностью закройте Mini App и откройте заново из бота.";

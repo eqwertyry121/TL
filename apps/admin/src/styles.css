@@ -3142,3 +3142,40 @@ button:hover {
 	flex: 0 0 auto;
 	min-height: 2.75rem;
 }
+
+.reservation-location-row > .reservation-location-actions,
+.reservation-row-actions,
+.reservation-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.reservation-toolbar { justify-content: space-between; }
+.reservation-toolbar label { flex: 1 1 12rem; max-width: 18rem; }
+.reservation-editor { display: grid; gap: 0.9rem; }
+.reservation-editor h3 { margin: 0; }
+.reservation-editor-error { color: #9d271e; font-weight: 700; }
+.reservation-schedule, .reservation-tables-editor { display: grid; gap: 0.65rem; }
+.reservation-schedule-row, .reservation-table-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1fr) repeat(2, minmax(6.5rem, 1fr));
+  gap: 0.55rem;
+  align-items: end;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+}
+.reservation-table-row { grid-template-columns: minmax(9rem, 2fr) minmax(5rem, 1fr) auto auto; }
+.reservation-tables-editor { padding-top: 0.9rem; border-top: 1px solid var(--line); }
+
+@media (max-width: 540px) {
+  .reservation-location-row { align-items: start; flex-direction: column; }
+  .reservation-location-actions, .reservation-row-actions { width: 100%; }
+  .reservation-location-actions button, .reservation-row-actions button { flex: 1 1 auto; }
+  .reservation-schedule-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .reservation-schedule-row > .check { grid-column: 1 / -1; }
+  .reservation-table-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .reservation-toolbar label, .reservation-toolbar button { max-width: none; width: 100%; }
+}

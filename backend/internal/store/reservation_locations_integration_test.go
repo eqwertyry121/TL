@@ -27,12 +27,18 @@ func TestReservationLocationMigrationPreservesExistingBookings(t *testing.T) {
 	}
 	// Restore the pre-063 schema while retaining a real legacy reservation.
 	_, err = pool.Exec(ctx, `
+		DROP TABLE reservation_location_schedule;
+		ALTER TABLE reservations DROP CONSTRAINT reservations_owner_check,
+			DROP CONSTRAINT reservations_minute_check,
+			DROP COLUMN created_by_admin_user_id, DROP COLUMN start_minute, DROP COLUMN end_minute,
+			DROP COLUMN location_name_snapshot, DROP COLUMN location_address_snapshot, DROP COLUMN table_label_snapshot,
+			ALTER COLUMN client_user_id SET NOT NULL;
 		ALTER TABLE reservations DROP CONSTRAINT reservations_location_table_check,
 			DROP COLUMN location_code, ALTER COLUMN table_id SET NOT NULL,
 			DROP CONSTRAINT reservations_guests_check,
 			ADD CONSTRAINT reservations_guests_check CHECK (guests BETWEEN 1 AND 20);
 		DROP TABLE reservation_locations;
-		DELETE FROM schema_migrations WHERE version='063_reservation_locations.sql';
+		DELETE FROM schema_migrations WHERE version IN ('063_reservation_locations.sql', '064_reservation_management.sql');
 	`)
 	if err != nil {
 		t.Fatal(err)

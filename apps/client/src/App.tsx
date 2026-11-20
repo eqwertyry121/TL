@@ -124,7 +124,7 @@ function ClientMiniApp() {
 	const [reservationAvailability, setReservationAvailability] = useState<ReservationAvailability | null>(null);
 	const [reservationGuests, setReservationGuests] = useState(2);
 	const [reservationDay, setReservationDay] = useState("");
-	const [selectedReservation, setSelectedReservation] = useState<{ date: string; hour: number } | null>(null);
+	const [selectedReservation, setSelectedReservation] = useState<{ date: string; minute: number } | null>(null);
 	const [reservationLoading, setReservationLoading] = useState(false);
 	const [reservationSubmitting, setReservationSubmitting] = useState(false);
   const [reservationIdempotencyKey, setReservationIdempotencyKey] = useState("");
@@ -418,8 +418,8 @@ function ClientMiniApp() {
 				setReservationLocations(locations.locations);
 				setReservationAvailability(availability);
 				if (availability) {
-					setReservationDay((current) => availability.days.some((day) => day.date === current && day.hours.length) ? current : availability.days.find((day) => day.hours.length)?.date || "");
-					setSelectedReservation((current) => current && availability.days.some((day) => day.date === current.date && day.hours.includes(current.hour)) ? current : null);
+					setReservationDay((current) => availability.days.some((day) => day.date === current && day.minutes.length) ? current : availability.days.find((day) => day.minutes.length)?.date || "");
+					setSelectedReservation((current) => current && availability.days.some((day) => day.date === current.date && day.minutes.includes(current.minute)) ? current : null);
 				}
 			} catch (err) {
 				if (!signal.aborted) setError(errorText(err, locale));
@@ -847,7 +847,8 @@ function ClientMiniApp() {
 			const created = await withAuth((authToken) => api.createReservation(authToken, {
 				location_code: reservationLocation,
 				date: selectedReservation.date,
-				start_hour: selectedReservation.hour,
+				start_hour: Math.floor(selectedReservation.minute / 60),
+				start_minute: selectedReservation.minute,
 				guests: reservationGuests,
 				locale,
 			}, key), token);
@@ -989,7 +990,7 @@ function ClientMiniApp() {
 				onLocation={(code) => { setReservationLocation(code); setReservationGuests(2); setReservationAvailability(null); setReservationDay(""); setSelectedReservation(null); setReservationIdempotencyKey(""); }}
 				onGuests={(guests) => { setReservationGuests(guests); setReservationDay(""); setSelectedReservation(null); setReservationIdempotencyKey(""); }}
 				onDay={(day) => { setReservationDay(day); setSelectedReservation(null); }}
-				onSelect={(date, hour) => { setSelectedReservation({ date, hour }); setReservationIdempotencyKey(""); }}
+				onSelect={(date, minute) => { setSelectedReservation({ date, minute }); setReservationIdempotencyKey(""); }}
 				onSubmit={submitReservation}
 				onCancel={cancelCurrentReservation}
 			/>
@@ -2702,13 +2703,13 @@ function Booking({
 	availability: ReservationAvailability | null;
 	guests: number;
 	day: string;
-	selected: { date: string; hour: number } | null;
+	selected: { date: string; minute: number } | null;
 	loading: boolean;
 	submitting: boolean;
 	onLocation(code: string): void;
 	onGuests(guests: number): void;
 	onDay(day: string): void;
-	onSelect(date: string, hour: number): void;
+	onSelect(date: string, minute: number): void;
 	onSubmit(): void;
 	onCancel(): void;
 }) {
@@ -2732,8 +2733,8 @@ function Booking({
 					<div className="booking-active-copy">
 						<h2>{formatBookingDate(reservation.date, locale)}</h2>
 						<div className="booking-active-details">
-							<div><span>{copy.locationLabel}</span><strong>{reservationLocationName(reservation.location_code, locale)} · {reservation.location_address}</strong></div>
-							<div><span>{copy.timeLabel}</span><strong>{reservation.start_hour}:00–{reservation.end_hour}:00</strong></div>
+							<div><span>{copy.locationLabel}</span><strong>{reservationLocationName(reservation.location_code, locale, reservation.location_name)} · {reservation.location_address}</strong></div>
+							<div><span>{copy.timeLabel}</span><strong>{formatBookingTime(reservation.start_minute)}–{formatBookingTime(reservation.end_minute)}</strong></div>
 							<div><span>{copy.guestsLabel}</span><strong>{copy.guests(reservation.guests)}</strong></div>
 						</div>
 					</div>
@@ -2744,9 +2745,9 @@ function Booking({
 			</div>
 		);
 	}
-	const hasSlots = Boolean(availability?.days.some((day) => day.hours.length));
+	const hasSlots = Boolean(availability?.days.some((day) => day.minutes.length));
 	const location = locations.find((item) => item.code === locationCode);
-	const availableDays = availability?.days.filter((item) => item.hours.length) || [];
+	const availableDays = availability?.days.filter((item) => item.minutes.length) || [];
 	const activeDay = availableDays.find((item) => item.date === day) || availableDays[0];
 	return (
 		<div className="page narrow booking-page">
@@ -2758,7 +2759,7 @@ function Booking({
 						<button key={item.code} type="button" role="radio" aria-checked={locationCode === item.code}
 							className={locationCode === item.code ? "booking-location active" : "booking-location"}
 							disabled={!item.is_open || submitting} onClick={() => onLocation(item.code)}>
-							<strong>{reservationLocationName(item.code, locale)}</strong>
+							<strong>{reservationLocationName(item.code, locale, item.name)}</strong>
 							<span>{item.address}</span>
 							{!item.is_open && <small>{copy.closed}</small>}
 						</button>
@@ -2801,9 +2802,9 @@ function Booking({
 					</div>
 					<strong className="booking-time-label">{copy.chooseTime}</strong>
 					<div className="booking-hours">
-						{activeDay.hours.map((hour) => {
-							const active = selected?.date === activeDay.date && selected.hour === hour;
-							return <button type="button" className={active ? "active" : ""} key={hour} disabled={submitting} onClick={() => onSelect(activeDay.date, hour)}>{hour}:00</button>;
+						{activeDay.minutes.map((minute) => {
+							const active = selected?.date === activeDay.date && selected.minute === minute;
+							return <button type="button" className={active ? "active" : ""} key={minute} disabled={submitting} onClick={() => onSelect(activeDay.date, minute)}>{formatBookingTime(minute)}</button>;
 						})}
 					</div>
 				</section>
@@ -2811,7 +2812,7 @@ function Booking({
 			{!loading && !hasSlots && <div className="booking-empty">{copy.empty}</div>}
 			{selected && (
 				<div className="booking-submit-bar">
-					<div><span>{reservationLocationName(location.code, locale)} · {formatBookingDate(selected.date, locale)}</span><strong>{selected.hour}:00 · {copy.guests(guests)}</strong></div>
+					<div><span>{reservationLocationName(location.code, locale, location.name)} · {formatBookingDate(selected.date, locale)}</span><strong>{formatBookingTime(selected.minute)} · {copy.guests(guests)}</strong></div>
 					<button className="primary" type="button" disabled={submitting} onClick={onSubmit}>{submitting ? copy.booking : copy.submit}</button>
 				</div>
 			)}
@@ -2824,24 +2825,28 @@ function bookingCopy(locale: Locale) {
 	if (locale === "sr") return {
 		title: "Rezervacija stola", lead: "Izaberite lokaciju, broj gostiju i vreme.", loading: "Učitavanje...", booked: "Rezervacija je potvrđena",
 		chooseLocation: "Izaberite lokaciju", locationLabel: "Lokacija", closed: "Rezervacije su trenutno zatvorene",
-		guestLabel: "Broj gostiju", guestsLabel: "Gosti", timeLabel: "Vreme", chooseDate: "Izaberite datum", chooseTime: "Slobodno vreme", guests: (count: number) => `${count} ${count % 100 >= 11 && count % 100 <= 14 ? "gostiju" : count % 10 === 1 ? "gost" : count % 10 >= 2 && count % 10 <= 4 ? "gosta" : "gostiju"}`, noSlots: "Nema mesta", empty: "Nema slobodnih termina u narednih sedam dana.",
+		guestLabel: "Broj gostiju", guestsLabel: "Gosti", timeLabel: "Vreme", chooseDate: "Izaberite datum", chooseTime: "Slobodno vreme", guests: (count: number) => `${count} ${count % 100 >= 11 && count % 100 <= 14 ? "gostiju" : count % 10 === 1 ? "gost" : count % 10 >= 2 && count % 10 <= 4 ? "gosta" : "gostiju"}`, noSlots: "Nema mesta", empty: "Trenutno nema slobodnih termina.",
 		submit: "REZERVIŠI", booking: "REZERVIŠEMO...", cancel: "OTKAŽI REZERVACIJU", cancelling: "OTKAZUJEMO...",
 		cancelTitle: "Otkazati rezervaciju?", cancelMessage: "Termin će odmah biti oslobođen.", cancelConfirm: "Otkaži",
 	};
 	if (locale === "en") return {
 		title: "Table booking", lead: "Choose a location, the number of guests and a time.", loading: "Loading...", booked: "Booking confirmed",
 		chooseLocation: "Choose a location", locationLabel: "Location", closed: "Bookings are currently closed",
-		guestLabel: "Number of guests", guestsLabel: "Guests", timeLabel: "Time", chooseDate: "Choose a date", chooseTime: "Available times", guests: (count: number) => `${count} ${count === 1 ? "guest" : "guests"}`, noSlots: "Full", empty: "No available times in the next seven days.",
+		guestLabel: "Number of guests", guestsLabel: "Guests", timeLabel: "Time", chooseDate: "Choose a date", chooseTime: "Available times", guests: (count: number) => `${count} ${count === 1 ? "guest" : "guests"}`, noSlots: "Full", empty: "There are currently no available times.",
 		submit: "BOOK TABLE", booking: "BOOKING...", cancel: "CANCEL BOOKING", cancelling: "CANCELLING...",
 		cancelTitle: "Cancel the booking?", cancelMessage: "The time will become available immediately.", cancelConfirm: "Cancel",
 	};
 	return {
 		title: "Бронь стола", lead: "Выберите точку, количество гостей и время.", loading: "Загрузка...", booked: "Бронь подтверждена",
 		chooseLocation: "Выберите точку", locationLabel: "Точка", closed: "Бронирование временно закрыто",
-		guestLabel: "Количество гостей", guestsLabel: "Гости", timeLabel: "Время", chooseDate: "Выберите дату", chooseTime: "Свободное время", guests: (count: number) => `${count} ${count % 100 >= 11 && count % 100 <= 14 ? "гостей" : count % 10 === 1 ? "гость" : count % 10 >= 2 && count % 10 <= 4 ? "гостя" : "гостей"}`, noSlots: "Мест нет", empty: "На ближайшие семь дней свободного времени нет.",
+		guestLabel: "Количество гостей", guestsLabel: "Гости", timeLabel: "Время", chooseDate: "Выберите дату", chooseTime: "Свободное время", guests: (count: number) => `${count} ${count % 100 >= 11 && count % 100 <= 14 ? "гостей" : count % 10 === 1 ? "гость" : count % 10 >= 2 && count % 10 <= 4 ? "гостя" : "гостей"}`, noSlots: "Мест нет", empty: "Сейчас свободного времени нет.",
 		submit: "ЗАБРОНИРОВАТЬ", booking: "БРОНИРУЕМ...", cancel: "ОТМЕНИТЬ БРОНЬ", cancelling: "ОТМЕНЯЕМ...",
 		cancelTitle: "Отменить бронь?", cancelMessage: "Время сразу станет доступно другим гостям.", cancelConfirm: "Отменить",
 	};
+}
+
+function formatBookingTime(minutes: number): string {
+	return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
 
 function formatBookingDate(date: string, locale: Locale): string {

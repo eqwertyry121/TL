@@ -1,5 +1,6 @@
 import type {
   AdminAnalytics,
+  AdminReservationInput,
   AdminCategory,
   AdminDashboard,
   AdminMenuItem,
@@ -10,6 +11,10 @@ import type {
   OrderSummary,
 	Reservation,
 	ReservationLocation,
+	ReservationLocationSettings,
+	ReservationSettingsInput,
+	ReservationTable,
+	ReservationTableInput,
   Role,
   ScheduleDay,
   Settings,
@@ -214,8 +219,15 @@ export interface AdminApi {
   orders(token: string, filter?: { status?: string; q?: string; date?: string; limit?: number; offset?: number }, signal?: AbortSignal): Promise<AdminOrdersResponse>;
   order(token: string, id: string): Promise<Order>;
 	reservations(token: string, signal?: AbortSignal): Promise<{ reservations: Reservation[] }>;
+	reservationsOnDate(token: string, date: string, signal?: AbortSignal): Promise<{ reservations: Reservation[] }>;
 	reservationLocations(token: string, signal?: AbortSignal): Promise<{ locations: ReservationLocation[] }>;
 	setReservationLocation(token: string, code: string, isOpen: boolean): Promise<ReservationLocation>;
+	reservationSettings(token: string, code: string): Promise<ReservationLocationSettings>;
+	updateReservationSettings(token: string, code: string, input: ReservationSettingsInput): Promise<ReservationLocationSettings>;
+	createReservationTable(token: string, input: ReservationTableInput): Promise<ReservationTable>;
+	updateReservationTable(token: string, id: string, input: ReservationTableInput): Promise<ReservationTable>;
+	createManualReservation(token: string, input: AdminReservationInput, key: string): Promise<Reservation>;
+	updateReservation(token: string, id: string, input: AdminReservationInput): Promise<Reservation>;
 	cancelReservation(token: string, id: string): Promise<Reservation>;
   cancelOrder(token: string, id: string, reason: string): Promise<Order>;
   returnOrderToNew(token: string, id: string, reason: string): Promise<Order>;
@@ -306,7 +318,7 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
         response.orders = await adminOrders(options);
         break;
 			case "reservations":
-				response.reservations = await get(`${baseURL}/api/v1/admin/reservations`, token);
+				response.reservations = await get(`${baseURL}/api/v1/admin/reservations?precision=15`, token);
 				break;
       case "schedule":
         [response.schedule, response.settings] = await Promise.all([
@@ -336,6 +348,7 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
         return await post(`${baseURL}/api/v1/bootstrap/admin`, {
           init_data: initData,
           tab,
+          reservation_precision: 15,
           range: options.range,
           status: options.status,
           q: options.q,
@@ -368,9 +381,16 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
     updateSchedule: (token, schedule) => put(`${baseURL}/api/v1/admin/schedule`, { schedule }, token),
     orders: (token, filter = {}, signal) => fetchAdminOrders(baseURL, token, filter, signal),
     order: (token, id) => get(`${baseURL}/api/v1/admin/orders/${id}`, token),
-		reservations: (token, signal) => get(`${baseURL}/api/v1/admin/reservations`, token, signal),
+		reservations: (token, signal) => get(`${baseURL}/api/v1/admin/reservations?precision=15`, token, signal),
+		reservationsOnDate: (token, date, signal) => get(`${baseURL}/api/v1/admin/reservations?precision=15&date=${encodeURIComponent(date)}`, token, signal),
 		reservationLocations: (token, signal) => get(`${baseURL}/api/v1/reservations/locations`, token, signal),
 		setReservationLocation: (token, code, isOpen) => put(`${baseURL}/api/v1/admin/reservation-locations/${encodeURIComponent(code)}`, { is_open: isOpen }, token),
+		reservationSettings: (token, code) => get(`${baseURL}/api/v1/admin/reservation-locations/${encodeURIComponent(code)}/settings`, token),
+		updateReservationSettings: (token, code, input) => put(`${baseURL}/api/v1/admin/reservation-locations/${encodeURIComponent(code)}/settings`, input, token),
+		createReservationTable: (token, input) => post(`${baseURL}/api/v1/admin/reservation-tables`, input, token),
+		updateReservationTable: (token, id, input) => put(`${baseURL}/api/v1/admin/reservation-tables/${id}`, input, token),
+		createManualReservation: (token, input, key) => post(`${baseURL}/api/v1/admin/reservations`, input, token, undefined, { "Idempotency-Key": key }),
+		updateReservation: (token, id, input) => put(`${baseURL}/api/v1/admin/reservations/${id}`, input, token),
 		cancelReservation: (token, id) => post(`${baseURL}/api/v1/admin/reservations/${id}/cancel`, {}, token),
     cancelOrder: (token, id, reason) => post(`${baseURL}/api/v1/admin/orders/${id}/cancel`, { reason }, token),
     returnOrderToNew: (token, id, reason) => post(`${baseURL}/api/v1/admin/orders/${id}/return-to-new`, { reason }, token),
@@ -641,12 +661,21 @@ function demoApi(): AdminApi {
 		async reservations() {
 			return { reservations: [] };
 		},
+		async reservationsOnDate() {
+			return { reservations: [] };
+		},
 		async reservationLocations() {
 			return { locations: demoReservationLocations() };
 		},
 		async setReservationLocation(_token, code, isOpen) {
 			return setDemoReservationLocation(code, isOpen);
 		},
+		reservationSettings: async () => { throw apiError("DEMO_UNAVAILABLE"); },
+		updateReservationSettings: async () => { throw apiError("DEMO_UNAVAILABLE"); },
+		createReservationTable: async () => { throw apiError("DEMO_UNAVAILABLE"); },
+		updateReservationTable: async () => { throw apiError("DEMO_UNAVAILABLE"); },
+		createManualReservation: async () => { throw apiError("DEMO_UNAVAILABLE"); },
+		updateReservation: async () => { throw apiError("DEMO_UNAVAILABLE"); },
 		async cancelReservation() {
 			throw apiError("INVALID_INPUT");
 		},
@@ -765,8 +794,15 @@ function unconfiguredApi(): AdminApi {
     orders: fail,
     order: fail,
 		reservations: fail,
+		reservationsOnDate: fail,
 		reservationLocations: fail,
 		setReservationLocation: fail,
+		reservationSettings: fail,
+		updateReservationSettings: fail,
+		createReservationTable: fail,
+		updateReservationTable: fail,
+		createManualReservation: fail,
+		updateReservation: fail,
 		cancelReservation: fail,
     cancelOrder: fail,
     returnOrderToNew: fail,
@@ -814,12 +850,13 @@ async function fetchAdminOrders(baseURL: string, token: string, filter: { status
   return get(`${baseURL}/api/v1/admin/orders?${new URLSearchParams(clean(request))}`, token, signal);
 }
 
-async function post(url: string, body: unknown, token?: string, signal?: AbortSignal) {
+async function post(url: string, body: unknown, token?: string, signal?: AbortSignal, extraHeaders: Record<string, string> = {}) {
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...extraHeaders,
     },
     body: JSON.stringify(body),
     signal,

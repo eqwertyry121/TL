@@ -441,7 +441,7 @@ func TestAdminPickupOrderMessageTargetsActiveAdmin(t *testing.T) {
 }
 
 func TestOwnerReservationTextIsConciseAndActionable(t *testing.T) {
-	got := ownerReservationText("reservation_created", "Стол №1", "20.08.2026", 13, 3, "@eqwertyry")
+	got := ownerReservationText("reservation_created", "Стол №1", "20.08.2026", 13*60, 3, "@eqwertyry")
 	want := "Стол №1 забронирован на 13:00\nДата: 20.08.2026\nГостей: 3\nКлиент: @eqwertyry"
 	if got != want {
 		t.Fatalf("owner reservation text = %q, want %q", got, want)
@@ -455,8 +455,9 @@ func TestReservationMessagesIncludeLocationWithoutInventingTable(t *testing.T) {
 	userID := insertNotificationTestUser(t, ctx, pool)
 	var reservationID uuid.UUID
 	err := pool.QueryRow(ctx, `
-		INSERT INTO reservations (client_user_id, location_code, table_id, reservation_date, start_hour, end_hour, guests, idempotency_key)
-		VALUES ($1, 'podbara', NULL, '2026-08-20', 13, 15, 21, 'notification-location') RETURNING id
+		INSERT INTO reservations (client_user_id, location_code, table_id, reservation_date, start_hour, end_hour, start_minute, end_minute,
+			guests, idempotency_key, location_name_snapshot, location_address_snapshot)
+		VALUES ($1, 'podbara', NULL, '2026-08-20', 13, 15, 795, 885, 21, 'notification-location', 'Podbara', 'Temerinska 44') RETURNING id
 	`, userID).Scan(&reservationID)
 	if err != nil {
 		t.Fatal(err)
@@ -464,10 +465,11 @@ func TestReservationMessagesIncludeLocationWithoutInventingTable(t *testing.T) {
 	worker := &Worker{pool: pool, clientToken: "client-test", staffToken: "staff-test", ownerTelegramIDs: []int64{1048084234}}
 	for _, item := range []job{
 		{reservationID: reservationID, recipientKind: "client", template: "reservation_confirmed"},
+		{reservationID: reservationID, recipientKind: "client", template: "reservation_rescheduled_by_admin"},
 		{reservationID: reservationID, recipientKind: "admin", template: "reservation_created", eventKey: fmt.Sprintf("reservation:%s:created:owner:1048084234", reservationID)},
 	} {
 		_, _, text, err := worker.reservationMessage(ctx, item)
-		if err != nil || !strings.Contains(text, "Podbara") || !strings.Contains(text, "Temerinska 44") || strings.Contains(text, "Стол №") {
+		if err != nil || !strings.Contains(text, "Podbara") || !strings.Contains(text, "Temerinska 44") || !strings.Contains(text, "13:15") || strings.Contains(text, "Стол №") {
 			t.Fatalf("%s location message = %q, err=%v", item.recipientKind, text, err)
 		}
 	}

@@ -58,34 +58,37 @@ const (
 )
 
 var (
-	ErrForbidden                 = errors.New("forbidden")
-	ErrInvalidRole               = errors.New("invalid role")
-	ErrInvalidInput              = errors.New("invalid input")
-	ErrRestaurantClosed          = errors.New("restaurant closed")
-	ErrManualDayOff              = errors.New("manual day off")
-	ErrItemUnavailable           = errors.New("item unavailable")
-	ErrInvalidQuantity           = errors.New("invalid quantity")
-	ErrOrderStatusConflict       = errors.New("order status conflict")
-	ErrActiveOrderExists         = errors.New("active order exists")
-	ErrIdempotencyConflict       = errors.New("idempotency conflict")
-	ErrCalculationExpired        = errors.New("calculation expired")
-	ErrPaymentNotConfirmed       = errors.New("payment not confirmed")
-	ErrTermsRequired             = errors.New("terms acceptance required")
-	ErrContactNotVerified        = errors.New("contact not verified")
-	ErrCashLocationRequired      = errors.New("cash location verification required")
-	ErrCashLocationOutside       = errors.New("cash location outside delivery radius")
-	ErrCashLocationInaccurate    = errors.New("cash location inaccurate")
-	ErrPickupUnavailable         = errors.New("pickup unavailable")
-	ErrDeliveryUnavailable       = errors.New("delivery unavailable")
-	ErrPickupSlotUnavailable     = errors.New("pickup slot unavailable")
-	ErrDeliveryTimingUnavailable = errors.New("delivery timing unavailable")
-	ErrDeliverySlotUnavailable   = errors.New("delivery slot unavailable")
-	ErrDeliveryTimeInvalid       = errors.New("delivery time invalid")
-	ErrDeliveryMinimumNotMet     = errors.New("delivery minimum not met")
-	ErrReservationUnavailable    = errors.New("reservation unavailable")
-	ErrReservationLocationClosed = errors.New("reservation location closed")
-	ErrActiveReservationExists   = errors.New("active reservation exists")
-	ErrProductionUnsafeValue     = errors.New("unsafe production config")
+	ErrForbidden                   = errors.New("forbidden")
+	ErrInvalidRole                 = errors.New("invalid role")
+	ErrInvalidInput                = errors.New("invalid input")
+	ErrRestaurantClosed            = errors.New("restaurant closed")
+	ErrManualDayOff                = errors.New("manual day off")
+	ErrItemUnavailable             = errors.New("item unavailable")
+	ErrInvalidQuantity             = errors.New("invalid quantity")
+	ErrOrderStatusConflict         = errors.New("order status conflict")
+	ErrActiveOrderExists           = errors.New("active order exists")
+	ErrIdempotencyConflict         = errors.New("idempotency conflict")
+	ErrCalculationExpired          = errors.New("calculation expired")
+	ErrPaymentNotConfirmed         = errors.New("payment not confirmed")
+	ErrTermsRequired               = errors.New("terms acceptance required")
+	ErrContactNotVerified          = errors.New("contact not verified")
+	ErrCashLocationRequired        = errors.New("cash location verification required")
+	ErrCashLocationOutside         = errors.New("cash location outside delivery radius")
+	ErrCashLocationInaccurate      = errors.New("cash location inaccurate")
+	ErrPickupUnavailable           = errors.New("pickup unavailable")
+	ErrDeliveryUnavailable         = errors.New("delivery unavailable")
+	ErrPickupSlotUnavailable       = errors.New("pickup slot unavailable")
+	ErrDeliveryTimingUnavailable   = errors.New("delivery timing unavailable")
+	ErrDeliverySlotUnavailable     = errors.New("delivery slot unavailable")
+	ErrDeliveryTimeInvalid         = errors.New("delivery time invalid")
+	ErrDeliveryMinimumNotMet       = errors.New("delivery minimum not met")
+	ErrReservationUnavailable      = errors.New("reservation unavailable")
+	ErrReservationLocationClosed   = errors.New("reservation location closed")
+	ErrReservationSettingsConflict = errors.New("reservation settings changed")
+	ErrReservationCapacityConflict = errors.New("reservation capacity conflicts with bookings")
+	ErrReservationClientOutdated   = errors.New("reservation client update required")
+	ErrActiveReservationExists     = errors.New("active reservation exists")
+	ErrProductionUnsafeValue       = errors.New("unsafe production config")
 )
 
 type DeliverySlotUnavailableError struct {
@@ -242,7 +245,7 @@ const (
 type Reservation struct {
 	ID              uuid.UUID         `json:"id"`
 	PublicNumber    int               `json:"public_number"`
-	ClientUserID    uuid.UUID         `json:"client_user_id,omitempty"`
+	ClientUserID    *uuid.UUID        `json:"client_user_id,omitempty"`
 	ClientUsername  string            `json:"client_username,omitempty"`
 	ClientFirstName string            `json:"client_first_name,omitempty"`
 	LocationCode    string            `json:"location_code"`
@@ -253,6 +256,9 @@ type Reservation struct {
 	Date            string            `json:"date"`
 	StartHour       int               `json:"start_hour"`
 	EndHour         int               `json:"end_hour"`
+	StartMinute     int               `json:"start_minute"`
+	EndMinute       int               `json:"end_minute"`
+	Manual          bool              `json:"manual"`
 	Guests          int               `json:"guests"`
 	Status          ReservationStatus `json:"status"`
 	Locale          string            `json:"locale"`
@@ -262,17 +268,43 @@ type Reservation struct {
 }
 
 type ReservationLocation struct {
-	Code      string `json:"code"`
-	Name      string `json:"name"`
-	Address   string `json:"address"`
-	MaxGuests int    `json:"max_guests"`
-	Mode      string `json:"booking_mode"`
-	IsOpen    bool   `json:"is_open"`
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	Address      string `json:"address"`
+	MaxGuests    int    `json:"max_guests"`
+	Mode         string `json:"booking_mode"`
+	IsOpen       bool   `json:"is_open"`
+	SeatCapacity int    `json:"seat_capacity"`
+	StepMinutes  int    `json:"slot_step_minutes"`
+	Duration     int    `json:"duration_minutes"`
+	AdvanceDays  int    `json:"advance_days"`
+	Version      int    `json:"version"`
+}
+
+type ReservationScheduleDay struct {
+	DayOfWeek  int  `json:"day_of_week"`
+	IsOpen     bool `json:"is_open"`
+	FirstStart int  `json:"first_start_minute"`
+	LastStart  int  `json:"last_start_minute"`
+}
+
+type ReservationTable struct {
+	ID       uuid.UUID `json:"id"`
+	Label    string    `json:"label"`
+	Capacity int       `json:"capacity"`
+	Active   bool      `json:"active"`
+}
+
+type ReservationLocationSettings struct {
+	Location ReservationLocation      `json:"location"`
+	Schedule []ReservationScheduleDay `json:"schedule"`
+	Tables   []ReservationTable       `json:"tables"`
 }
 
 type ReservationAvailabilityDay struct {
-	Date  string `json:"date"`
-	Hours []int  `json:"hours"`
+	Date    string `json:"date"`
+	Hours   []int  `json:"hours"`
+	Minutes []int  `json:"minutes"`
 }
 
 type ReservationAvailability struct {

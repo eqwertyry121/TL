@@ -232,7 +232,7 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 21
+            maximum: 100
         - name: location
           in: query
           description: Location code; omitted means telep for older clients.
@@ -240,9 +240,15 @@ paths:
             type: string
       responses:
         "200":
-          description: Free two-hour reservation starts for the next seven days.
+          description: Free reservation starts in quarter-hour minutes and legacy whole-hour starts.
   /reservations/mine:
     get:
+      parameters:
+        - name: precision
+          in: query
+          schema:
+            type: integer
+            enum: [15]
       responses:
         "200":
           description: Current client's future active reservation or null.
@@ -266,10 +272,13 @@ paths:
                   format: date
                 start_hour:
                   type: integer
+                start_minute:
+                  type: integer
+                  description: Minutes since midnight, in 15-minute increments.
                 guests:
                   type: integer
                   minimum: 1
-                  maximum: 21
+                  maximum: 100
                 locale:
                   type: string
       responses:
@@ -682,9 +691,45 @@ paths:
           description: Admin order summary page did not change for the supplied If-None-Match validator.
   /admin/reservations:
     get:
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: precision
+          in: query
+          schema:
+            type: integer
+            enum: [15]
       responses:
         "200":
-          description: Reservations for the next seven days.
+          description: Reservations for one requested date, or the next seven days plus recently created future reservations.
+    post:
+      parameters:
+        - $ref: "#/components/parameters/idempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminReservationInput"
+      responses:
+        "201":
+          description: Staff-created reservation for a named guest.
+  /admin/reservations/{id}:
+    put:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminReservationInput"
+      responses:
+        "200":
+          description: Reservation updated after capacity and version checks.
   /admin/reservation-locations/{code}:
     put:
       parameters:
@@ -706,6 +751,57 @@ paths:
       responses:
         "200":
           description: Reservation intake for one location changed; existing reservations are retained.
+  /admin/reservation-locations/{code}/settings:
+    get:
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Location settings, weekly reservation schedule and tables.
+    put:
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReservationSettingsInput"
+      responses:
+        "200":
+          description: Settings saved; existing bookings retain their original details.
+  /admin/reservation-tables:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReservationTableInput"
+      responses:
+        "201":
+          description: Table added.
+  /admin/reservation-tables/{id}:
+    put:
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReservationTableInput"
+      responses:
+        "200":
+          description: Table updated; existing bookings are preserved.
   /admin/reservations/{id}/cancel:
     post:
       parameters:
@@ -1141,7 +1237,7 @@ components:
             $ref: "#/components/schemas/DailyAudienceRow"
     ReservationLocation:
       type: object
-      required: [code, name, address, max_guests, booking_mode, is_open]
+      required: [code, name, address, max_guests, booking_mode, is_open, seat_capacity, slot_step_minutes, duration_minutes, advance_days, version]
       properties:
         code:
           type: string
@@ -1156,9 +1252,111 @@ components:
           enum: [tables, seats]
         is_open:
           type: boolean
+        seat_capacity:
+          type: integer
+        slot_step_minutes:
+          type: integer
+        duration_minutes:
+          type: integer
+        advance_days:
+          type: integer
+        version:
+          type: integer
+    ReservationScheduleDay:
+      type: object
+      required: [day_of_week, is_open, first_start_minute, last_start_minute]
+      properties:
+        day_of_week:
+          type: integer
+        is_open:
+          type: boolean
+        first_start_minute:
+          type: integer
+        last_start_minute:
+          type: integer
+    ReservationTable:
+      type: object
+      required: [id, label, capacity, active]
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+        capacity:
+          type: integer
+        active:
+          type: boolean
+    ReservationLocationSettings:
+      type: object
+      required: [location, schedule, tables]
+      properties:
+        location:
+          $ref: "#/components/schemas/ReservationLocation"
+        schedule:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReservationScheduleDay"
+        tables:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReservationTable"
+    ReservationSettingsInput:
+      type: object
+      required: [name, address, max_guests, seat_capacity, slot_step_minutes, duration_minutes, advance_days, version, schedule]
+      properties:
+        name:
+          type: string
+        address:
+          type: string
+        max_guests:
+          type: integer
+        seat_capacity:
+          type: integer
+        slot_step_minutes:
+          type: integer
+        duration_minutes:
+          type: integer
+        advance_days:
+          type: integer
+        version:
+          type: integer
+        schedule:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReservationScheduleDay"
+    ReservationTableInput:
+      type: object
+      required: [label, capacity, active]
+      properties:
+        label:
+          type: string
+        capacity:
+          type: integer
+        active:
+          type: boolean
+    AdminReservationInput:
+      type: object
+      required: [location_code, date, start_minute, duration_minutes, guests, guest_name]
+      properties:
+        location_code:
+          type: string
+        date:
+          type: string
+          format: date
+        start_minute:
+          type: integer
+        duration_minutes:
+          type: integer
+        guests:
+          type: integer
+        guest_name:
+          type: string
+        expected_version:
+          type: integer
     Reservation:
       type: object
-      required: [id, public_number, location_code, location_name, location_address, table_label, date, start_hour, end_hour, guests, status, locale, version, created_at]
+      required: [id, public_number, location_code, location_name, location_address, table_label, date, start_hour, end_hour, start_minute, end_minute, manual, guests, status, locale, version, created_at]
       properties:
         id:
           type: string
@@ -1190,6 +1388,12 @@ components:
           type: integer
         end_hour:
           type: integer
+        start_minute:
+          type: integer
+        end_minute:
+          type: integer
+        manual:
+          type: boolean
         guests:
           type: integer
         status:

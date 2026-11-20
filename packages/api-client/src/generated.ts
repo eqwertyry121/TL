@@ -116,6 +116,59 @@ export interface ReservationLocation {
   max_guests: number;
   booking_mode: "tables" | "seats";
   is_open: boolean;
+  seat_capacity: number;
+  slot_step_minutes: number;
+  duration_minutes: number;
+  advance_days: number;
+  version: number;
+}
+
+export interface ReservationScheduleDay {
+  day_of_week: number;
+  is_open: boolean;
+  first_start_minute: number;
+  last_start_minute: number;
+}
+
+export interface ReservationTable {
+  id: string;
+  label: string;
+  capacity: number;
+  active: boolean;
+}
+
+export interface ReservationLocationSettings {
+  location: ReservationLocation;
+  schedule: ReservationScheduleDay[];
+  tables: ReservationTable[];
+}
+
+export interface ReservationSettingsInput {
+  name: string;
+  address: string;
+  max_guests: number;
+  seat_capacity: number;
+  slot_step_minutes: number;
+  duration_minutes: number;
+  advance_days: number;
+  version: number;
+  schedule: ReservationScheduleDay[];
+}
+
+export interface ReservationTableInput {
+  label: string;
+  capacity: number;
+  active: boolean;
+}
+
+export interface AdminReservationInput {
+  location_code: string;
+  date: string;
+  start_minute: number;
+  duration_minutes: number;
+  guests: number;
+  guest_name: string;
+  expected_version?: number;
 }
 
 export interface Reservation {
@@ -132,6 +185,9 @@ export interface Reservation {
   date: string;
   start_hour: number;
   end_hour: number;
+  start_minute: number;
+  end_minute: number;
+  manual: boolean;
   guests: number;
   status: "CONFIRMED" | "CANCELLED";
   locale: string;
@@ -143,7 +199,7 @@ export interface Reservation {
 export interface ReservationAvailability {
   timezone: "Europe/Belgrade";
   guests: number;
-  days: Array<{ date: string; hours: number[] }>;
+  days: Array<{ date: string; hours: number[]; minutes: number[] }>;
 }
 
 export interface AdminCategory {
