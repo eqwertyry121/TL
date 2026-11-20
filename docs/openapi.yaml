@@ -210,6 +210,20 @@ paths:
                 $ref: "#/components/schemas/DeliverySlots"
         "409":
           description: Delivery timing is disabled or no slot remains today.
+  /reservations/locations:
+    get:
+      responses:
+        "200":
+          description: Reservation locations, addresses, guest limits and open status for clients or admins.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  locations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReservationLocation"
   /reservations/availability:
     get:
       parameters:
@@ -218,7 +232,12 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 5
+            maximum: 21
+        - name: location
+          in: query
+          description: Location code; omitted means telep for older clients.
+          schema:
+            type: string
       responses:
         "200":
           description: Free two-hour reservation starts for the next seven days.
@@ -231,11 +250,33 @@ paths:
     post:
       parameters:
         - $ref: "#/components/parameters/idempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date, start_hour, guests, locale]
+              properties:
+                location_code:
+                  type: string
+                  description: Location code; omitted means telep for older clients.
+                date:
+                  type: string
+                  format: date
+                start_hour:
+                  type: integer
+                guests:
+                  type: integer
+                  minimum: 1
+                  maximum: 21
+                locale:
+                  type: string
       responses:
         "201":
-          description: Table assigned and reservation created transactionally.
+          description: Reservation and either a table or the requested seats assigned transactionally.
         "409":
-          description: Slot was taken or the client already has an active reservation.
+          description: Slot was taken, the location was closed, or the client already has an active reservation.
   /reservations/{id}/cancel:
     post:
       parameters:
@@ -644,6 +685,27 @@ paths:
       responses:
         "200":
           description: Reservations for the next seven days.
+  /admin/reservation-locations/{code}:
+    put:
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_open]
+              properties:
+                is_open:
+                  type: boolean
+      responses:
+        "200":
+          description: Reservation intake for one location changed; existing reservations are retained.
   /admin/reservations/{id}/cancel:
     post:
       parameters:
@@ -1077,9 +1139,26 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DailyAudienceRow"
+    ReservationLocation:
+      type: object
+      required: [code, name, address, max_guests, booking_mode, is_open]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        address:
+          type: string
+        max_guests:
+          type: integer
+        booking_mode:
+          type: string
+          enum: [tables, seats]
+        is_open:
+          type: boolean
     Reservation:
       type: object
-      required: [id, public_number, table_label, date, start_hour, end_hour, guests, status, locale, version, created_at]
+      required: [id, public_number, location_code, location_name, location_address, table_label, date, start_hour, end_hour, guests, status, locale, version, created_at]
       properties:
         id:
           type: string
@@ -1092,6 +1171,12 @@ components:
         client_username:
           type: string
         client_first_name:
+          type: string
+        location_code:
+          type: string
+        location_name:
+          type: string
+        location_address:
           type: string
         table_id:
           type: string

@@ -1,4 +1,5 @@
-import type { AdminAnalytics, AdminCategory, AdminDashboard, AdminMenuItem, AdminOrderCounts, AuditEntry, AuditLogResponse, Order, OrderSummary, Reservation, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
+import type { AdminAnalytics, AdminCategory, AdminDashboard, AdminMenuItem, AdminOrderCounts, AuditEntry, AuditLogResponse, Order, OrderSummary, Reservation, ReservationLocation, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
+import { reservationLocationName } from "@tk-delivery/api-client/reservation-locations";
 import { createSingleFlightAuthRetry } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { startVisiblePolling } from "@tk-delivery/api-client/polling";
@@ -55,7 +56,7 @@ const moreTabIds = new Set<AdminTab>(moreTabs.map((entry) => entry.id));
 const quickSchedule = { open_time: "10:00", order_cutoff_time: "21:00", close_time: "22:00" };
 type AdminActionOptions = { reload?: boolean; refreshDashboard?: boolean; successMessage?: string };
 type AdminActionRunner = <T>(action: (authToken: string) => Promise<T>, options?: AdminActionOptions) => Promise<T | undefined>;
-type AdminLoadKey = "dashboard" | "menu" | "settings" | "schedule" | "orders" | "reservations" | "analytics" | "audit";
+type AdminLoadKey = "dashboard" | "menu" | "settings" | "schedule" | "orders" | "reservations" | "reservationLocations" | "analytics" | "audit";
 type OrdersView = "active" | "new" | "ready" | "history";
 type OrderLoadFilter = { status?: string; q?: string; date?: string; limit?: number; offset?: number };
 type AdminOrdersPageState = Pick<AdminOrdersResponse, "limit" | "offset" | "has_more" | "counts">;
@@ -98,6 +99,8 @@ export function App() {
   const [schedule, setSchedule] = useState<ScheduleDay[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
 	const [reservations, setReservations] = useState<Reservation[]>([]);
+	const [reservationLocations, setReservationLocations] = useState<ReservationLocation[]>([]);
+	const [updatingLocation, setUpdatingLocation] = useState("");
 	const [reservationAlerts, setReservationAlerts] = useState<Reservation[]>([]);
 	const [reservationFocusDate, setReservationFocusDate] = useState("");
   const [ordersPage, setOrdersPage] = useState<AdminOrdersPageState>({ limit: 20, offset: 0, has_more: false });
@@ -177,6 +180,9 @@ export function App() {
             break;
 					case "reservations":
 						acceptReservationSnapshot((entry.value as { reservations: Reservation[] }).reservations, ownerAccess);
+						break;
+					case "reservationLocations":
+						setReservationLocations((entry.value as { locations: ReservationLocation[] }).locations);
 						break;
           case "analytics":
             setAnalytics(entry.value as AdminAnalytics);
@@ -264,6 +270,7 @@ export function App() {
       sections.push(["orders", api.orders(authToken, normalizeOrderLoadFilter(ordersFilter))]);
 		} else if (targetTab === "reservations") {
 			sections.push(["reservations", api.reservations(authToken)]);
+			sections.push(["reservationLocations", api.reservationLocations(authToken)]);
     } else if (targetTab === "schedule") {
       sections.push(["schedule", api.schedule(authToken)]);
       sections.push(["settings", api.settings(authToken)]);
@@ -376,17 +383,22 @@ export function App() {
   }, [tab, token]);
 
   useEffect(() => {
-    if (!token || (!ownerAccess && tab !== "reservations")) return undefined;
+    if (!token || updatingLocation || (!ownerAccess && tab !== "reservations")) return undefined;
     const intervalMs = tab === "reservations" ? 10000 : 15000;
     return startVisiblePolling(async (signal) => {
       try {
-        const next = (await withAuth((authToken) => api.reservations(authToken, signal))).reservations;
+        const [snapshot, locations] = await Promise.all([
+          withAuth((authToken) => api.reservations(authToken, signal)),
+          tab === "reservations" ? withAuth((authToken) => api.reservationLocations(authToken, signal)) : Promise.resolve(null),
+        ]);
+        const next = snapshot.reservations;
         acceptReservationSnapshot(next, ownerAccess);
+        if (locations) setReservationLocations(locations.locations);
       } catch {
         if (!signal.aborted && tab === "reservations") setError("Не удалось обновить брони");
       }
-    }, intervalMs);
-  }, [ownerAccess, tab, token]);
+		}, intervalMs, tab === "reservations");
+  }, [ownerAccess, tab, token, updatingLocation]);
 
   async function run<T>(action: (authToken: string) => Promise<T>, options: AdminActionOptions = {}): Promise<T | undefined> {
     setError("");
@@ -494,13 +506,21 @@ export function App() {
 
 	async function cancelBooking(reservation: Reservation) {
 		const confirmed = await askConfirm({
-			title: "Освободить стол?",
-			message: `${formatReservationAdminDate(reservation.date)} в ${reservation.start_hour}:00 · ${reservation.guests} гостей`,
-			confirmLabel: "Освободить",
+			title: "Отменить бронь?",
+			message: `${reservationLocationName(reservation.location_code, "ru")} · ${formatReservationAdminDate(reservation.date)} в ${reservation.start_hour}:00 · ${guestCountLabel(reservation.guests)}`,
+			confirmLabel: "Отменить бронь",
 			variant: "danger",
 		});
 		if (!confirmed) return;
-		await run((authToken) => api.cancelReservation(authToken, reservation.id), { successMessage: "Стол освобождён" });
+		await run((authToken) => api.cancelReservation(authToken, reservation.id), { successMessage: "Бронь отменена" });
+	}
+
+	async function toggleReservationLocation(location: ReservationLocation) {
+		if (updatingLocation) return;
+		setUpdatingLocation(location.code);
+		const updated = await run((authToken) => api.setReservationLocation(authToken, location.code, !location.is_open), { reload: false, successMessage: location.is_open ? "Бронирование закрыто" : "Бронирование открыто" });
+		if (updated) setReservationLocations((current) => current.map((item) => item.code === updated.code ? updated : item));
+		setUpdatingLocation("");
 	}
 
   async function setDeliveryEnabled(enabled: boolean) {
@@ -524,7 +544,7 @@ export function App() {
       ) : <SectionSkeleton title="Главная" />;
     }
     if (tab === "orders") return <OrdersTab orders={orders} page={ordersPage} initialView={ordersInitialView} onLoad={loadOrders} onLoadOrder={loadOrderDetail} onAction={run} />;
-		if (tab === "reservations") return <ReservationsTab reservations={reservations} focusDate={reservationFocusDate} onCancel={cancelBooking} />;
+		if (tab === "reservations") return <ReservationsTab reservations={reservations} locations={reservationLocations} updatingLocation={updatingLocation} focusDate={reservationFocusDate} onToggleLocation={toggleReservationLocation} onCancel={cancelBooking} />;
     if (tab === "menu") return <MenuTab menu={menu} onAction={run} />;
     if (tab === "schedule") {
       return schedule.length && dashboard && settings ? (
@@ -581,8 +601,8 @@ export function App() {
 				>
 					<span className="owner-reservation-alert-icon"><BellRing size={20} /></span>
 					<span>
-						<strong>{reservationAlert.table_label} забронирован на {String(reservationAlert.start_hour).padStart(2, "0")}:00</strong>
-						<small>{formatReservationShortDate(reservationAlert.date)} · {guestCountLabel(reservationAlert.guests)}</small>
+						<strong>{reservationLocationName(reservationAlert.location_code, "ru")} · бронь на {String(reservationAlert.start_hour).padStart(2, "0")}:00</strong>
+						<small>{formatReservationShortDate(reservationAlert.date)} · {guestCountLabel(reservationAlert.guests)}{reservationAlert.table_label ? ` · ${reservationAlert.table_label}` : ""}</small>
 					</span>
 				</button>
 				<button className="owner-reservation-alert-close" aria-label="Закрыть уведомление" onClick={() => setReservationAlerts((current) => current.slice(1))} type="button"><X size={18} /></button>
@@ -1227,7 +1247,7 @@ function DishForm({
   );
 }
 
-function ReservationsTab({ reservations, focusDate, onCancel }: { reservations: Reservation[]; focusDate: string; onCancel(reservation: Reservation): void }) {
+function ReservationsTab({ reservations, locations, updatingLocation, focusDate, onToggleLocation, onCancel }: { reservations: Reservation[]; locations: ReservationLocation[]; updatingLocation: string; focusDate: string; onToggleLocation(location: ReservationLocation): void; onCancel(reservation: Reservation): void }) {
   const days = useMemo(() => reservationAdminDays(7), []);
   const [selectedDate, setSelectedDate] = useState(days[0]);
 	const selectedReservations = reservations.filter((reservation) => reservation.date === selectedDate && reservation.status === "CONFIRMED");
@@ -1239,6 +1259,17 @@ function ReservationsTab({ reservations, focusDate, onCancel }: { reservations: 
 
   return (
     <div className="admin-stack reservations-admin">
+		<section className="panel reservation-location-panel">
+			<div className="section-heading"><h2>Приём брони</h2></div>
+			{locations.length === 0 ? <p>Загружаем точки…</p> : locations.map((location) => (
+				<div className="reservation-location-row" key={location.code}>
+					<div><strong>{reservationLocationName(location.code, "ru")}</strong><span>{location.address}</span><small>{location.is_open ? "Бронирование открыто" : "Бронирование закрыто"}</small></div>
+					<button type="button" className={location.is_open ? "danger-outline" : "secondary"} disabled={Boolean(updatingLocation)} onClick={() => onToggleLocation(location)}>
+						{location.is_open ? "Закрыть" : "Открыть"}
+					</button>
+				</div>
+			))}
+		</section>
 		<details className="reservation-day-select">
 			<summary aria-label="Выберите день">
 				<span><small>День</small><strong>{formatReservationAdminDate(selectedDate)}</strong></span>
@@ -1294,7 +1325,7 @@ function ReservationsTab({ reservations, focusDate, onCancel }: { reservations: 
                         {client}
                       </a>
                     ) : client}</strong>
-                    <span>{reservation.guests} гостей · {reservation.table_label}</span>
+									<span>{guestCountLabel(reservation.guests)} · {reservationLocationName(reservation.location_code, "ru")}{reservation.table_label ? ` · ${reservation.table_label}` : ""}</span>
                   </div>
                   <button className="danger-outline" type="button" onClick={() => onCancel(reservation)}>Освободить</button>
                 </article>
@@ -2690,6 +2721,7 @@ function adminLoadLabel(key: AdminLoadKey): string {
     schedule: "график",
     orders: "заказы",
 		reservations: "брони",
+		reservationLocations: "точки бронирования",
     analytics: "аналитика",
     audit: "журнал",
   };

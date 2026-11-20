@@ -89,7 +89,7 @@ func run(logger *slog.Logger) error {
 		pool,
 		box,
 		cfg.NotificationPollInterval,
-		cfg.NotificationDryRun,
+		cfg.NotificationDryRun || cfg.DevSandboxMode,
 		cfg.NotificationConcurrency,
 		cfg.NotificationBacklogAfter,
 		cfg.ClientBotToken,

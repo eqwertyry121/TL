@@ -1,7 +1,8 @@
-import type { FulfillmentType, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Reservation, ReservationAvailability, Role, Runtime } from "@tk-delivery/api-client/generated";
+import type { FulfillmentType, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Reservation, ReservationAvailability, ReservationLocation, Role, Runtime } from "@tk-delivery/api-client/generated";
 import { createSingleFlightAuthRetry, isAuthErrorLike } from "@tk-delivery/api-client/auth-retry";
 import { installPerformanceBeacon } from "@tk-delivery/api-client/performance";
 import { startVisiblePolling } from "@tk-delivery/api-client/polling";
+import { reservationLocationName } from "@tk-delivery/api-client/reservation-locations";
 import { isOwnerTelegramId, roleLinks } from "@tk-delivery/api-client/role-switch";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -118,6 +119,8 @@ function ClientMiniApp() {
   const [error, setError] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
 	const [reservation, setReservation] = useState<Reservation | null>(null);
+	const [reservationLocations, setReservationLocations] = useState<ReservationLocation[]>([]);
+	const [reservationLocation, setReservationLocation] = useState("");
 	const [reservationAvailability, setReservationAvailability] = useState<ReservationAvailability | null>(null);
 	const [reservationGuests, setReservationGuests] = useState(2);
 	const [reservationDay, setReservationDay] = useState("");
@@ -401,24 +404,30 @@ function ClientMiniApp() {
   }, [route.name, token, withAuth]);
 
 	useEffect(() => {
-		if (!token || route.name !== "booking") return;
-		let stopped = false;
+		if (!token || route.name !== "booking" || reservationSubmitting) return;
 		setReservationLoading(true);
-		Promise.all([
-			withAuth((authToken) => api.myReservation(authToken), token),
-			withAuth((authToken) => api.reservationAvailability(authToken, reservationGuests), token),
-		]).then(([mine, availability]) => {
-			if (stopped) return;
-			setReservation(mine.reservation);
-			setReservationAvailability(availability);
-			setReservationDay((current) => availability.days.some((day) => day.date === current && day.hours.length) ? current : availability.days.find((day) => day.hours.length)?.date || "");
-		}).catch((err) => {
-			if (!stopped) setError(errorText(err, locale));
-		}).finally(() => {
-			if (!stopped) setReservationLoading(false);
-		});
-		return () => { stopped = true; };
-	}, [route.name, token, reservationGuests, locale, withAuth]);
+		return startVisiblePolling(async (signal) => {
+			try {
+				const [mine, locations, availability] = await Promise.all([
+					withAuth((authToken) => api.myReservation(authToken, signal), token),
+					withAuth((authToken) => api.reservationLocations(authToken, signal), token),
+					reservationLocation ? withAuth((authToken) => api.reservationAvailability(authToken, reservationLocation, reservationGuests, signal), token) : Promise.resolve(null),
+				]);
+				if (signal.aborted) return;
+				setReservation(mine.reservation);
+				setReservationLocations(locations.locations);
+				setReservationAvailability(availability);
+				if (availability) {
+					setReservationDay((current) => availability.days.some((day) => day.date === current && day.hours.length) ? current : availability.days.find((day) => day.hours.length)?.date || "");
+					setSelectedReservation((current) => current && availability.days.some((day) => day.date === current.date && day.hours.includes(current.hour)) ? current : null);
+				}
+			} catch (err) {
+				if (!signal.aborted) setError(errorText(err, locale));
+			} finally {
+				if (!signal.aborted) setReservationLoading(false);
+			}
+		}, 10000, true);
+	}, [route.name, token, reservationLocation, reservationGuests, reservationSubmitting, locale, withAuth]);
 
   useEffect(() => {
     if (!(route.name === "order" || route.name === "add") || !token || routeOrderTerminal) return;
@@ -829,13 +838,14 @@ function ClientMiniApp() {
   }
 
 	async function submitReservation() {
-		if (!token || !selectedReservation || reservationSubmitting) return;
+		if (!token || !reservationLocation || !selectedReservation || reservationSubmitting) return;
 		setReservationSubmitting(true);
 		setError("");
 		const key = reservationIdempotencyKey || crypto.randomUUID();
 		if (!reservationIdempotencyKey) setReservationIdempotencyKey(key);
 		try {
 			const created = await withAuth((authToken) => api.createReservation(authToken, {
+				location_code: reservationLocation,
 				date: selectedReservation.date,
 				start_hour: selectedReservation.hour,
 				guests: reservationGuests,
@@ -846,6 +856,11 @@ function ClientMiniApp() {
 			setReservationIdempotencyKey("");
 			haptic();
 		} catch (err) {
+			if (typeof err === "object" && err !== null && "code" in err && err.code === "RESERVATION_LOCATION_CLOSED") {
+				setReservationLocations((current) => current.map((location) => location.code === reservationLocation ? { ...location, is_open: false } : location));
+				setReservationAvailability(null);
+				setSelectedReservation(null);
+			}
 			setError(errorText(err, locale));
 		} finally {
 			setReservationSubmitting(false);
@@ -865,7 +880,8 @@ function ClientMiniApp() {
 		try {
 			await withAuth((authToken) => api.cancelReservation(authToken, reservation.id), token);
 			setReservation(null);
-			setReservationAvailability(await withAuth((authToken) => api.reservationAvailability(authToken, reservationGuests), token));
+			setReservationLocation("");
+			setReservationAvailability(null);
 			haptic();
 		} catch (err) {
 			setError(errorText(err, locale));
@@ -962,12 +978,15 @@ function ClientMiniApp() {
 				locale={locale}
 				session={data.session}
 				reservation={reservation}
+				locations={reservationLocations}
+				locationCode={reservationLocation}
 				availability={reservationAvailability}
 				guests={reservationGuests}
 				day={reservationDay}
 				selected={selectedReservation}
 				loading={reservationLoading}
 				submitting={reservationSubmitting}
+				onLocation={(code) => { setReservationLocation(code); setReservationGuests(2); setReservationAvailability(null); setReservationDay(""); setSelectedReservation(null); setReservationIdempotencyKey(""); }}
 				onGuests={(guests) => { setReservationGuests(guests); setReservationDay(""); setSelectedReservation(null); setReservationIdempotencyKey(""); }}
 				onDay={(day) => { setReservationDay(day); setSelectedReservation(null); }}
 				onSelect={(date, hour) => { setSelectedReservation({ date, hour }); setReservationIdempotencyKey(""); }}
@@ -2660,12 +2679,15 @@ function Booking({
 	locale,
 	session,
 	reservation,
+	locations,
+	locationCode,
 	availability,
 	guests,
 	day,
 	selected,
 	loading,
 	submitting,
+	onLocation,
 	onGuests,
 	onDay,
 	onSelect,
@@ -2675,12 +2697,15 @@ function Booking({
 	locale: Locale;
 	session: Session | null;
 	reservation: Reservation | null;
+	locations: ReservationLocation[];
+	locationCode: string;
 	availability: ReservationAvailability | null;
 	guests: number;
 	day: string;
 	selected: { date: string; hour: number } | null;
 	loading: boolean;
 	submitting: boolean;
+	onLocation(code: string): void;
 	onGuests(guests: number): void;
 	onDay(day: string): void;
 	onSelect(date: string, hour: number): void;
@@ -2707,6 +2732,7 @@ function Booking({
 					<div className="booking-active-copy">
 						<h2>{formatBookingDate(reservation.date, locale)}</h2>
 						<div className="booking-active-details">
+							<div><span>{copy.locationLabel}</span><strong>{reservationLocationName(reservation.location_code, locale)} · {reservation.location_address}</strong></div>
 							<div><span>{copy.timeLabel}</span><strong>{reservation.start_hour}:00–{reservation.end_hour}:00</strong></div>
 							<div><span>{copy.guestsLabel}</span><strong>{copy.guests(reservation.guests)}</strong></div>
 						</div>
@@ -2719,15 +2745,37 @@ function Booking({
 		);
 	}
 	const hasSlots = Boolean(availability?.days.some((day) => day.hours.length));
+	const location = locations.find((item) => item.code === locationCode);
 	const availableDays = availability?.days.filter((item) => item.hours.length) || [];
 	const activeDay = availableDays.find((item) => item.date === day) || availableDays[0];
 	return (
 		<div className="page narrow booking-page">
 			<div className="page-title booking-title"><h1>{copy.title}</h1><p>{copy.lead}</p></div>
+			<section className="booking-locations" aria-label={copy.chooseLocation}>
+				<strong>{copy.chooseLocation}</strong>
+				<div className="booking-location-options" role="radiogroup" aria-label={copy.chooseLocation}>
+					{locations.map((item) => (
+						<button key={item.code} type="button" role="radio" aria-checked={locationCode === item.code}
+							className={locationCode === item.code ? "booking-location active" : "booking-location"}
+							disabled={!item.is_open || submitting} onClick={() => onLocation(item.code)}>
+							<strong>{reservationLocationName(item.code, locale)}</strong>
+							<span>{item.address}</span>
+							{!item.is_open && <small>{copy.closed}</small>}
+						</button>
+					))}
+				</div>
+			</section>
+			{location && !location.is_open && <div className="booking-empty">{copy.closed}</div>}
+			{location?.is_open && <>
 			<section className="booking-guests" aria-label={copy.guestLabel}>
 				<span className="booking-guest-label">{copy.guestLabel}</span>
+				{location.max_guests > 5 ? (
+					<select className="booking-guest-select" aria-label={copy.guestLabel} value={guests} disabled={submitting} onChange={(event) => onGuests(Number(event.target.value))}>
+						{Array.from({ length: location.max_guests }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{copy.guests(count)}</option>)}
+					</select>
+				) : (
 				<div className="booking-guest-options" role="radiogroup" aria-label={copy.guestLabel}>
-					{[1, 2, 3, 4, 5].map((count) => (
+					{Array.from({ length: location.max_guests }, (_, index) => index + 1).map((count) => (
 						<button
 							type="button"
 							role="radio"
@@ -2742,6 +2790,7 @@ function Booking({
 						</button>
 					))}
 				</div>
+				)}
 			</section>
 			{activeDay && (
 				<section className="booking-days">
@@ -2762,30 +2811,34 @@ function Booking({
 			{!loading && !hasSlots && <div className="booking-empty">{copy.empty}</div>}
 			{selected && (
 				<div className="booking-submit-bar">
-					<div><span>{formatBookingDate(selected.date, locale)}</span><strong>{selected.hour}:00 · {copy.guests(guests)}</strong></div>
+					<div><span>{reservationLocationName(location.code, locale)} · {formatBookingDate(selected.date, locale)}</span><strong>{selected.hour}:00 · {copy.guests(guests)}</strong></div>
 					<button className="primary" type="button" disabled={submitting} onClick={onSubmit}>{submitting ? copy.booking : copy.submit}</button>
 				</div>
 			)}
+			</>}
 		</div>
 	);
 }
 
 function bookingCopy(locale: Locale) {
 	if (locale === "sr") return {
-		title: "Rezervacija stola", lead: "Izaberite broj gostiju i vreme.", loading: "Učitavanje...", booked: "Sto je rezervisan",
-		guestLabel: "Broj gostiju", guestsLabel: "Gosti", timeLabel: "Vreme", chooseDate: "Izaberite datum", chooseTime: "Slobodno vreme", guests: (count: number) => `${count} ${count === 1 ? "gost" : "gostiju"}`, noSlots: "Nema mesta", empty: "Nema slobodnih termina u narednih sedam dana.",
+		title: "Rezervacija stola", lead: "Izaberite lokaciju, broj gostiju i vreme.", loading: "Učitavanje...", booked: "Rezervacija je potvrđena",
+		chooseLocation: "Izaberite lokaciju", locationLabel: "Lokacija", closed: "Rezervacije su trenutno zatvorene",
+		guestLabel: "Broj gostiju", guestsLabel: "Gosti", timeLabel: "Vreme", chooseDate: "Izaberite datum", chooseTime: "Slobodno vreme", guests: (count: number) => `${count} ${count % 100 >= 11 && count % 100 <= 14 ? "gostiju" : count % 10 === 1 ? "gost" : count % 10 >= 2 && count % 10 <= 4 ? "gosta" : "gostiju"}`, noSlots: "Nema mesta", empty: "Nema slobodnih termina u narednih sedam dana.",
 		submit: "REZERVIŠI", booking: "REZERVIŠEMO...", cancel: "OTKAŽI REZERVACIJU", cancelling: "OTKAZUJEMO...",
 		cancelTitle: "Otkazati rezervaciju?", cancelMessage: "Termin će odmah biti oslobođen.", cancelConfirm: "Otkaži",
 	};
 	if (locale === "en") return {
-		title: "Table booking", lead: "Choose the number of guests and a time.", loading: "Loading...", booked: "Table booked",
+		title: "Table booking", lead: "Choose a location, the number of guests and a time.", loading: "Loading...", booked: "Booking confirmed",
+		chooseLocation: "Choose a location", locationLabel: "Location", closed: "Bookings are currently closed",
 		guestLabel: "Number of guests", guestsLabel: "Guests", timeLabel: "Time", chooseDate: "Choose a date", chooseTime: "Available times", guests: (count: number) => `${count} ${count === 1 ? "guest" : "guests"}`, noSlots: "Full", empty: "No available times in the next seven days.",
 		submit: "BOOK TABLE", booking: "BOOKING...", cancel: "CANCEL BOOKING", cancelling: "CANCELLING...",
 		cancelTitle: "Cancel the booking?", cancelMessage: "The time will become available immediately.", cancelConfirm: "Cancel",
 	};
 	return {
-		title: "Бронь стола", lead: "Выберите количество гостей и время.", loading: "Загрузка...", booked: "Стол забронирован",
-		guestLabel: "Количество гостей", guestsLabel: "Гости", timeLabel: "Время", chooseDate: "Выберите дату", chooseTime: "Свободное время", guests: (count: number) => `${count} ${count === 1 ? "гость" : count < 5 ? "гостя" : "гостей"}`, noSlots: "Мест нет", empty: "На ближайшие семь дней свободного времени нет.",
+		title: "Бронь стола", lead: "Выберите точку, количество гостей и время.", loading: "Загрузка...", booked: "Бронь подтверждена",
+		chooseLocation: "Выберите точку", locationLabel: "Точка", closed: "Бронирование временно закрыто",
+		guestLabel: "Количество гостей", guestsLabel: "Гости", timeLabel: "Время", chooseDate: "Выберите дату", chooseTime: "Свободное время", guests: (count: number) => `${count} ${count % 100 >= 11 && count % 100 <= 14 ? "гостей" : count % 10 === 1 ? "гость" : count % 10 >= 2 && count % 10 <= 4 ? "гостя" : "гостей"}`, noSlots: "Мест нет", empty: "На ближайшие семь дней свободного времени нет.",
 		submit: "ЗАБРОНИРОВАТЬ", booking: "БРОНИРУЕМ...", cancel: "ОТМЕНИТЬ БРОНЬ", cancelling: "ОТМЕНЯЕМ...",
 		cancelTitle: "Отменить бронь?", cancelMessage: "Время сразу станет доступно другим гостям.", cancelConfirm: "Отменить",
 	};
@@ -3149,6 +3202,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
 		DELIVERY_SLOT_UNAVAILABLE: "На это время уже набралась очередь. Выберите ближайший свободный вариант.",
 		DELIVERY_TIME_INVALID: "Выберите доступное время из списка.",
 			RESERVATION_UNAVAILABLE: "Это время только что заняли. Выберите другое.",
+			RESERVATION_LOCATION_CLOSED: "Бронирование в этой точке сейчас закрыто. Выберите другую точку.",
 			ACTIVE_RESERVATION_EXISTS: "У вас уже есть активная бронь.",
       INVALID_INPUT: "Проверьте адрес и данные заказа",
       RATE_LIMITED: "Слишком много запросов. Подождите минуту и попробуйте ещё раз.",
@@ -3177,6 +3231,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
 		DELIVERY_SLOT_UNAVAILABLE: "Ovaj termin je popunjen. Izaberite sledeći slobodan.",
 		DELIVERY_TIME_INVALID: "Izaberite dostupno vreme sa liste.",
 			RESERVATION_UNAVAILABLE: "Ovaj termin je upravo rezervisan. Izaberite drugi.",
+			RESERVATION_LOCATION_CLOSED: "Rezervacije na ovoj lokaciji su trenutno zatvorene. Izaberite drugu lokaciju.",
 			ACTIVE_RESERVATION_EXISTS: "Već imate aktivnu rezervaciju.",
       INVALID_INPUT: "Proverite adresu i podatke porudžbine",
       RATE_LIMITED: "Previše zahteva. Sačekajte minut i pokušajte ponovo.",
@@ -3205,6 +3260,7 @@ function errorText(err: unknown, locale: Locale = "ru"): string {
 		DELIVERY_SLOT_UNAVAILABLE: "That time just filled up. Choose the nearest available slot.",
 		DELIVERY_TIME_INVALID: "Choose an available time from the list.",
 			RESERVATION_UNAVAILABLE: "This time was just booked. Choose another one.",
+			RESERVATION_LOCATION_CLOSED: "Bookings at this location are currently closed. Choose another location.",
 			ACTIVE_RESERVATION_EXISTS: "You already have an active reservation.",
       INVALID_INPUT: "Check the address and order details",
       RATE_LIMITED: "Too many requests. Wait a minute and try again.",

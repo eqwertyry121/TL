@@ -9,11 +9,13 @@ import type {
   Order,
   OrderSummary,
 	Reservation,
+	ReservationLocation,
   Role,
   ScheduleDay,
   Settings,
   StaffMember,
 } from "@tk-delivery/api-client/generated";
+import { demoReservationLocations, setDemoReservationLocation } from "@tk-delivery/api-client/reservation-locations";
 
 const demoOrdersKey = "tk-client-demo-orders-v1";
 const demoMenuKey = "tk-admin-demo-menu-v6";
@@ -212,6 +214,8 @@ export interface AdminApi {
   orders(token: string, filter?: { status?: string; q?: string; date?: string; limit?: number; offset?: number }, signal?: AbortSignal): Promise<AdminOrdersResponse>;
   order(token: string, id: string): Promise<Order>;
 	reservations(token: string, signal?: AbortSignal): Promise<{ reservations: Reservation[] }>;
+	reservationLocations(token: string, signal?: AbortSignal): Promise<{ locations: ReservationLocation[] }>;
+	setReservationLocation(token: string, code: string, isOpen: boolean): Promise<ReservationLocation>;
 	cancelReservation(token: string, id: string): Promise<Reservation>;
   cancelOrder(token: string, id: string, reason: string): Promise<Order>;
   returnOrderToNew(token: string, id: string, reason: string): Promise<Order>;
@@ -365,6 +369,8 @@ function realApi(baseURL: string, appEnv: string): AdminApi {
     orders: (token, filter = {}, signal) => fetchAdminOrders(baseURL, token, filter, signal),
     order: (token, id) => get(`${baseURL}/api/v1/admin/orders/${id}`, token),
 		reservations: (token, signal) => get(`${baseURL}/api/v1/admin/reservations`, token, signal),
+		reservationLocations: (token, signal) => get(`${baseURL}/api/v1/reservations/locations`, token, signal),
+		setReservationLocation: (token, code, isOpen) => put(`${baseURL}/api/v1/admin/reservation-locations/${encodeURIComponent(code)}`, { is_open: isOpen }, token),
 		cancelReservation: (token, id) => post(`${baseURL}/api/v1/admin/reservations/${id}/cancel`, {}, token),
     cancelOrder: (token, id, reason) => post(`${baseURL}/api/v1/admin/orders/${id}/cancel`, { reason }, token),
     returnOrderToNew: (token, id, reason) => post(`${baseURL}/api/v1/admin/orders/${id}/return-to-new`, { reason }, token),
@@ -635,6 +641,12 @@ function demoApi(): AdminApi {
 		async reservations() {
 			return { reservations: [] };
 		},
+		async reservationLocations() {
+			return { locations: demoReservationLocations() };
+		},
+		async setReservationLocation(_token, code, isOpen) {
+			return setDemoReservationLocation(code, isOpen);
+		},
 		async cancelReservation() {
 			throw apiError("INVALID_INPUT");
 		},
@@ -753,6 +765,8 @@ function unconfiguredApi(): AdminApi {
     orders: fail,
     order: fail,
 		reservations: fail,
+		reservationLocations: fail,
+		setReservationLocation: fail,
 		cancelReservation: fail,
     cancelOrder: fail,
     returnOrderToNew: fail,

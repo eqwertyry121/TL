@@ -7,7 +7,37 @@ import (
 
 	"github.com/eqwertyry121/TL/backend/internal/core"
 	"github.com/eqwertyry121/TL/backend/internal/store"
+	"github.com/go-chi/chi/v5"
 )
+
+func (s *Server) reservationLocations(w http.ResponseWriter, r *http.Request) {
+	locations, err := s.store.ReservationLocations(r.Context(), mustSession(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeConditionalJSON(w, r, http.StatusOK, map[string]any{"locations": locations}, "private, no-cache, no-store")
+}
+
+func (s *Server) adminSetReservationLocation(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		IsOpen *bool `json:"is_open"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, err)
+		return
+	}
+	if input.IsOpen == nil {
+		writeError(w, core.ErrInvalidInput)
+		return
+	}
+	location, err := s.store.SetReservationLocationOpen(r.Context(), mustSession(r), chi.URLParam(r, "code"), *input.IsOpen)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, location)
+}
 
 func (s *Server) reservationAvailability(w http.ResponseWriter, r *http.Request) {
 	guests := 2
@@ -19,7 +49,7 @@ func (s *Server) reservationAvailability(w http.ResponseWriter, r *http.Request)
 		}
 		guests = parsed
 	}
-	availability, err := s.store.ReservationAvailability(r.Context(), mustSession(r), guests, s.now())
+	availability, err := s.store.ReservationAvailability(r.Context(), mustSession(r), r.URL.Query().Get("location"), guests, s.now())
 	if err != nil {
 		writeError(w, err)
 		return

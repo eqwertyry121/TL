@@ -3112,3 +3112,33 @@ button:hover {
   letter-spacing: .06em;
   vertical-align: middle;
 }
+.reservation-location-panel {
+	display: grid;
+	gap: 0.75rem;
+}
+
+.reservation-location-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding: 0.8rem 0;
+	border-top: 1px solid var(--color-border, #e5e0db);
+}
+
+.reservation-location-row > div {
+	display: grid;
+	gap: 0.2rem;
+	min-width: 0;
+}
+
+.reservation-location-row span,
+.reservation-location-row small {
+	color: var(--color-text-secondary, #6f6a66);
+	font-size: 0.8rem;
+}
+
+.reservation-location-row button {
+	flex: 0 0 auto;
+	min-height: 2.75rem;
+}

@@ -493,17 +493,19 @@ func (w *Worker) enqueueReservationReminders(ctx context.Context) error {
 func (w *Worker) reservationMessage(ctx context.Context, current job) (string, int64, string, error) {
 	var clientChatID int64
 	var startHour, endHour, guests int
-	var date, username, firstName, tableLabel, locale string
+	var date, username, firstName, tableLabel, locale, locationName, locationAddress string
 	err := w.pool.QueryRow(ctx, `
 		SELECT u.telegram_user_id, to_char(r.reservation_date, 'DD.MM.YYYY'),
-			r.start_hour, r.end_hour, r.guests, r.client_username, r.client_first_name, t.label, r.locale
+			r.start_hour, r.end_hour, r.guests, r.client_username, r.client_first_name,
+			COALESCE(t.label, ''), r.locale, l.name, l.address
 		FROM reservations r
 		JOIN users u ON u.id=r.client_user_id
-		JOIN restaurant_tables t ON t.id=r.table_id
+		JOIN reservation_locations l ON l.code=r.location_code
+		LEFT JOIN restaurant_tables t ON t.id=r.table_id
 		WHERE r.id=$1
 	`, current.reservationID).Scan(
 		&clientChatID, &date, &startHour, &endHour, &guests,
-		&username, &firstName, &tableLabel, &locale,
+		&username, &firstName, &tableLabel, &locale, &locationName, &locationAddress,
 	)
 	if err != nil {
 		return "", 0, "", err
@@ -526,10 +528,11 @@ func (w *Worker) reservationMessage(ctx context.Context, current job) (string, i
 				fmt.Sprintf("Reminder: we expect you today at %02d:00. Reservation for %d guests.", startHour, guests))
 		default:
 			text = localizedReservationText(locale,
-				fmt.Sprintf("Стол забронирован на %s с %02d:00 до %02d:00. Гостей: %d. До встречи!", date, startHour, endHour, guests),
-				fmt.Sprintf("Sto je rezervisan za %s od %02d:00 do %02d:00. Gostiju: %d. Vidimo se!", date, startHour, endHour, guests),
-				fmt.Sprintf("Your table is booked for %s from %02d:00 to %02d:00. Guests: %d. See you!", date, startHour, endHour, guests))
+				fmt.Sprintf("Бронь подтверждена на %s с %02d:00 до %02d:00. Гостей: %d. До встречи!", date, startHour, endHour, guests),
+				fmt.Sprintf("Rezervacija je potvrđena za %s od %02d:00 do %02d:00. Gostiju: %d. Vidimo se!", date, startHour, endHour, guests),
+				fmt.Sprintf("Your reservation is confirmed for %s from %02d:00 to %02d:00. Guests: %d. See you!", date, startHour, endHour, guests))
 		}
+		text += "\n" + locationName + " · " + locationAddress
 		return w.clientToken, clientChatID, text, nil
 	}
 	if w.staffToken == "" {
@@ -556,10 +559,17 @@ func (w *Worker) reservationMessage(ctx context.Context, current job) (string, i
 		clientLabel = fmt.Sprintf("Telegram %d", clientChatID)
 	}
 	text := ownerReservationText(current.template, tableLabel, date, startHour, guests, clientLabel)
+	text += "\nТочка: " + locationName + " · " + locationAddress
 	return w.staffToken, adminChatID, text, nil
 }
 
 func ownerReservationText(template, tableLabel, date string, startHour, guests int, clientLabel string) string {
+	if tableLabel == "" {
+		if template == "reservation_cancelled_by_client" {
+			return fmt.Sprintf("Бронь отменена клиентом\n%s · %02d:00\nГостей: %d\nКлиент: %s", date, startHour, guests, clientLabel)
+		}
+		return fmt.Sprintf("Новая бронь на %02d:00\nДата: %s\nГостей: %d\nКлиент: %s", startHour, date, guests, clientLabel)
+	}
 	if template == "reservation_cancelled_by_client" {
 		return fmt.Sprintf("Бронь отменена клиентом\n%s · %s · %02d:00\nГостей: %d\nКлиент: %s", tableLabel, date, startHour, guests, clientLabel)
 	}

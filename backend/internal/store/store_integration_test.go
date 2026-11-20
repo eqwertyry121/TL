@@ -1034,7 +1034,7 @@ func TestReservationsUseSharedCapacityAndOneActiveBookingPerClient(t *testing.T)
 	if err != nil {
 		t.Fatalf("create second table reservation: %v", err)
 	}
-	if first.TableID == second.TableID {
+	if first.TableID == nil || second.TableID == nil || *first.TableID == *second.TableID {
 		t.Fatal("overlapping reservations were assigned to the same table")
 	}
 	_, err = st.CreateReservation(ctx, thirdClient, store.CreateReservationInput{
@@ -1044,7 +1044,7 @@ func TestReservationsUseSharedCapacityAndOneActiveBookingPerClient(t *testing.T)
 		t.Fatalf("third overlapping reservation error = %v, want %v", err, core.ErrReservationUnavailable)
 	}
 
-	availability, err := st.ReservationAvailability(ctx, thirdClient, 2, now)
+	availability, err := st.ReservationAvailability(ctx, thirdClient, "telep", 2, now)
 	if err != nil {
 		t.Fatalf("reservation availability: %v", err)
 	}
@@ -1094,7 +1094,7 @@ func TestReservationsAllowMonday(t *testing.T) {
 	date := "2026-08-24"
 	client := clientSession(t, ctx, st, clientTelegramID)
 
-	availability, err := st.ReservationAvailability(ctx, client, 2, now)
+	availability, err := st.ReservationAvailability(ctx, client, "telep", 2, now)
 	if err != nil {
 		t.Fatalf("monday reservation availability: %v", err)
 	}

@@ -1,5 +1,6 @@
 import type { AdminCategory, AdminMenuItem, Category, Order, Reservation, ReservationAvailability, Runtime, ScheduleDay, Settings } from "@tk-delivery/api-client/generated";
 import { demoCategories, demoRuntime } from "./fixtures";
+import { demoReservationLocations } from "@tk-delivery/api-client/reservation-locations";
 import { rawInitData, telegramUser } from "./telegram";
 import type { Api, Calculation, CashLocationChallenge, ClientBootstrapData, CreateOrderInput, Locale, Session } from "./types";
 
@@ -74,7 +75,8 @@ function realApi(baseURL: string): Api {
       post(`${baseURL}/api/v1/orders/${orderId}/addition`, input, token, { "Idempotency-Key": idempotencyKey }),
     getOrder: (token, id, signal) => get(`${baseURL}/api/v1/orders/${id}`, token, signal),
     listOrders: (token, filter = {}, signal) => get(`${baseURL}/api/v1/orders?${new URLSearchParams(clean(filter))}`, token, signal),
-		reservationAvailability: (token, guests, signal) => get(`${baseURL}/api/v1/reservations/availability?guests=${guests}`, token, signal),
+		reservationLocations: (token, signal) => get(`${baseURL}/api/v1/reservations/locations`, token, signal),
+		reservationAvailability: (token, location, guests, signal) => get(`${baseURL}/api/v1/reservations/availability?location=${encodeURIComponent(location)}&guests=${guests}`, token, signal),
 		myReservation: (token, signal) => get(`${baseURL}/api/v1/reservations/mine`, token, signal),
 		createReservation: (token, input, idempotencyKey) => post(`${baseURL}/api/v1/reservations`, input, token, { "Idempotency-Key": idempotencyKey }),
 		cancelReservation: (token, id) => post(`${baseURL}/api/v1/reservations/${id}/cancel`, {}, token),
@@ -356,16 +358,22 @@ function demoApi(): Api {
       const orders = loadDemoOrders().map(stripDemo);
       return { orders: orders.slice(offset, offset + limit), limit, offset, has_more: orders.length > offset + limit };
     },
-		async reservationAvailability(_token, guests) {
-			return demoReservationAvailability(guests);
+		async reservationLocations() {
+			return { locations: demoReservationLocations() };
+		},
+		async reservationAvailability(_token, code, guests) {
+			return demoReservationAvailability(guests, demoReservationLocations().find((location) => location.code === code)?.is_open ?? false);
 		},
 		async myReservation() {
 			return { reservation: loadDemoReservation() };
 		},
 		async createReservation(_token, input) {
 			if (loadDemoReservation()) throw apiError("ACTIVE_RESERVATION_EXISTS");
+			const location = demoReservationLocations().find((item) => item.code === input.location_code);
+			if (!location || !location.is_open || input.guests > location.max_guests) throw apiError("RESERVATION_UNAVAILABLE");
 			const reservation: Reservation = {
-				id: crypto.randomUUID(), public_number: 1, table_label: "Стол №1", date: input.date,
+				id: crypto.randomUUID(), public_number: 1, location_code: location.code, location_name: location.name, location_address: location.address,
+				table_label: location.booking_mode === "tables" ? "Стол №1" : "", date: input.date,
 				start_hour: input.start_hour, end_hour: input.start_hour + 2, guests: input.guests,
 				status: "CONFIRMED", locale: input.locale, version: 1, created_at: new Date().toISOString(),
 			};
@@ -426,6 +434,7 @@ function unconfiguredApi(): Api {
     addOrderItems: fail,
     getOrder: fail,
     listOrders: fail,
+		reservationLocations: fail,
 		reservationAvailability: fail,
 		myReservation: fail,
 		createReservation: fail,
@@ -446,13 +455,13 @@ function loadDemoReservation(): Reservation | null {
 	}
 }
 
-function demoReservationAvailability(guests: number): ReservationAvailability {
+function demoReservationAvailability(guests: number, isOpen: boolean): ReservationAvailability {
 	const days: ReservationAvailability["days"] = [];
 	const now = new Date();
 	for (let offset = 0; offset < 7; offset += 1) {
 		const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
 		const dateText = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-		const hours = date.getDay() === 1 ? [] : Array.from({ length: 8 }, (_, index) => 13 + index).filter((hour) => offset > 0 || hour > now.getHours());
+		const hours = isOpen ? Array.from({ length: 9 }, (_, index) => 13 + index).filter((hour) => offset > 0 || hour > now.getHours()) : [];
 		days.push({ date: dateText, hours });
 	}
 	return { timezone: "Europe/Belgrade", guests, days };

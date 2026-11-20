@@ -171,14 +171,16 @@ test("client legal pages stay available without Telegram authentication", () => 
   assertIncludes(legalSource, "Kartična porudžbina smatra se plaćenom samo posle potvrde pružaoca platnih usluga.");
 });
 
-test("table booking keeps all guest counts visible as one-tap buttons", () => {
+test("table booking keeps Telep guest buttons and supports larger parties on Podbara", () => {
   const appSource = readSource("apps/client/src/App.tsx");
   const styles = readSource("apps/client/src/styles.css");
   const booking = sliceBetween(appSource, "function Booking({", "function bookingCopy");
 
   assertIncludes(booking, 'className="booking-guest-options"');
   assertIncludes(booking, 'role="radiogroup"');
-  assertIncludes(booking, "[1, 2, 3, 4, 5].map");
+	assertIncludes(booking, "location.max_guests > 5");
+	assertIncludes(booking, 'className="booking-guest-select"');
+	assertIncludes(booking, "Array.from({ length: location.max_guests }");
   assertIncludes(booking, 'role="radio"');
   assertIncludes(booking, "aria-checked={guests === count}");
   assertNotIncludes(booking, "guestSelectOpen");

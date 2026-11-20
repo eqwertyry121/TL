@@ -208,6 +208,7 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/contact", s.contact)
 			r.Get("/pickup/slots", s.pickupSlots)
 			r.Get("/delivery/slots", s.deliverySlots)
+			r.Get("/reservations/locations", s.reservationLocations)
 			r.Get("/reservations/availability", s.reservationAvailability)
 			r.Get("/reservations/mine", s.myReservation)
 			r.Post("/reservations", s.createReservation)
@@ -238,6 +239,7 @@ func (s *Server) Routes() http.Handler {
 
 			r.Get("/admin/orders", s.adminOrders)
 			r.Get("/admin/reservations", s.adminReservations)
+			r.Put("/admin/reservation-locations/{code}", s.adminSetReservationLocation)
 			r.Post("/admin/reservations/{id}/cancel", s.adminCancelReservation)
 			r.Post("/admin/orders/search", s.adminOrdersSearch)
 			r.Get("/admin/orders/{id}", s.adminOrder)
@@ -2817,6 +2819,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status, code, messageKey = http.StatusUnprocessableEntity, "DELIVERY_MINIMUM_NOT_MET", "delivery_minimum_not_met"
 	case errors.Is(err, core.ErrReservationUnavailable):
 		status, code, messageKey = http.StatusConflict, "RESERVATION_UNAVAILABLE", "reservation_unavailable"
+	case errors.Is(err, core.ErrReservationLocationClosed):
+		status, code, messageKey = http.StatusConflict, "RESERVATION_LOCATION_CLOSED", "reservation_location_closed"
 	case errors.Is(err, core.ErrActiveReservationExists):
 		status, code, messageKey = http.StatusConflict, "ACTIVE_RESERVATION_EXISTS", "active_reservation_exists"
 	case errors.Is(err, tgauth.ErrInvalidInitData):

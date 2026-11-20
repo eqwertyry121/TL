@@ -109,12 +109,24 @@ export interface VerifiedContact {
 
 export type ReservationStatus = "CONFIRMED" | "CANCELLED";
 
+export interface ReservationLocation {
+  code: string;
+  name: string;
+  address: string;
+  max_guests: number;
+  booking_mode: "tables" | "seats";
+  is_open: boolean;
+}
+
 export interface Reservation {
   id: string;
   public_number: number;
   client_user_id?: string;
   client_username?: string;
   client_first_name?: string;
+  location_code: string;
+  location_name: string;
+  location_address: string;
   table_id?: string;
   table_label: string;
   date: string;

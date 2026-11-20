@@ -8,6 +8,7 @@
     "./generated": "./src/generated.ts",
     "./performance": "./src/performance.ts",
     "./polling": "./src/polling.ts",
+    "./reservation-locations": "./src/reservation-locations.ts",
     "./role-switch": "./src/role-switch.ts"
   },
   "scripts": {

@@ -83,6 +83,7 @@ var (
 	ErrDeliveryTimeInvalid       = errors.New("delivery time invalid")
 	ErrDeliveryMinimumNotMet     = errors.New("delivery minimum not met")
 	ErrReservationUnavailable    = errors.New("reservation unavailable")
+	ErrReservationLocationClosed = errors.New("reservation location closed")
 	ErrActiveReservationExists   = errors.New("active reservation exists")
 	ErrProductionUnsafeValue     = errors.New("unsafe production config")
 )
@@ -244,7 +245,10 @@ type Reservation struct {
 	ClientUserID    uuid.UUID         `json:"client_user_id,omitempty"`
 	ClientUsername  string            `json:"client_username,omitempty"`
 	ClientFirstName string            `json:"client_first_name,omitempty"`
-	TableID         uuid.UUID         `json:"table_id,omitempty"`
+	LocationCode    string            `json:"location_code"`
+	LocationName    string            `json:"location_name"`
+	LocationAddress string            `json:"location_address"`
+	TableID         *uuid.UUID        `json:"table_id,omitempty"`
 	TableLabel      string            `json:"table_label"`
 	Date            string            `json:"date"`
 	StartHour       int               `json:"start_hour"`
@@ -255,6 +259,15 @@ type Reservation struct {
 	Version         int               `json:"version"`
 	CreatedAt       time.Time         `json:"created_at"`
 	CancelledAt     *time.Time        `json:"cancelled_at,omitempty"`
+}
+
+type ReservationLocation struct {
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	Address   string `json:"address"`
+	MaxGuests int    `json:"max_guests"`
+	Mode      string `json:"booking_mode"`
+	IsOpen    bool   `json:"is_open"`
 }
 
 type ReservationAvailabilityDay struct {

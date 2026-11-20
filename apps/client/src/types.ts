@@ -1,4 +1,4 @@
-import type { Category, DeliverySlots, DeliveryTimeMode, FulfillmentType, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Reservation, ReservationAvailability, Runtime } from "@tk-delivery/api-client/generated";
+import type { Category, DeliverySlots, DeliveryTimeMode, FulfillmentType, MenuItem, Order, OrderSummary, OrderSummaryPage, PaymentMethod, Reservation, ReservationAvailability, ReservationLocation, Runtime } from "@tk-delivery/api-client/generated";
 
 export type Locale = "ru" | "sr" | "en";
 export type Route =
@@ -127,9 +127,10 @@ export interface Api {
   addOrderItems(token: string, orderId: string, input: AddOrderItemsInput, idempotencyKey: string): Promise<Order>;
   getOrder(token: string, id: string, signal?: AbortSignal): Promise<Order>;
   listOrders(token: string, filter?: { limit?: number; offset?: number }, signal?: AbortSignal): Promise<OrderSummaryPage>;
-	reservationAvailability(token: string, guests: number, signal?: AbortSignal): Promise<ReservationAvailability>;
+	reservationLocations(token: string, signal?: AbortSignal): Promise<{ locations: ReservationLocation[] }>;
+	reservationAvailability(token: string, location: string, guests: number, signal?: AbortSignal): Promise<ReservationAvailability>;
 	myReservation(token: string, signal?: AbortSignal): Promise<{ reservation: Reservation | null }>;
-	createReservation(token: string, input: { date: string; start_hour: number; guests: number; locale: Locale }, idempotencyKey: string): Promise<Reservation>;
+	createReservation(token: string, input: { location_code: string; date: string; start_hour: number; guests: number; locale: Locale }, idempotencyKey: string): Promise<Reservation>;
 	cancelReservation(token: string, id: string): Promise<Reservation>;
 	productEvents(token: string, events: Array<{ name: "screen_view" | "click"; screen: string; target: string }>): Promise<void>;
 }

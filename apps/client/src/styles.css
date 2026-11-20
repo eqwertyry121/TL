@@ -409,11 +409,66 @@ h2 {
 	line-height: 1.4;
 }
 
+.booking-locations,
 .booking-guests,
 .booking-active-card,
 .booking-days {
 	border: 1px solid var(--color-border);
 	background: var(--color-surface);
+}
+
+.booking-locations {
+	display: grid;
+	gap: 0.8rem;
+	padding: clamp(0.9rem, 3vw, 1.2rem);
+	border-radius: var(--radius-md);
+}
+
+.booking-location-options {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.55rem;
+}
+
+.booking-location {
+	display: grid;
+	align-content: start;
+	gap: 0.35rem;
+	min-width: 0;
+	min-height: 5.5rem;
+	padding: 0.8rem;
+	border: 1px solid var(--color-border);
+	border-radius: 0.9rem;
+	background: #fbf6ed;
+	color: var(--color-text);
+	text-align: left;
+}
+
+.booking-location span,
+.booking-location small {
+	font-size: 0.8rem;
+	line-height: 1.3;
+}
+
+.booking-location.active {
+	border-color: var(--color-primary);
+	box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
+.booking-location:disabled {
+	opacity: 0.6;
+}
+
+.booking-guest-select {
+	width: 100%;
+	min-height: 3.15rem;
+	padding: 0 0.85rem;
+	border: 1px solid var(--color-border);
+	border-radius: 0.9rem;
+	background: #fbf6ed;
+	color: var(--color-text);
+	font: inherit;
+	font-weight: 750;
 }
 
 .booking-guests {
@@ -529,6 +584,7 @@ h2 {
 }
 
 .booking-submit-bar span { color: rgba(255, 255, 255, 0.72); text-transform: capitalize; }
+.booking-submit-bar > div { display: grid; min-width: 0; gap: 0.2rem; }
 .booking-submit-bar .primary { min-height: 3rem; white-space: nowrap; }
 
 .booking-active-card {
