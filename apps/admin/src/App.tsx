@@ -21,7 +21,6 @@ import {
   type MenuItemInput,
 } from "./api";
 import { parseNumberDraft } from "./number-draft";
-import { ReservationEditor, ReservationSettingsEditor, reservationTime } from "./ReservationEditors";
 import type { ReservationLocationSettings } from "@tk-delivery/api-client/generated";
 import { AlertTriangle, Archive, ArrowLeft, Ban, BarChart3, BellRing, CalendarCheck, CalendarDays, ChevronDown, ChevronRight, ClipboardList, Copy, Home, Menu as MenuIcon, MessageCircle, MoreHorizontal, Phone, RefreshCw, RotateCcw, Save, Search, Send, Settings as SettingsIcon, Shield, SlidersHorizontal, StickyNote, Trash2, Upload, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -30,6 +29,8 @@ import { Component, Suspense, lazy, useEffect, useMemo, useRef, useState, type E
 const AnalyticsTab = lazy(() => import("./LazyAdminSections").then((module) => ({ default: module.AnalyticsSection })));
 const AuditTab = lazy(() => import("./LazyAdminSections").then((module) => ({ default: module.AuditSection })));
 const SettingsTab = lazy(() => import("./LazyAdminSections").then((module) => ({ default: module.SettingsSection })));
+const ReservationEditor = lazy(() => import("./ReservationEditors").then((module) => ({ default: module.ReservationEditor })));
+const ReservationSettingsEditor = lazy(() => import("./ReservationEditors").then((module) => ({ default: module.ReservationSettingsEditor })));
 
 const api = createAdminApi();
 type AdminNavItem = { id: AdminTab; label: string; shortLabel: string; icon: LucideIcon };
@@ -1321,8 +1322,10 @@ function ReservationsTab({ reservations, locations, updatingLocation, focusDate,
 				</div>
 			))}
 		</section>
-		{settings && <ReservationSettingsEditor key={settings.location.code} settings={settings} api={api} onAction={onAction} onClose={() => setSettings(null)} onUpdated={(updated) => { setSettings(updated); onLocationUpdated(updated.location); }} />}
-		{editor && <ReservationEditor key={editor.reservation?.id || "new"} reservation={editor.reservation} date={selectedDate} locations={locations} api={api} onAction={onAction} onClose={() => setEditor(null)} onSaved={(saved) => { setEditor(null); setSelectedDate(saved.date); setRevision((current) => current + 1); }} />}
+		<Suspense fallback={<div className="panel">Загружаем форму бронирования…</div>}>
+			{settings && <ReservationSettingsEditor key={settings.location.code} settings={settings} api={api} onAction={onAction} onClose={() => setSettings(null)} onUpdated={(updated) => { setSettings(updated); onLocationUpdated(updated.location); }} />}
+			{editor && <ReservationEditor key={editor.reservation?.id || "new"} reservation={editor.reservation} date={selectedDate} locations={locations} api={api} onAction={onAction} onClose={() => setEditor(null)} onSaved={(saved) => { setEditor(null); setSelectedDate(saved.date); setRevision((current) => current + 1); }} />}
+		</Suspense>
 		<div className="reservation-toolbar">
 			<label><span>Выбрать дату</span><input type="date" value={selectedDate} onChange={(event) => { if (event.target.value) setSelectedDate(event.target.value); }} /></label>
 			<button className="primary" type="button" disabled={!locations.length} onClick={() => { setSettings(null); setEditor({}); }}>Добавить бронь</button>
@@ -1395,6 +1398,10 @@ function ReservationsTab({ reservations, locations, updatingLocation, focusDate,
       </section>
     </div>
   );
+}
+
+function reservationTime(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
 
 function formatReservationAdminDate(date: string): string {

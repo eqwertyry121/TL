@@ -1,11 +1,13 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { gzipSync } from "node:zlib";
 
 const apps = {
-  // Includes the native city permission flow and RU/SR/EN recovery dialog.
-  client: { js: 118 * 1024, css: 13 * 1024 },
-  admin: { js: 102 * 1024, css: 10 * 1024 },
+  // Includes location selection, quarter-hour booking and the city permission flow.
+  client: { js: 120 * 1024, css: 13 * 1024 },
+  // Reservation editors load on demand; keep the former 102 KB limit for
+  // the entry bundle while allowing the new forms in the total asset budget.
+  admin: { js: 108 * 1024, css: 10 * 1024, entryJs: 102 * 1024 },
   kitchen: { js: 90 * 1024, css: 10 * 1024 },
   courier: { js: 90 * 1024, css: 10 * 1024 },
 };
@@ -19,6 +21,14 @@ for (const [app, budget] of Object.entries(apps)) {
   const css = gzipTotal(files.filter((file) => file.endsWith(".css")));
   report(app, "js", js, budget.js);
   report(app, "css", css, budget.css);
+  if (budget.entryJs) {
+    const html = readFileSync(join("apps", app, "dist", "index.html"), "utf8");
+    const moduleTag = html.match(/<script\b[^>]*\btype=["']module["'][^>]*>/i)?.[0] || "";
+    const entryURL = moduleTag.match(/\bsrc=["']([^"']+\.js)["']/i)?.[1] || "";
+    const entry = join(assetsDir, basename(entryURL));
+    if (!entryURL || !files.includes(entry)) throw new Error(`${app} entry JavaScript was not found`);
+    report(app, "entry js", gzipTotal([entry]), budget.entryJs);
+  }
 }
 if (failed) process.exit(1);
 
