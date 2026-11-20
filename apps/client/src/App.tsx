@@ -408,14 +408,29 @@ function ClientMiniApp() {
 		setReservationLoading(true);
 		return startVisiblePolling(async (signal) => {
 			try {
-				const [mine, locations, availability] = await Promise.all([
+				const [mine, locations, availabilityResult] = await Promise.all([
 					withAuth((authToken) => api.myReservation(authToken, signal), token),
 					withAuth((authToken) => api.reservationLocations(authToken, signal), token),
-					reservationLocation ? withAuth((authToken) => api.reservationAvailability(authToken, reservationLocation, reservationGuests, signal), token) : Promise.resolve(null),
+					reservationLocation
+						? withAuth((authToken) => api.reservationAvailability(authToken, reservationLocation, reservationGuests, signal), token)
+							.then((value) => ({ value, error: null }), (error: unknown) => ({ value: null, error }))
+						: Promise.resolve({ value: null, error: null }),
 				]);
 				if (signal.aborted) return;
 				setReservation(mine.reservation);
 				setReservationLocations(locations.locations);
+				const currentLocation = locations.locations.find((location) => location.code === reservationLocation);
+				if (currentLocation && reservationGuests > currentLocation.max_guests) {
+					setReservationGuests(currentLocation.max_guests);
+					setReservationAvailability(null);
+					setReservationDay("");
+					setSelectedReservation(null);
+					setReservationIdempotencyKey("");
+					setError("");
+					return;
+				}
+				if (availabilityResult.error) throw availabilityResult.error;
+				const availability = availabilityResult.value;
 				setReservationAvailability(availability);
 				if (availability) {
 					setReservationDay((current) => availability.days.some((day) => day.date === current && day.minutes.length) ? current : availability.days.find((day) => day.minutes.length)?.date || "");
@@ -987,7 +1002,7 @@ function ClientMiniApp() {
 				selected={selectedReservation}
 				loading={reservationLoading}
 				submitting={reservationSubmitting}
-				onLocation={(code) => { setReservationLocation(code); setReservationGuests(2); setReservationAvailability(null); setReservationDay(""); setSelectedReservation(null); setReservationIdempotencyKey(""); }}
+				onLocation={(code) => { setReservationLocation(code); setReservationGuests(Math.min(2, reservationLocations.find((location) => location.code === code)?.max_guests || 2)); setReservationAvailability(null); setReservationDay(""); setSelectedReservation(null); setReservationIdempotencyKey(""); }}
 				onGuests={(guests) => { setReservationGuests(guests); setReservationDay(""); setSelectedReservation(null); setReservationIdempotencyKey(""); }}
 				onDay={(day) => { setReservationDay(day); setSelectedReservation(null); }}
 				onSelect={(date, minute) => { setSelectedReservation({ date, minute }); setReservationIdempotencyKey(""); }}

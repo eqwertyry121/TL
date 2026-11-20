@@ -112,6 +112,23 @@ try {
   await admin.getByLabel("Выбрать дату").fill(targetDate);
   assert.equal(await admin.locator(".reservation-admin-row").filter({ hasText: "Тест ручной брони" }).count(), 0);
 
+  // A guest already on the screen must recover when an admin lowers the limit.
+  await admin.locator(".reservation-location-row").filter({ hasText: "Подбара" }).getByRole("button", { name: "Настроить" }).click();
+  const podbaraSettings = admin.getByRole("region", { name: "Настройки точки" });
+  await podbaraSettings.getByLabel("Гостей в одной брони, максимум").fill("1");
+  const limitUpdate = admin.waitForResponse((response) => response.url().endsWith("/admin/reservation-locations/podbara/settings") && response.request().method() === "PUT");
+  await podbaraSettings.getByRole("button", { name: "Сохранить настройки" }).click();
+  assert.equal((await limitUpdate).status(), 200);
+  await client.waitForFunction(() => document.querySelectorAll(".booking-guest-options [role=radio]").length === 1, null, { timeout: 20000 });
+  await client.locator(".booking-hours button").first().waitFor();
+  assert.equal(await client.locator(".booking-guest-options [role=radio]").first().getAttribute("aria-checked"), "true");
+  await client.getByRole("radio", { name: /Телеп/ }).click();
+  await client.getByRole("radio", { name: /Подбара/ }).click();
+  await client.waitForFunction(() => document.querySelectorAll(".booking-guest-options [role=radio]").length === 1);
+  await client.locator(".booking-hours button").first().waitFor();
+  assert.equal(await client.locator(".booking-guest-options [role=radio]").first().getAttribute("aria-checked"), "true");
+  await podbaraSettings.getByRole("button", { name: "Готово" }).click();
+
   await admin.locator(".reservation-location-row").filter({ hasText: "Телеп" }).getByRole("button", { name: "Настроить" }).click();
   const telep = admin.getByRole("region", { name: "Настройки точки" });
   const tableName = `Тестовый стол ${Date.now()}`;
@@ -131,7 +148,7 @@ try {
   const savedTable = admin.locator(".reservation-table-row").filter({ has: admin.locator(`input[value="${tableName}"]`) });
   assert.equal(await savedTable.getByLabel("Доступен").isChecked(), false);
   assert.deepEqual(errors, []);
-  console.log("Reservation management UI passed: settings, 15-minute client times, create, reload, move, capacity, cancellation and table management.");
+  console.log("Reservation management UI passed: settings, live limit changes, 15-minute times, create, reload, move, capacity, cancellation and tables.");
 } finally {
   await browser.close();
 }
