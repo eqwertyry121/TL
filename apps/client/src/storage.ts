@@ -28,6 +28,11 @@ export interface CachedPublicData {
   savedAt: string;
 }
 
+// Older server responses and caches may contain null for an empty category.
+export function normalizeMenuCategories(categories: Category[]): Category[] {
+  return categories.map((category) => Array.isArray(category.items) ? category : { ...category, items: [] });
+}
+
 interface StoredCheckoutDraft {
   version: 1;
   draft: Partial<CheckoutDraft> & { details?: string; floor?: string; apartment?: string; phone?: string };
@@ -231,7 +236,7 @@ export function loadCachedPublicData(locale: Locale): CachedPublicData | null {
       Array.isArray(parsed.categories) &&
       isRecent(parsed.savedAt, PUBLIC_DATA_TTL_MS)
     ) {
-      return parsed;
+      return { ...parsed, categories: normalizeMenuCategories(parsed.categories) };
     }
     removeLocalStorageItem(key);
   } catch {

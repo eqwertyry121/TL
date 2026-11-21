@@ -424,6 +424,30 @@ func TestAddOrderItemsAppendsOnceAndProtectsKitchenVersion(t *testing.T) {
 	}
 }
 
+func TestPublicMenuEmptyCategoryHasArray(t *testing.T) {
+	ctx := context.Background()
+	st, pool := newIntegrationStore(t, ctx)
+	defer pool.Close()
+	admin := bootstrapOwnerSession(t, ctx, st)
+	created, err := st.CreateCategory(ctx, admin, store.UpsertCategoryInput{TitleRU: "Пустая", TitleSR: "Prazno", TitleEN: "Empty", Visible: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, categories, err := st.MenuWithRevision(ctx, "ru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, category := range categories {
+		if category.ID == created.ID {
+			if category.Items == nil || len(category.Items) != 0 {
+				t.Fatalf("empty category items = %#v, want non-nil empty array", category.Items)
+			}
+			return
+		}
+	}
+	t.Fatal("empty visible category was not returned")
+}
+
 func TestMenuRevisionBumpsOnAdminMenuMutations(t *testing.T) {
 	ctx := context.Background()
 	st, pool := newIntegrationStore(t, ctx)

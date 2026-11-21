@@ -26,6 +26,7 @@ import {
   loadCheckoutDraft,
   loadCheckoutProgress,
   loadLocale,
+  normalizeMenuCategories,
   pendingAdditionIdempotencyKey,
   pendingIdempotencyKey,
   resetPendingAdditionIdempotencyKey,
@@ -193,11 +194,12 @@ function ClientMiniApp() {
   const bootstrap = useCallback(async () => {
     setError("");
     const response = await api.bootstrap(locale);
-    saveCachedPublicData(locale, response.menu_revision ?? 0, response.categories);
+    const categories = normalizeMenuCategories(response.categories);
+    saveCachedPublicData(locale, response.menu_revision ?? 0, categories);
     setData({
       session: response.session || null,
       runtime: response.runtime,
-      categories: response.categories,
+      categories,
       orders: response.orders || [],
     });
     setVerifiedContact(response.contact || { verified: false });

@@ -7,6 +7,7 @@ import {
   loadCart,
   loadCheckoutDraft,
   loadLocale,
+  normalizeMenuCategories,
   pendingIdempotencyKey,
   saveCachedPublicData,
   saveCart,
@@ -14,6 +15,19 @@ import {
   saveCheckoutProgress,
   saveLocale,
 } from "../apps/client/src/storage.ts";
+
+test("empty menu categories from API and cached data remain usable", () => {
+  const env = installLocalStorage();
+  try {
+    const categories = [{ id: "empty", title: "Empty", sort_order: 1, items: null }, { id: "full", title: "Full", sort_order: 2, items: [{ id: "dish" }] }];
+    assert.deepEqual(normalizeMenuCategories(categories)[0].items, []);
+    assert.equal(normalizeMenuCategories(categories)[1].items[0].id, "dish");
+    localStorage.setItem("tk.menu.v2.ru", JSON.stringify({ version: 2, locale: "ru", menu_revision: 1, categories, savedAt: new Date().toISOString() }));
+    const cached = loadCachedPublicData("ru");
+    assert.deepEqual(cached?.categories[0].items, []);
+    assert.equal(cached?.categories[1].items[0].id, "dish");
+  } finally { env.restore(); }
+});
 
 test("public menu cache is isolated per locale and clears the legacy shared key", () => {
   const env = installLocalStorage();

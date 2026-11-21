@@ -1113,7 +1113,7 @@ func (s *Store) MenuWithRevision(ctx context.Context, locale string) (int64, []c
 			return 0, nil, err
 		}
 		index[id] = len(categories)
-		categories = append(categories, core.Category{ID: id, Title: localized(locale, titleRU, titleSR, titleEN), SortOrder: sortOrder})
+		categories = append(categories, core.Category{ID: id, Title: localized(locale, titleRU, titleSR, titleEN), SortOrder: sortOrder, Items: []core.MenuItem{}})
 	}
 	if err := catRows.Err(); err != nil {
 		return 0, nil, err
