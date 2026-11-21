@@ -2852,8 +2852,8 @@ function bookingCopy(locale: Locale) {
 		cancelTitle: "Cancel the booking?", cancelMessage: "The time will become available immediately.", cancelConfirm: "Cancel",
 	};
 	return {
-		title: "Бронь стола", lead: "Выберите точку, количество гостей и время.", loading: "Загрузка...", booked: "Бронь подтверждена",
-		chooseLocation: "Выберите точку", locationLabel: "Точка", closed: "Бронирование временно закрыто",
+		title: "Бронь стола", lead: "Выберите адрес, количество гостей и время.", loading: "Загрузка...", booked: "Бронь подтверждена",
+		chooseLocation: "Выберите адрес", locationLabel: "Точка", closed: "Бронирование временно закрыто",
 		guestLabel: "Количество гостей", guestsLabel: "Гости", timeLabel: "Время", chooseDate: "Выберите дату", chooseTime: "Свободное время", guests: (count: number) => `${count} ${count % 100 >= 11 && count % 100 <= 14 ? "гостей" : count % 10 === 1 ? "гость" : count % 10 >= 2 && count % 10 <= 4 ? "гостя" : "гостей"}`, noSlots: "Мест нет", empty: "Сейчас свободного времени нет.",
 		submit: "ЗАБРОНИРОВАТЬ", booking: "БРОНИРУЕМ...", cancel: "ОТМЕНИТЬ БРОНЬ", cancelling: "ОТМЕНЯЕМ...",
 		cancelTitle: "Отменить бронь?", cancelMessage: "Время сразу станет доступно другим гостям.", cancelConfirm: "Отменить",

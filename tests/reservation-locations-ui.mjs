@@ -41,7 +41,7 @@ try {
     assert.equal(cancelled.status, 200);
   }
   await page.goto("http://127.0.0.1:5173/#/booking");
-  await page.getByText("Выберите точку", { exact: true }).first().waitFor();
+  await page.getByText("Выберите адрес", { exact: true }).first().waitFor();
   assert.match(await page.locator(".booking-location-options").innerText(), /Koste Abraševića 49/);
   assert.match(await page.locator(".booking-location-options").innerText(), /Temerinska 44/);
   await page.getByRole("radio", { name: /Подбара/ }).click();
@@ -105,7 +105,7 @@ try {
   await admin.getByRole("button", { name: "Отменить бронь", exact: true }).click();
   await admin.locator(".reservation-admin-row").filter({ hasText: "21 гость · Подбара" }).waitFor({ state: "detached" });
   await page.reload();
-  await page.getByText("Выберите точку", { exact: true }).first().waitFor();
+  await page.getByText("Выберите адрес", { exact: true }).first().waitFor();
 
   await otherPage.reload();
   await otherPage.getByRole("radio", { name: /Телеп/ }).click();
